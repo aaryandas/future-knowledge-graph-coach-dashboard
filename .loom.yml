@@ -1,0 +1,24 @@
+base: main
+max_lanes: 2
+rejection_cap: 2
+crash_cap: 2
+lane_turn_cap: 150
+merge_attempt_cap: 3
+heartbeat_stale_minutes: 30
+
+# Superset preset ids. Every role is Codex; use separate Codex presets here when
+# you want different models or effort levels for implementation and review.
+agents:
+  plan:         codex
+  orchestrator: codex
+  impl:         codex
+  gate:         codex
+  merge:        codex
+  probe:        codex
+
+# Literal shell commands, fastest first. Point them at YOUR gate runner.
+gates:
+  docs:  ["./scripts/gate.sh docs"]
+  logic: ["./scripts/gate.sh logic"]
+  api:   ["./scripts/gate.sh api"]
+  ui:    ["./scripts/gate.sh ui"]
