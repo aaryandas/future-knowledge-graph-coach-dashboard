@@ -129,6 +129,21 @@ docs use these words and no synonyms.
   overlap. A trace artifact, not a second selection path — the replacement is whatever the
   ranking actually picked.
 
+## Packing vocabulary
+
+- **Section** — one of the three parts of a plan: warm-up, main, cool-down. A fixed
+  pattern→section table decides which exercises can enter each section. The Intent's focus
+  filters the main section only.
+- **Plan entry** — one line of a plan: exercise id and name, sets, reps or hold time,
+  rest, per-side flag, weight flag, verdict, and minutes. A one-side exercise packs as one
+  per-side entry that counts both sides; the app never invents the missing right-side
+  exercise.
+- **Cut order** — the fixed order the packer shrinks a plan that does not fit: cool-down,
+  warm-up, main sets, lowest-ranked main entries. A plan always keeps one entry per
+  section.
+- **Packing constants** — every fixed packing number (section time split, default sets and
+  reps, rest times) lives in one constants file.
+
 ## Copilot vocabulary
 
 - **Retrieval tool** — one typed read function over KG2 that the copilot agent can call.
