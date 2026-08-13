@@ -19,8 +19,8 @@ No graph database, embedded or server. KG2 access goes through a narrow per-memb
 
 ## Consequences
 
-- Traversals are pure TypeScript functions — unit-testable with zero infrastructure, which
-  the PRD's mandated safety-filter tests need.
+- Traversals are pure functions in the app's language — unit-testable with zero
+  infrastructure, which the PRD's mandated safety-filter tests need.
 - One-command run keeps zero external dependencies; no Docker, seed step, or startup
   ordering.
 - No ad-hoc query language: copilot retrievals are named functions, not Cypher (better for
