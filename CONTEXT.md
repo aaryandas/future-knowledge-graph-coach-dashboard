@@ -74,6 +74,25 @@ docs use these words and no synonyms.
   makes churn reasoning auditable.
 - **addresses** — CoachTask → Barrier | Goal | WorkoutSession.
 
+## Safety vocabulary
+
+- **Contraindication** — general clinical knowledge that a condition makes a movement
+  inadvisable ("PFPS contraindicates loaded deep knee flexion"). Textbook content, true
+  for every member; lives in KG1. Never member-specific — see Clinical directive.
+- **Clinical directive** — a member-specific restriction or clearance written by a
+  clinician into that member's injury record ("cleared for low-impact loading; avoid
+  plyometrics"). The highest-precedence safety knowledge; lives in KG2.
+- **Verdict** — the safety filter's per-exercise outcome: **exclude** (never enters a
+  plan), **caution** (selectable, down-ranked, must carry a modification note), or
+  **clear**. Every verdict carries the graph path that produced it.
+- **Safety floor** — the deterministic exclusion set produced by graph traversal. The
+  agent may tighten the floor (add caution or exclusions from softer context), never
+  loosen it; agent tightenings are recorded as agent decisions, distinct from graph
+  decisions.
+- **Escalation rule** — injury status and severity only ever escalate a verdict, never
+  soften authored knowledge; a resolved injury stops filtering but stays visible in
+  provenance.
+
 ## Traversals
 
 - **Safety trace** — the recorded path a safety decision walked: MemberInjury → exactMatch
