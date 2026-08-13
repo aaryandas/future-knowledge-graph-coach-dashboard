@@ -1,0 +1,94 @@
+{
+  "artifact_id": "ontology:copper",
+  "schema_version": 1,
+  "version": "455ba25f67e838d755a7a35d13b817454f771957",
+  "source": {
+    "url": "https://raw.githubusercontent.com/EBehaviourChange-COPPER/ontology/main/COPPER.owl",
+    "license": "CC-BY-4.0",
+    "version_kind": "git_blob_sha",
+    "retrieved_at": "2026-08-13"
+  },
+  "classes": [
+    {
+      "id": "http://humanbehaviourchange.org/ontology/BCIO_006133",
+      "kind": "Barrier",
+      "preferred_term": "behavioural motivation",
+      "aliases": [
+        "I will not be motivated"
+      ],
+      "definition": "A <mental process> that energises and directs a behaviour."
+    },
+    {
+      "id": "http://purl.obolibrary.org/obo/MFOEM_000080",
+      "kind": "Barrier",
+      "preferred_term": "feeling tired",
+      "aliases": [],
+      "definition": "A subjective affective feeling of a need for sleep."
+    },
+    {
+      "id": "http://purl.obolibrary.org/obo/MFOEM_000119",
+      "kind": "Barrier",
+      "preferred_term": "feeling weak",
+      "aliases": [],
+      "definition": "A subjective affective feeling of weakness, lack of energy and/or capability, faintness, absence of strength."
+    },
+    {
+      "id": "https://github.com/EBehaviourChange-COPPER/ontology/blob/main/COPPER_0002",
+      "kind": "ActionPlan",
+      "preferred_term": "Physical Performance Behaviour Action Plan",
+      "aliases": [],
+      "definition": "A mental plan for a behaviour that concerns physical activities or exercises."
+    },
+    {
+      "id": "https://github.com/EBehaviourChange-COPPER/ontology/blob/main/COPPER_3000",
+      "kind": "Barrier",
+      "preferred_term": "injury feeling",
+      "aliases": [
+        "An injury"
+      ],
+      "definition": "A subjective affective feeling that results from physical damage to one's body."
+    },
+    {
+      "id": "https://github.com/EBehaviourChange-COPPER/ontology/blob/main/COPPER_3005",
+      "kind": "Barrier",
+      "preferred_term": "activity-induced pain",
+      "aliases": [
+        "Pain from the activity"
+      ],
+      "definition": "A pain feeling induced by an activity that occurs while carrying out the activity."
+    },
+    {
+      "id": "https://github.com/EBehaviourChange-COPPER/ontology/blob/main/COPPER_3042",
+      "kind": "Barrier",
+      "preferred_term": "goal conflict concerning time",
+      "aliases": [
+        "I won't have the time"
+      ],
+      "definition": "A competing goal that is related to one's other responsibilities resulting in a lack of time for the planned activity."
+    },
+    {
+      "id": "https://github.com/EBehaviourChange-COPPER/ontology/blob/main/COPPER_3044",
+      "kind": "Barrier",
+      "preferred_term": "goal conflict concerning energy",
+      "aliases": [],
+      "definition": "A competing goal that is related to one's other responsibilities"
+    },
+    {
+      "id": "https://github.com/EBehaviourChange-COPPER/ontology/blob/main/COPPER_3048",
+      "kind": "Barrier",
+      "preferred_term": "physical activity plan barrier",
+      "aliases": [],
+      "definition": "An entity that can impair goal achievement or plan enactment."
+    }
+  ],
+  "properties": [
+    {
+      "id": "https://github.com/EBehaviourChange-COPPER/ontology/blob/main/COPPER_0004",
+      "preferred_term": "hasActionPlan"
+    },
+    {
+      "id": "https://github.com/EBehaviourChange-COPPER/ontology/blob/main/COPPER_0016",
+      "preferred_term": "hasBarrier"
+    }
+  ]
+}
