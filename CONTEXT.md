@@ -93,6 +93,42 @@ docs use these words and no synonyms.
   soften authored knowledge; a resolved injury stops filtering but stays visible in
   provenance.
 
+## Resolver vocabulary
+
+- **Resolution** — the outcome of resolving one free-text mention against one vocabulary:
+  the matched concept (or none), a confidence, the pass that produced it, ranked
+  runner-up candidates, the raw text, and any modifiers. Failure is a Resolution too,
+  never an exception.
+- **Pass** — one of the resolver's three attempts, in fixed order: exact (normalization,
+  aliases, SNOMED synonyms), fuzzy (typo/word-order tolerance), vector (semantic
+  similarity). A Resolution names the pass that matched; below every pass's floor the
+  pass is "none".
+- **Modifier** — a free-text qualifier extracted from a concept mention ("box-supported"
+  in "Goblet Squat (box-supported)"), carried structurally on the Resolution and the
+  edge its caller creates. An open set: never resolved against KG1, which defines no
+  modifier concepts.
+
+## Generation vocabulary
+
+- **Intent** — the structured interpretation of one coach message in a generation session:
+  a focus (closed set) plus raw mention strings for targets, exclusions, injuries, and
+  equipment. Mentions are never concept ids — grounding a mention is exclusively the
+  resolver's job.
+- **ConstraintSet** — the accumulated, resolved constraints of one generation session:
+  exclusions, session injuries, and the equipment override. Each adjustment merges a delta
+  into the set; a plan is always generated from the full set, never patched in place.
+- **Session injury** — an injury reported mid-conversation ("her left knee is bothering
+  her"). Feeds the same safety traversal as a recorded MemberInjury but stays scoped to the
+  session; it reaches the member's record only by explicit coach confirmation.
+- **TraceEvent** — one recorded reasoning step in a plan's provenance trace (kinds:
+  resolution, verdict, substitution, packing, agent), attributed to graph or agent. The
+  trace is the ordered list of TraceEvents, appended as the work happens — never
+  reconstructed afterward.
+- **Substitution** — the recorded pairing of a dropped exercise with its packed
+  replacement, judged by graph structure: shared movement pattern first, then muscle
+  overlap. A trace artifact, not a second selection path — the replacement is whatever the
+  ranking actually picked.
+
 ## Traversals
 
 - **Safety trace** — the recorded path a safety decision walked: MemberInjury → exactMatch
