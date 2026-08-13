@@ -1,16 +1,15 @@
 import os
+from collections.abc import Callable
 from typing import Literal, TypedDict
 
 import psycopg
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
-from neo4j.exceptions import DriverError, Neo4jError
 
-from app.graph.store import neo4j_session
-
-router = APIRouter(prefix="/api")
+from app.graph.store import graph_is_available
 
 type Status = Literal["up", "down"]
+type AvailabilityProbe = Callable[[], bool]
 
 
 class HealthReport(TypedDict):
@@ -19,16 +18,7 @@ class HealthReport(TypedDict):
     postgres: Status
 
 
-def _neo4j_status() -> Status:
-    try:
-        with neo4j_session() as session:
-            session.run("RETURN 1").consume()
-    except (DriverError, Neo4jError):
-        return "down"
-    return "up"
-
-
-def _postgres_status() -> Status:
+def _postgres_is_available() -> bool:
     try:
         with psycopg.connect(
             os.getenv(
@@ -39,16 +29,27 @@ def _postgres_status() -> Status:
         ) as connection:
             connection.execute("SELECT 1").fetchone()
     except psycopg.Error:
-        return "down"
-    return "up"
+        return False
+    return True
 
 
-@router.get("/health")
-def health() -> JSONResponse:
-    report = HealthReport(
-        api="up",
-        neo4j=_neo4j_status(),
-        postgres=_postgres_status(),
-    )
-    status_code = 200 if all(status == "up" for status in report.values()) else 503
-    return JSONResponse(content=report, status_code=status_code)
+def create_health_router(
+    neo4j_probe: AvailabilityProbe = graph_is_available,
+    postgres_probe: AvailabilityProbe = _postgres_is_available,
+) -> APIRouter:
+    router = APIRouter(prefix="/api")
+
+    @router.get("/health")
+    def health() -> JSONResponse:
+        report = HealthReport(
+            api="up",
+            neo4j="up" if neo4j_probe() else "down",
+            postgres="up" if postgres_probe() else "down",
+        )
+        status_code = 200 if all(status == "up" for status in report.values()) else 503
+        return JSONResponse(content=report, status_code=status_code)
+
+    return router
+
+
+router = create_health_router()

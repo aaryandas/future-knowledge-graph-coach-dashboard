@@ -1,9 +1,8 @@
 import os
-from collections.abc import Iterator
-from contextlib import contextmanager
 from functools import cache
 
-from neo4j import Driver, GraphDatabase, Session
+from neo4j import Driver, GraphDatabase
+from neo4j.exceptions import DriverError, Neo4jError
 
 
 @cache
@@ -18,7 +17,13 @@ def _driver() -> Driver:
     )
 
 
-@contextmanager
-def neo4j_session() -> Iterator[Session]:
-    with _driver().session(database=os.getenv("NEO4J_DATABASE", "neo4j")) as session:
-        yield session
+def graph_is_available() -> bool:
+    """Report whether the graph store can serve queries."""
+    try:
+        with _driver().session(
+            database=os.getenv("NEO4J_DATABASE", "neo4j")
+        ) as session:
+            session.run("RETURN 1").consume()
+    except (DriverError, Neo4jError):
+        return False
+    return True
