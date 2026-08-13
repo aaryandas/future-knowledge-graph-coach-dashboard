@@ -129,6 +129,21 @@ docs use these words and no synonyms.
   overlap. A trace artifact, not a second selection path — the replacement is whatever the
   ranking actually picked.
 
+## Copilot vocabulary
+
+- **Retrieval tool** — one typed read function over KG2 that the copilot agent can call.
+  Each retrieval tool is one documented graph traversal. It returns typed data plus the
+  node ids it read. It never returns prose.
+- **Coach action** — a write the copilot can propose: send the member a message, or
+  update a brief task. A coach action executes only after the coach confirms it.
+- **Action card** — the rendered proposal for one coach action. It shows the exact
+  change. The coach confirms or discards it.
+- **Source** — one record of what an answer read: the tool called and the node ids it
+  returned. Every copilot answer carries its sources.
+- **Chart kind** — one member of the closed set of charts the copilot can draw
+  (adherence trend, sleep week, message pattern, four-week comparison). The server
+  builds the series; the LLM never supplies data points.
+
 ## Traversals
 
 - **Safety trace** — the recorded path a safety decision walked: MemberInjury → exactMatch
