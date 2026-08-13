@@ -1,6 +1,6 @@
 # ADR-0001: In-process typed graph, no graph database
 
-**Status:** Accepted (2026-08-13)
+**Status:** Superseded by ADR-0005 (2026-08-13)
 
 ## Context
 
