@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard prototype — KG Coach</title>
+<style>
+  :root{
+    --bg:#0b0d0f;
+    --glass:rgba(255,255,255,.045);
+    --glass-2:rgba(255,255,255,.07);
+    --edge:rgba(255,255,255,.08);
+    --edge-2:rgba(255,255,255,.14);
+    --ink:#f4f6f5; --ink-2:#a8b0ad; --ink-3:#6b7370;
+    --teal:#63d6bc; --teal-dim:rgba(99,214,188,.14);
+    --good:#63d6bc; --warn:#e8b23c; --warn-dim:rgba(232,178,60,.12);
+    --crit:#e66767; --crit-dim:rgba(230,103,103,.12);
+    --s1:#3987e5; --s2:#d95926;
+    --grid:rgba(255,255,255,.07); --axis:rgba(255,255,255,.16);
+    --mono:ui-monospace,"SF Mono",Menlo,monospace;
+    --sans:-apple-system,"SF Pro Text","Segoe UI Variable","Segoe UI",system-ui,sans-serif;
+    --ease:cubic-bezier(0.23,1,0.32,1);
+  }
+  *{box-sizing:border-box;margin:0}
+  html,body{height:100%}
+  body{
+    background:
+      radial-gradient(900px 500px at 75% -10%, rgba(64,78,100,.45), transparent 60%),
+      radial-gradient(700px 460px at -10% 108%, rgba(255,255,255,.05), transparent 60%),
+      var(--bg);
+    background-attachment:fixed;
+    color:var(--ink);font:14px/1.45 var(--sans);-webkit-font-smoothing:antialiased}
+  button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+  .press{transition:transform 140ms var(--ease)}
+  .press:active{transform:scale(0.97)}
+  .micro{font-size:10px;font-weight:650;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+  .glass{
+    background:linear-gradient(155deg,rgba(255,255,255,.085),rgba(255,255,255,.035) 38%,rgba(255,255,255,.015));
+    border:1px solid var(--edge);
+    backdrop-filter:blur(26px) saturate(170%);-webkit-backdrop-filter:blur(26px) saturate(170%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.10), 0 12px 32px rgba(0,0,0,.35);
+  }
+  .tile.glass{box-shadow:inset 0 1px 0 rgba(255,255,255,.10), 0 6px 18px rgba(0,0,0,.28)}
+  .card.glass{box-shadow:inset 0 1px 0 rgba(255,255,255,.11), 0 18px 44px rgba(0,0,0,.42)}
+  @media (hover:hover) and (pointer:fine){
+    .tile{transition:transform 200ms var(--ease),box-shadow 200ms var(--ease)}
+    .tile:hover{transform:translateY(-2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.12), 0 14px 30px rgba(0,0,0,.4)}
+  }
+  @keyframes rise{from{opacity:0;transform:translateY(14px) scale(.985);filter:blur(6px)}}
+  #view-member .main>*,#view-member .aside-inner>*{animation:rise 460ms var(--ease) backwards}
+  #view-member .main>*:nth-child(1){animation-delay:30ms}
+  #view-member .main>*:nth-child(2){animation-delay:80ms}
+  #view-member .main>*:nth-child(3){animation-delay:130ms}
+  #view-member .main>*:nth-child(4){animation-delay:180ms}
+  #view-member .aside-inner>*:nth-child(1){animation-delay:120ms}
+  #view-member .aside-inner>*:nth-child(2){animation-delay:170ms}
+  #view-member .aside-inner>*:nth-child(3){animation-delay:220ms}
+  #view-member .aside-inner>*:nth-child(4){animation-delay:270ms}
+  @media (prefers-reduced-motion: reduce){
+    #view-member .main>*,#view-member .aside-inner>*{animation:none}
+    .press,.tile{transition:none}
+  }
+  @media (prefers-reduced-transparency: reduce){
+    .glass,.topbar{background:#15181b;backdrop-filter:none;-webkit-backdrop-filter:none}
+  }
+
+  .screen{display:none;min-height:100vh}
+  .screen.on{display:block;animation:in 180ms var(--ease)}
+  @keyframes in{from{opacity:0}to{opacity:1}}
+  @media (prefers-reduced-motion: reduce){.screen.on{animation:none}}
+
+  /* ---------- login ---------- */
+  #login{display:none;place-items:center}
+  #login.on{display:grid}
+  .login-card{width:330px;border-radius:22px;padding:30px}
+  .logo{width:32px;height:32px;border-radius:50%;border:1.5px solid var(--ink);display:grid;place-items:center;font:300 15px var(--sans);margin-bottom:20px}
+  .login-card h1{font-size:22px;font-weight:600;letter-spacing:-.02em}
+  .login-card .sub{color:var(--ink-3);font-size:12.5px;margin:3px 0 22px}
+  .field{margin-bottom:10px}
+  .field input{width:100%;border:1px solid var(--edge-2);border-radius:12px;padding:10px 12px;font:inherit;background:rgba(255,255,255,.03);color:var(--ink)}
+  .btn{border-radius:12px;padding:10px 15px;font-weight:600;font-size:13.5px}
+  .btn-primary{background:var(--ink);color:#0b0d0f}
+  .btn-ghost{color:var(--ink-2);border:1px solid var(--edge-2)}
+  .w100{width:100%}
+  .mock{font-size:11px;color:var(--ink-3);text-align:center;margin-top:16px}
+
+  /* ---------- app frame ---------- */
+  .topbar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:14px;height:56px;padding:0 18px;background:rgba(11,13,15,.6);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-bottom:1px solid var(--edge)}
+  .topbar .logo{width:26px;height:26px;margin:0;font-size:12px}
+  .tabs{position:relative;display:flex;gap:2px;border:1px solid var(--edge);border-radius:99px;padding:3px;background:var(--glass)}
+  .tab-ind{position:absolute;top:3px;bottom:3px;left:0;border-radius:99px;background:var(--glass-2);border:1px solid var(--edge-2);box-shadow:inset 0 1px 0 rgba(255,255,255,.1);transition:transform 240ms var(--ease),width 240ms var(--ease)}
+  .tab{padding:5px 14px;border-radius:99px;font-weight:550;font-size:13px;color:var(--ink-2);border:1px solid transparent;transition:color 160ms var(--ease)}
+  .tab{position:relative;z-index:1}
+  .tab.on{color:var(--ink)}
+  @media (hover:hover) and (pointer:fine){.tab:not(.on):hover{color:var(--ink)}}
+  .member{display:flex;align-items:center;gap:8px;border:1px solid var(--edge);border-radius:99px;padding:4px 13px 4px 5px;background:var(--glass)}
+  .avatar{width:25px;height:25px;border-radius:50%;background:var(--teal-dim);color:var(--teal);display:grid;place-items:center;font:650 10.5px var(--sans)}
+  .member b{font-size:13px;font-weight:600}
+  .member span{font-size:12px;color:var(--ink-3)}
+  .topbar .right{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .iconbtn{width:32px;height:32px;border-radius:10px;border:1px solid var(--edge);display:grid;place-items:center;color:var(--ink-2);background:var(--glass);font-size:13px}
+
+  /* ---------- layout ---------- */
+  .cols{display:grid;grid-template-columns:minmax(0,1fr) 352px;transition:grid-template-columns 240ms var(--ease);max-width:1340px;margin:0 auto}
+  .cols.hide-copilot{grid-template-columns:minmax(0,1fr) 0px}
+  .main{min-width:0;padding:22px 26px 60px}
+  aside{min-width:0;overflow:hidden}
+  .aside-inner{width:352px;padding:18px 18px 24px;border-left:1px solid var(--edge);min-height:calc(100vh - 56px);display:flex;flex-direction:column}
+
+  /* ---------- dashboard ---------- */
+  .id-strip{display:flex;align-items:center;gap:14px;margin-bottom:16px;flex-wrap:wrap}
+  .id-strip h2{font-size:19px;font-weight:600;letter-spacing:-.02em}
+  .id-strip .meta{font-size:12.5px;color:var(--ink-3)}
+  .flag{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--warn);background:var(--warn-dim);border-radius:99px;padding:4px 11px;font-weight:550}
+  .flag::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--warn)}
+  .goalchip{display:inline-flex;gap:5px;font-size:11.5px;color:var(--ink-2);border:1px solid var(--edge);border-radius:99px;padding:4px 11px;background:var(--glass)}
+  .goalchip .k{color:var(--ink-3);font-weight:450}
+
+  .tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
+  .tile{border-radius:16px;padding:13px 15px}
+  .tile .big{font-size:24px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.15;margin-top:6px}
+  .tile .big small{font-size:12px;font-weight:500;color:var(--ink-3);letter-spacing:0}
+  .tile .sub{font-size:11px;margin-top:2px}
+  .tile .sub.down{color:var(--crit)}
+  .tile .sub.up{color:var(--good)}
+  .tile .sub.dim{color:var(--ink-3)}
+  .tile .big.risk-v{color:var(--crit);font-size:18px}
+
+  .grid2{display:grid;gap:12px}
+  .card{border-radius:18px;padding:16px}
+
+  .plan-h{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+  .plan-h b{font-size:15px;letter-spacing:-.01em}
+  .plan-h .time{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+  .from-chat{font-size:11px;color:var(--ink-3);margin-bottom:6px}
+  .from-chat b{color:var(--ink-2);font-weight:550}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:550;border-radius:99px;padding:3px 10px;border:1px solid var(--edge);color:var(--ink-2);background:rgba(255,255,255,.03)}
+  .chip .k{color:var(--ink-3);font-weight:450}
+  .chip.warn{border-color:rgba(232,178,60,.35);background:var(--warn-dim);color:var(--warn)}
+  .chip.src{font-size:10.5px;border-style:dashed;color:var(--ink-3)}
+  .chip button{color:var(--teal);font-weight:600;font-size:11.5px}
+
+  .sec{margin:12px 0 2px;display:flex;align-items:center;gap:10px}
+  .sec i{flex:1;border-top:1px solid var(--edge)}
+  .ex{display:flex;align-items:center;gap:11px;padding:8px 6px;border-radius:12px;transition:background 160ms var(--ease)}
+  @media (hover:hover) and (pointer:fine){.ex:hover{background:rgba(255,255,255,.04)}.ex:hover .swap{opacity:1}}
+  .dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+  .dot.clear{background:var(--good)}
+  .dot.caution{background:var(--warn)}
+  .ex .nm{font-weight:550;font-size:13.5px}
+  .ex .side{color:var(--ink-3);font-weight:450;font-size:12px}
+  .ex .rx{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--ink-2);white-space:nowrap}
+  .swap{font-size:11px;color:var(--ink-2);font-weight:550;border:1px solid var(--edge);border-radius:99px;padding:2px 10px;background:var(--glass);transition:color 140ms var(--ease),border-color 140ms var(--ease)}
+  @media (hover:hover) and (pointer:fine){.swap:hover{color:var(--teal);border-color:var(--teal)}}
+
+  .briefbar{display:flex;align-items:center;gap:12px;border-radius:14px;padding:10px 15px;margin-bottom:12px;flex-wrap:wrap}
+  .briefbar .em{font-size:14px}
+  .briefbar p{font-size:12.5px;color:var(--ink-2);flex:1;min-width:200px}
+  .briefbar p b{color:var(--ink);font-weight:600}
+  .briefbar .btn{padding:6px 11px;font-size:12px}
+
+  .why-row{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--edge);font-size:12.5px;color:var(--ink-2);align-items:flex-start}
+  .why-row:last-of-type{border-bottom:0}
+  .why-row b{color:var(--ink);font-weight:600}
+  .why-ic{flex:0 0 auto;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:10.5px;margin-top:1px}
+  .why-ic.x{background:var(--crit-dim);color:var(--crit)}
+  .why-ic.c{background:var(--warn-dim);color:var(--warn)}
+  .why-ic.s{background:rgba(57,135,229,.14);color:var(--s1)}
+  .why-ic.q{background:var(--glass-2);color:var(--ink-2)}
+  .why-link{display:inline-block;margin-top:10px;font-size:12px;font-weight:600;color:var(--teal);text-decoration:none}
+  .why-row .apply{color:var(--teal);font-weight:600;font-size:12px}
+  .note{display:flex;gap:7px;margin:0 0 4px 24px;padding:5px 11px;border-radius:9px;background:var(--warn-dim);color:var(--warn);font-size:12px;max-width:560px}
+
+  .trace-toggle{display:inline-flex;align-items:center;gap:8px;margin-top:12px;font-size:12px;font-weight:600;color:var(--ink-2);border:1px solid var(--edge);border-radius:99px;padding:6px 13px;background:var(--glass)}
+  .trace-toggle .n{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+  .trace-toggle .car{transition:transform 200ms var(--ease);font-size:9px}
+  .trace.open .trace-toggle .car{transform:rotate(90deg)}
+  .tbody{display:grid;grid-template-rows:0fr;transition:grid-template-rows 240ms var(--ease)}
+  .trace.open .tbody{grid-template-rows:1fr}
+  .tbody>div{overflow:hidden;min-width:0}
+  .tev{display:flex;gap:12px;align-items:baseline;padding:9px 6px;border-bottom:1px solid var(--edge);font-size:12.5px;min-width:0}
+  .tev:last-child{border-bottom:0}
+  .tev .k{flex:0 0 84px;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+  .tev .k.x{color:var(--crit)}
+  .tev .k.c{color:var(--warn)}
+  .tev .k.a{color:var(--s1)}
+  .path{display:flex;flex-wrap:wrap;gap:3px 6px;font-family:var(--mono);font-size:11px;color:var(--ink-2);min-width:0}
+  .path b{font-weight:600;color:var(--ink)}
+  .path .e{color:var(--ink-3)}
+  .path .x{color:var(--crit);font-weight:600}
+
+  /* brief on dashboard */
+  .bh{display:flex;align-items:baseline;gap:8px;margin-bottom:9px}
+  .bitem{display:flex;gap:9px;padding:8px 0;border-top:1px solid var(--edge);font-size:12.5px;align-items:flex-start}
+  .bitem:first-of-type{border-top:0}
+  .bitem .em{flex:0 0 auto;font-size:13px;line-height:1.4}
+  .bitem p{color:var(--ink-2)}
+  .bitem p b{color:var(--ink);font-weight:600}
+  .risk{display:inline-flex;align-items:center;gap:6px;font-weight:650;font-size:12px;color:var(--crit)}
+  .risk::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--crit)}
+  .ev{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+  .bactions{display:flex;gap:6px;margin-top:10px}
+  .bactions .btn{padding:6px 11px;font-size:12px}
+
+  .ex2{display:flex;align-items:center;gap:12px;padding:9px 4px}
+  .exi{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:11px;flex:0 0 auto}
+  .exi.clear{background:var(--teal-dim);color:var(--teal)}
+  .exi.caution{background:var(--warn-dim);color:var(--warn)}
+  .ext{min-width:0;flex:1}
+  .exn{font-weight:600;font-size:13.5px}
+  .exs{font-size:12px;color:var(--ink-3);margin-top:1px}
+  .exw{font-size:12px;color:var(--warn);margin-top:2px}
+  .swap2{width:30px;height:30px;border-radius:10px;border:1px solid var(--edge);background:var(--glass);color:var(--ink-3);display:grid;place-items:center;font-size:13px;flex:0 0 auto;transition:color 140ms var(--ease),border-color 140ms var(--ease)}
+  @media (hover:hover) and (pointer:fine){.swap2:hover{color:var(--teal);border-color:var(--teal)}}
+
+  /* ---------- copilot (the one chat) ---------- */
+  .cp-head{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+  .cp-head h2{font-size:15px;font-weight:600}
+  .cp-head .sub{font-size:12px;color:var(--ink-3)}
+  .cp-scroll{flex:1;min-height:0}
+  .qp{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+  .qp button{font-size:12px;font-weight:550;color:var(--ink-2);border:1px solid var(--edge);border-radius:99px;padding:5px 12px;background:var(--glass);transition:color 160ms var(--ease)}
+  @media (hover:hover) and (pointer:fine){.qp button:hover{color:var(--ink);border-color:var(--edge-2)}}
+  .cp-msg{margin-bottom:12px}
+  .cp-msg.you{text-align:right}
+  .cp-msg.you span{display:inline-block;background:var(--glass-2);border:1px solid var(--edge-2);border-radius:13px 13px 5px 13px;padding:6px 12px;font-size:12.5px;text-align:left}
+  .cp-card{border-radius:15px;padding:12px 13px;font-size:12.5px}
+  .cp-card>p{margin-bottom:7px;color:var(--ink-2)}
+  .cp-card>p b{color:var(--ink)}
+  .big{font-size:22px;font-weight:600;letter-spacing:-.02em;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.1}
+  .big.down{color:var(--crit)}
+  .big small{font-size:12px;font-weight:500;color:var(--ink-3);letter-spacing:0}
+  .stat-row{display:flex;align-items:baseline;gap:10px;margin-bottom:6px}
+  .stat-row .lbl{font-size:11.5px;color:var(--ink-3)}
+
+  .chart{margin:6px 0 8px}
+  .chart svg{display:block;width:100%;height:auto}
+  .chart text{font-family:var(--sans);font-size:9.5px;fill:var(--ink-3)}
+  .legend{display:flex;gap:12px;font-size:11px;color:var(--ink-2);margin:2px 0 5px}
+  .legend i{display:inline-block;width:8px;height:8px;border-radius:2.5px;margin-right:4px}
+
+  .act{border:1px solid var(--edge);border-radius:14px;overflow:hidden;margin-top:8px;background:rgba(11,13,15,.55)}
+  .act .ah{padding:9px 13px;border-bottom:1px solid var(--edge)}
+  .act .body{padding:11px 13px;font-size:12.5px}
+  .act .to{font-size:11px;color:var(--ink-3);margin-bottom:4px}
+  .act .foot{display:flex;gap:7px;padding:11px 13px;border-top:1px solid var(--edge);align-items:center}
+  .act .hold{font-size:10.5px;color:var(--ink-3);margin-left:auto;text-align:right}
+
+  .composer{display:flex;gap:8px;padding-top:12px}
+  .composer input{flex:1;border:1px solid var(--edge-2);border-radius:14px;padding:11px 15px;font:inherit;color:var(--ink);background:rgba(20,23,26,.75);backdrop-filter:blur(14px)}
+  .composer input::placeholder{color:var(--ink-3)}
+
+  /* ---------- graph screen ---------- */
+  .graph-wrap{max-width:1100px;margin:0 auto;padding:22px 26px 60px}
+  .gcard{border-radius:20px;padding:18px}
+  .gcard svg{display:block;width:100%;height:auto}
+  .gnode{font:600 11px var(--sans);fill:var(--ink)}
+  .glabel{font:9.5px var(--mono);fill:var(--ink-3)}
+  .glegend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--ink-2);padding:12px 4px 0}
+  .glegend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+  .gsub{font-size:12.5px;color:var(--ink-3);margin:4px 0 14px}
+  .h-row{display:flex;align-items:baseline;gap:10px;margin-bottom:8px}
+  .h-row h2{font-size:15px;font-weight:600}
+  .h-row .sub{font-size:12px;color:var(--ink-3)}
+
+  .gn{cursor:pointer}
+  @media (hover:hover) and (pointer:fine){.gn:hover rect{stroke-width:2.4}}
+  .gpop{position:fixed;z-index:20;min-width:210px;max-width:260px;border-radius:14px;padding:11px 13px;display:none;font-size:12px}
+  .gpop.on{display:block;animation:in 160ms var(--ease)}
+  .gpop b{display:block;font-size:13px;margin-bottom:3px}
+  .gpop .pl{color:var(--ink-2);margin-top:2px}
+  .gpop .pa{margin-top:8px;color:var(--teal);font-weight:600;cursor:pointer}
+  .etag{font:8.5px ui-monospace,monospace}
+  .footer-note{max-width:1340px;margin:0 auto;padding:0 26px 40px;font-size:11.5px;color:var(--ink-3)}
+</style>
+</head>
+<body>
+
+<!-- ================= LOGIN ================= -->
+<div id="login" class="screen on">
+  <div class="login-card glass">
+    <div class="logo">◎</div>
+    <h1>Ridgeline</h1>
+    <div class="sub">Coach console</div>
+    <div class="field"><input value="sam@ridgeline.coach" readonly aria-label="Email"></div>
+    <div class="field"><input type="password" value="········" readonly aria-label="Password"></div>
+    <button class="btn btn-primary w100 press" onclick="show('app')">Sign in</button>
+  </div>
+</div>
+
+<!-- ================= APP ================= -->
+<div id="app" class="screen">
+  <div class="topbar">
+    <div class="logo">◎</div>
+    <nav class="tabs">
+      <span class="tab-ind" id="tab-ind"></span>
+      <button class="tab on press" id="tab-member" onclick="tab('member')">Member</button>
+      <button class="tab press" id="tab-graph" onclick="tab('graph')">Graph</button>
+    </nav>
+    <div class="member press">
+      <div class="avatar">JR</div>
+      <div><b>Jordan Rivera</b> <span>▾</span></div>
+    </div>
+    <div class="right">
+      <button class="iconbtn press" id="cp-toggle" onclick="toggleCopilot()" title="Toggle copilot">⧉</button>
+      <button class="iconbtn press" onclick="show('login')" title="Sign out">⏻</button>
+    </div>
+  </div>
+
+  <!-- ===== member view: dashboard + one chat ===== -->
+  <div id="view-member">
+    <div class="cols" id="cols">
+      <main class="main">
+
+        <div class="id-strip">
+          <h2>Jordan Rivera</h2>
+          <span class="goalchip">1:1 coaching</span>
+          <span class="goalchip">41 · she/her</span>
+          <span class="goalchip">since Sep 2024</span>
+          <span class="flag">left knee · PFPS · recovering</span>
+          <span class="goalchip"><span class="k">goal</span> lower-body strength</span>
+          <span class="goalchip"><span class="k">goal</span> pain-free squat</span>
+        </div>
+
+        <div class="tiles">
+          <div class="tile glass">
+            <div class="micro">Adherence</div>
+            <div class="big">50<small>%</small></div>
+            <div class="sub down">↓ from 100% · 3 wks</div>
+          </div>
+          <div class="tile glass">
+            <div class="micro">Sleep · 7d avg</div>
+            <div class="big">6.3<small> / 7 h</small></div>
+            <div class="sub down">↓ under goal</div>
+          </div>
+          <div class="tile glass">
+            <div class="micro">Sessions · wk</div>
+            <div class="big">2<small> / 4</small></div>
+            <div class="sub down">↓ 2 skipped</div>
+          </div>
+          <div class="tile glass">
+            <div class="micro">Churn risk</div>
+            <div class="big risk-v">elevated</div>
+            <div class="sub dim">3 signals</div>
+          </div>
+        </div>
+
+        <div class="briefbar glass">
+          <span class="em">🎉</span>
+          <p><b>Celebrate</b> — first pain-free squat work since the flare-up.</p>
+          <button class="btn btn-primary press">Draft message</button>
+          <button class="btn btn-ghost press">Dismiss</button>
+        </div>
+
+        <div class="grid2">
+          <div class="card glass">
+            <div class="plan-h"><b>Today's session — lower body</b><span class="time">29:30 / 30:00</span></div>
+
+            <div class="sec"><span class="micro">Warm-up · 4 min</span><i></i></div>
+            <div class="ex2"><span class="exi clear">✓</span><div class="ext"><div class="exn">Leg Swings <span class="side">· each side</span></div><div class="exs">1 set · 10 reps</div></div><button class="swap2 press">✎</button><button class="swap2 press">⇄</button></div>
+            <div class="ex2"><span class="exi clear">✓</span><div class="ext"><div class="exn">World's Greatest Stretch</div><div class="exs">1 set · 6 reps</div></div><button class="swap2 press">✎</button><button class="swap2 press">⇄</button></div>
+
+            <div class="sec"><span class="micro">Main · 21 min</span><i></i></div>
+            <div class="ex2"><span class="exi caution">▲</span><div class="ext"><div class="exn">Goblet Squat to Box</div><div class="exs">3 sets · 8 reps · 1:00 rest · dumbbell</div><div class="exw">Depth above 90° — no deep knee flexion under load</div></div><button class="swap2 press">✎</button><button class="swap2 press">⇄</button></div>
+            <div class="ex2"><span class="exi clear">✓</span><div class="ext"><div class="exn">Dumbbell Romanian Deadlift</div><div class="exs">3 sets · 8 reps · 1:00 rest</div></div><button class="swap2 press">✎</button><button class="swap2 press">⇄</button></div>
+            <div class="ex2"><span class="exi caution">▲</span><div class="ext"><div class="exn">Step-Up, low box <span class="side">· each side</span></div><div class="exs">2 sets · 8 reps · 1:00 rest</div><div class="exw">Low box only — knee was sore after Tuesday</div></div><button class="swap2 press">✎</button><button class="swap2 press">⇄</button></div>
+            <div class="ex2"><span class="exi clear">✓</span><div class="ext"><div class="exn">Glute Bridge</div><div class="exs">3 sets · 10 reps · 0:45 rest</div></div><button class="swap2 press">✎</button><button class="swap2 press">⇄</button></div>
+
+            <div class="sec"><span class="micro">Cool-down · 4 min</span><i></i></div>
+            <div class="ex2"><span class="exi clear">✓</span><div class="ext"><div class="exn">Quad + Hip Flexor Stretch <span class="side">· each side</span></div><div class="exs">2 holds · 0:45 each</div></div><button class="swap2 press">✎</button><button class="swap2 press">⇄</button></div>
+          </div>
+
+          <div class="card glass">
+            <div class="bh"><span class="micro">Why this plan</span></div>
+            <div class="why-row"><span class="why-ic x">✕</span><span><b>Barbell Back Squat removed.</b> Her left knee (PFPS) rules out deep knee flexion under load.</span></div>
+            <div class="why-row"><span class="why-ic s">⇄</span><span><b>Goblet Squat to Box</b> replaces it — same movement pattern, works with her home equipment.</span></div>
+            <div class="why-row"><span class="why-ic c">▲</span><span><b>Squat depth capped.</b> Her clinician cleared low-impact loading only.</span></div>
+            <div class="why-row"><span class="why-ic c">▲</span><span><b>Low box on Step-Ups.</b> You noted her knee was sore after Tuesday.</span></div>
+            <div class="why-row"><span class="why-ic q">?</span><span><b>“Sissy squats” isn't in the exercise library.</b> Closest match: Split Squat. <button class="apply press">Add it</button></span></div>
+            <a class="why-link" href="#" onclick="tab('graph');return false">View in graph →</a>
+          </div>
+        </div>
+      </main>
+
+      <!-- ===== copilot: the one chat ===== -->
+      <aside>
+        <div class="aside-inner">
+          <div class="cp-head"><h2>Copilot</h2></div>
+
+          <div class="qp">
+            <button class="press">Adherence</button><button class="press">Sleep</button>
+            <button class="press">Messages</button><button class="press">4 weeks</button>
+          </div>
+
+          <div class="cp-scroll">
+            <div class="cp-msg you"><span>30 min lower body at home — she mentioned sissy squats, and the knee was sore after Tuesday.</span></div>
+            <div class="cp-msg"><div class="cp-card glass">
+              <p><b>Session ready</b> — it's on the dashboard. One term didn't resolve: “sissy squats”.</p>
+              <div class="chips"><span class="chip warn">use Split Squat? <button class="press">apply</button></span><span class="chip src">safety graph · 7 traced steps</span></div>
+            </div></div>
+
+            <div class="cp-msg you"><span>Adherence trend?</span></div>
+            <div class="cp-msg"><div class="cp-card glass">
+              <div class="stat-row"><span class="big down">50<small>%</small></span><span class="lbl">last week · from 100% three weeks ago</span></div>
+              <div class="chart">
+                <!-- y: 0%→y100, 100%→y12 (0.88px/%) · x: 40..296 even -->
+                <svg viewBox="0 0 310 122">
+                  <line x1="34" y1="12" x2="300" y2="12" stroke="var(--grid)"/><text x="30" y="15" text-anchor="end">100</text>
+                  <line x1="34" y1="56" x2="300" y2="56" stroke="var(--grid)"/><text x="30" y="59" text-anchor="end">50</text>
+                  <line x1="34" y1="100" x2="300" y2="100" stroke="var(--axis)"/><text x="30" y="103" text-anchor="end">0</text>
+                  <polyline points="40,12 125.3,12 210.7,34 296,56" fill="none" stroke="var(--s1)" stroke-width="2" stroke-linejoin="round"/>
+                  <circle cx="296" cy="56" r="4" fill="var(--s1)" stroke="#0b0d0f" stroke-width="1.5"/>
+                  <text x="40" y="114" text-anchor="middle">5/12</text><text x="125" y="114" text-anchor="middle">5/19</text><text x="211" y="114" text-anchor="middle">5/26</text><text x="296" y="114" text-anchor="middle">6/2</text>
+                </svg>
+              </div>
+              <div class="chips"><span class="chip src">from adherence records · 4 wks</span></div>
+            </div></div>
+
+            <div class="cp-msg you"><span>Sleep last week?</span></div>
+            <div class="cp-msg"><div class="cp-card glass">
+              <div class="stat-row"><span class="big">6.3<small> h avg</small></span><span class="lbl">under the 7 h goal 5 of 7 nights</span></div>
+              <div class="chart">
+                <!-- y: 0h→y100, 9h→y10 (10px/h) -->
+                <svg viewBox="0 0 310 122">
+                  <defs><clipPath id="cb"><rect x="0" y="0" width="310" height="100"/></clipPath></defs>
+                  <line x1="30" y1="70" x2="300" y2="70" stroke="var(--grid)"/><text x="26" y="73" text-anchor="end">3</text>
+                  <line x1="30" y1="40" x2="300" y2="40" stroke="var(--grid)"/><text x="26" y="43" text-anchor="end">6</text>
+                  <line x1="30" y1="10" x2="300" y2="10" stroke="var(--grid)"/><text x="26" y="13" text-anchor="end">9</text>
+                  <line x1="30" y1="100" x2="300" y2="100" stroke="var(--axis)"/><text x="26" y="103" text-anchor="end">0</text>
+                  <g clip-path="url(#cb)">
+                    <rect x="40"  y="39"  width="24" height="65" rx="4" fill="var(--s1)"/>
+                    <rect x="76"  y="46"  width="24" height="58" rx="4" fill="var(--s1)"/>
+                    <rect x="112" y="28"  width="24" height="76" rx="4" fill="var(--s1)"/>
+                    <rect x="148" y="40"  width="24" height="64" rx="4" fill="var(--s1)"/>
+                    <rect x="184" y="49"  width="24" height="55" rx="4" fill="var(--s1)"/>
+                    <rect x="220" y="22"  width="24" height="82" rx="4" fill="var(--s1)"/>
+                    <rect x="256" y="37"  width="24" height="67" rx="4" fill="var(--s1)"/>
+                  </g>
+                  <line x1="30" y1="30" x2="300" y2="30" stroke="var(--ink-2)" stroke-dasharray="3 4" stroke-width="1"/>
+                  <text x="300" y="26" text-anchor="end">goal 7h</text>
+                  <text x="52" y="114" text-anchor="middle">Th</text><text x="88" y="114" text-anchor="middle">F</text><text x="124" y="114" text-anchor="middle">Sa</text><text x="160" y="114" text-anchor="middle">Su</text><text x="196" y="114" text-anchor="middle">M</text><text x="232" y="114" text-anchor="middle">Tu</text><text x="268" y="114" text-anchor="middle">W</text>
+                </svg>
+              </div>
+              <div class="chips"><span class="chip src">from sleep records · 7 nights</span></div>
+            </div></div>
+
+            <div class="cp-msg"><div class="cp-card glass">
+              <p>Send the celebration from the brief?</p>
+              <div class="act">
+                <div class="ah micro">send message</div>
+                <div class="body"><div class="to">to Jordan</div>“Huge congrats on yesterday — first pain-free squats since the flare-up 🎉 How's the knee today?”</div>
+                <div class="foot">
+                  <button class="btn btn-primary press">Send</button>
+                  <button class="btn btn-ghost press">Discard</button>
+                  </div>
+              </div>
+            </div></div>
+          </div>
+
+          <div class="composer"><input placeholder="Plan a session · ask about Jordan · act"><button class="btn btn-primary press">↑</button></div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- ===== graph view ===== -->
+  <div id="view-graph" style="display:none">
+    <div class="graph-wrap">
+      <div class="h-row"><h2>Graph view</h2></div>
+      <div class="gcard glass">
+        <svg viewBox="0 0 980 430">
+          <defs>
+            <marker id="aG" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="rgba(255,255,255,.35)"/></marker>
+            <marker id="aR" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="var(--crit)"/></marker>
+            <marker id="aW" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="var(--warn)"/></marker>
+            <marker id="aT" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="var(--teal)"/></marker>
+            <filter id="glow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          </defs>
+
+          <g fill="none" stroke="rgba(255,255,255,.18)" stroke-width="1.3">
+            <path d="M195,204 C 220,180 220,114 245,98" marker-end="url(#aG)"/>
+            <path d="M195,210 L 250,210" marker-end="url(#aG)"/>
+            <path d="M195,216 C 220,240 220,308 245,322" marker-end="url(#aG)"/>
+          </g>
+          <g fill="none" stroke="var(--teal)" stroke-width="1.4" opacity=".55">
+            <path d="M415,322 C 630,340 810,332 858,272" marker-end="url(#aT)"/>
+            <path d="M415,330 C 560,350 680,362 796,361" marker-end="url(#aT)"/>
+          </g>
+          <g fill="none" stroke="var(--crit)" stroke-width="1.8" filter="url(#glow)">
+            <path d="M400,210 L 455,210" marker-end="url(#aR)"/>
+            <path d="M550,202 C 565,184 570,164 580,150" marker-end="url(#aR)"/>
+            <path d="M730,132 C 758,120 772,108 796,100" marker-end="url(#aR)"/>
+          </g>
+          <g fill="none" stroke="var(--warn)" stroke-width="1.5">
+            <path d="M550,218 C 565,238 570,258 580,272" marker-end="url(#aW)"/>
+            <path d="M730,276 C 754,270 772,262 796,254" marker-end="url(#aW)"/>
+          </g>
+
+          <g>
+            <rect x="192" y="134" width="52" height="15" rx="7.5" fill="rgba(11,13,15,.85)"/><text class="etag" x="218" y="145" text-anchor="middle" fill="rgba(255,255,255,.4)">pursues</text>
+            <rect x="205" y="188" width="32" height="15" rx="7.5" fill="rgba(11,13,15,.85)"/><text class="etag" x="221" y="199" text-anchor="middle" fill="rgba(255,255,255,.4)">has</text>
+            <rect x="196" y="278" width="38" height="15" rx="7.5" fill="rgba(11,13,15,.85)"/><text class="etag" x="215" y="289" text-anchor="middle" fill="rgba(255,255,255,.4)">owns</text>
+            <rect x="392" y="186" width="70" height="15" rx="7.5" fill="rgba(11,13,15,.85)"/><text class="etag" x="427" y="197" text-anchor="middle" fill="var(--crit)">exactMatch</text>
+            <rect x="514" y="164" width="92" height="15" rx="7.5" fill="rgba(11,13,15,.85)"/><text class="etag" x="560" y="175" text-anchor="middle" fill="var(--crit)">contraindicates</text>
+            <rect x="734" y="106" width="58" height="15" rx="7.5" fill="rgba(11,13,15,.85)"/><text class="etag" x="763" y="117" text-anchor="middle" fill="var(--crit)">performs</text>
+            <rect x="528" y="240" width="60" height="15" rx="7.5" fill="rgba(11,13,15,.85)"/><text class="etag" x="558" y="251" text-anchor="middle" fill="var(--warn)">restricts</text>
+            <rect x="734" y="258" width="58" height="15" rx="7.5" fill="rgba(11,13,15,.85)"/><text class="etag" x="763" y="269" text-anchor="middle" fill="var(--warn)">performs</text>
+            <rect x="600" y="316" width="36" height="15" rx="7.5" fill="rgba(11,13,15,.85)"/><text class="etag" x="618" y="327" text-anchor="middle" fill="var(--teal)">fits</text>
+            <rect x="560" y="346" width="36" height="15" rx="7.5" fill="rgba(11,13,15,.85)"/><text class="etag" x="578" y="357" text-anchor="middle" fill="var(--teal)">fits</text>
+          </g>
+
+          <g class="gn" onclick="pop(event,'Jordan Rivera','41 · 1:1 coaching|2 active goals · 1 injury')">
+            <rect x="85" y="192" width="110" height="36" rx="18" fill="rgba(99,214,188,.12)" stroke="var(--teal)" stroke-width="1.5"/>
+            <text class="gnode" x="140" y="214" text-anchor="middle">Jordan</text>
+          </g>
+          <g class="gn" onclick="pop(event,'Lower-body strength','Goal · priority 1|Target Sep 2026')">
+            <rect x="245" y="74" width="170" height="36" rx="18" fill="rgba(99,214,188,.06)" stroke="var(--teal)" stroke-opacity=".45"/>
+            <text class="gnode" x="330" y="96" text-anchor="middle">Lower-body strength</text>
+          </g>
+          <g class="gn" onclick="pop(event,'Left knee injury','PFPS · recovering · since May 10|Directive: low-impact loading only')">
+            <rect x="250" y="192" width="150" height="36" rx="18" fill="rgba(99,214,188,.12)" stroke="var(--teal)" stroke-width="1.8"/>
+            <text class="gnode" x="325" y="214" text-anchor="middle">Left knee injury</text>
+          </g>
+          <g class="gn" onclick="pop(event,'Home equipment','Dumbbells · kettlebell · bench · box|No barbell')">
+            <rect x="245" y="306" width="170" height="36" rx="18" fill="rgba(99,214,188,.06)" stroke="var(--teal)" stroke-opacity=".45"/>
+            <text class="gnode" x="330" y="328" text-anchor="middle">Home · no barbell</text>
+          </g>
+          <g class="gn" onclick="pop(event,'PFPS','Patellofemoral pain syndrome|SNOMED 202099003')">
+            <rect x="460" y="192" width="90" height="36" rx="18" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.3)"/>
+            <text class="gnode" x="505" y="214" text-anchor="middle">PFPS</text>
+          </g>
+          <g class="gn" onclick="pop(event,'Deep knee flexion','Contraindicated under load|Cited clinical guideline')">
+            <rect x="580" y="122" width="150" height="36" rx="18" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.3)"/>
+            <text class="gnode" x="655" y="144" text-anchor="middle">Deep knee flexion</text>
+          </g>
+          <g class="gn" onclick="pop(event,'Squat pattern','Movement pattern · lower push|6 catalog exercises')">
+            <rect x="580" y="262" width="150" height="36" rx="18" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.3)"/>
+            <text class="gnode" x="655" y="284" text-anchor="middle">Squat pattern</text>
+          </g>
+          <g class="gn" onclick="pop(event,'Back Squat','Excluded from this plan|Deep knee flexion under load|Needs a barbell — not at home')">
+            <rect x="800" y="76" width="140" height="36" rx="18" fill="var(--crit-dim)" stroke="var(--crit)" stroke-width="1.8"/>
+            <text class="gnode" x="870" y="98" text-anchor="middle" fill="var(--crit)">Back Squat</text>
+          </g>
+          <g class="gn" onclick="pop(event,'Goblet Squat to Box','Caution · in plan|Depth capped above 90°|Dumbbell — fits home equipment')">
+            <rect x="800" y="230" width="140" height="36" rx="18" fill="var(--warn-dim)" stroke="var(--warn)" stroke-width="1.6"/>
+            <text class="gnode" x="870" y="252" text-anchor="middle">Goblet Squat</text>
+          </g>
+          <g class="gn" onclick="pop(event,'Glute Bridge','Clear · in plan|3 sets · 10 reps|Bodyweight — fits anywhere')">
+            <rect x="800" y="342" width="140" height="36" rx="18" fill="var(--teal-dim)" stroke="var(--good)" stroke-width="1.4"/>
+            <text class="gnode" x="870" y="364" text-anchor="middle">Glute Bridge</text>
+          </g>
+        </svg>
+        <div class="glegend">
+          <span><i style="background:rgba(99,214,188,.1);border:1.5px solid var(--teal)"></i>member context (KG2)</span>
+          <span><i style="background:rgba(255,255,255,.04);border:1.5px solid var(--ink-3)"></i>clinical graph (KG1)</span>
+          <span><i style="background:var(--crit-dim);border:2px solid var(--crit)"></i>excluded</span>
+          <span><i style="background:var(--warn-dim);border:2px solid var(--warn)"></i>caution</span>
+          <span><i style="background:var(--teal-dim);border:1.5px solid var(--good)"></i>clear</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="gpop glass" id="gpop"></div>
+<script>
+  function pop(e,title,lines){
+    const p=document.getElementById('gpop');
+    p.innerHTML='<b>'+title+'</b>'+lines.split('|').map(l=>'<div class="pl">'+l+'</div>').join('')+'<div class="pa">Ask copilot →</div>';
+    p.style.left=Math.min(e.clientX+12,window.innerWidth-280)+'px';
+    p.style.top=Math.min(e.clientY+12,window.innerHeight-140)+'px';
+    p.classList.add('on');
+    e.stopPropagation();
+  }
+  document.addEventListener('click',()=>document.getElementById('gpop').classList.remove('on'));
+  function show(id){
+    document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on'));
+    document.getElementById(id).classList.add('on');
+    if(id==='app') requestAnimationFrame(()=>moveInd(document.querySelector('.tab.on')));
+  }
+  function moveInd(btn){
+    const ind=document.getElementById('tab-ind');
+    ind.style.width=btn.offsetWidth+'px';
+    ind.style.transform='translateX('+(btn.offsetLeft-3)+'px)';
+  }
+  function tab(name){
+    moveInd(document.getElementById('tab-'+(name==='member'?'member':'graph')));
+    document.getElementById('view-member').style.display = name==='member'?'':'none';
+    document.getElementById('view-graph').style.display = name==='graph'?'':'none';
+    document.getElementById('tab-member').classList.toggle('on', name==='member');
+    document.getElementById('tab-graph').classList.toggle('on', name==='graph');
+  }
+  function toggleCopilot(){
+    document.getElementById('cols').classList.toggle('hide-copilot');
+  }
+</script>
+</body>
+</html>
