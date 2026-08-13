@@ -77,10 +77,11 @@ Import rules. Reject a branch that breaks one:
 - Data reaches components only through `useChat` and typed parts. No ad-hoc
   `fetch` in components.
 - Rendered numbers come from part data, never parsed from streamed prose.
-- UI kit: shadcn primitives (owned code) for interaction, Tremor for charts
-  and stat tiles, one Tailwind token theme in `globals.css`. Components read
-  tokens, not hard-coded palette values. Reject any other UI dependency
-  without an ADR.
+- UI kit: base-ui for interaction primitives (dialogs, popovers, menus),
+  recharts for the chart kinds, Sonner for toasts. clsx for conditional
+  classes; cva for variant-driven components. One Tailwind token theme in
+  `globals.css`; components read tokens, not hard-coded palette values.
+  Reject any other UI dependency without an ADR.
 
 ## Documentation
 
