@@ -64,10 +64,14 @@ Import rules. Reject a branch that breaks one:
   LLM, fixture graph). `monkeypatch` only for env vars.
 - Table-driven `parametrize` for resolver and safety cases, including the real
   member strings from `data/member-context.json`.
-- CI is offline. No network, no keys, in any test. LLM edges get fakes; the
+- CI is hermetic. No external network, no keys, in any test. Local service
+  containers (Neo4j, Postgres) are permitted; the safety-filter tests run
+  against a Neo4j seeded by the real ingest script. LLM edges get fakes; the
   vector pass reads committed embedding fixtures.
 - Layout: `backend/tests/test_<module>.py`, one file per seam.
-- Reject a behavior change without a test at its seam.
+- Tests are required at two seams only: the concept resolver and the safety
+  filter (the PRD mandate), plus one CI smoke (ingest runs, `/api/health`
+  green). Elsewhere tests are optional (GNT-229).
 
 ## Frontend
 
