@@ -1,0 +1,14 @@
+# Node
+node_modules/
+
+# Python
+__pycache__/
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Env — secrets live in backend/.env only
+.env
+
+# Local tooling state
+.lavish/

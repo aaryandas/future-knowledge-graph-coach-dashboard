@@ -1,0 +1,14 @@
+{
+  "name": "future-knowledge-graph-coach-dashboard",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"pnpm dev:api\" \"pnpm dev:web\"",
+    "dev:api": "uv run --project backend uvicorn app.main:app --reload --port 8000 --app-dir backend",
+    "dev:web": "pnpm --dir frontend dev",
+    "lint": "uv run --project backend ruff check backend && uv run --project backend ruff format --check backend && pnpm --dir frontend lint",
+    "test": "uv run --directory backend pytest"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
