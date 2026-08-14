@@ -1,10 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, cast
 
 from neo4j import Record, Session
 
+from app.graph.constants import ObservationKind
+from app.graph.journey import JourneyStage, derive_journey_stage
+from app.graph.relevance import (
+    as_observation_kind,
+    current_date,
+    observation_staleness,
+    scope_observations,
+    scope_relevance_window,
+)
 from app.graph.store import neo4j_session
 
 type ObservationScalar = str | int | float | bool
@@ -28,6 +38,8 @@ class MemberProfile:
     preference_notes: str
     equipment_available: tuple[str, ...]
     dislikes: tuple[str, ...]
+    equipment_node_ids: tuple[str, ...]
+    exercise_node_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -76,8 +88,10 @@ class ObservationValue:
 @dataclass(frozen=True)
 class ObservationView:
     node_id: str
-    kind: str
+    kind: ObservationKind
     observed_at: str
+    age_days: int
+    stale: bool
     value: int | float | None
     unit: str | None
     measurements: tuple[ObservationValue, ...]
@@ -124,6 +138,7 @@ class MorningBrief:
 @dataclass(frozen=True)
 class MemberContext:
     profile: MemberProfile
+    journey_stage: JourneyStage
     goals: tuple[GoalView, ...]
     injuries: tuple[MemberInjuryView, ...]
     workout_sessions: tuple[WorkoutSessionView, ...]
@@ -132,20 +147,34 @@ class MemberContext:
     morning_brief: MorningBrief
 
 
-def get_member_context(member_id: str) -> MemberContext | None:
+def get_member_context(
+    member_id: str, *, as_of: date | None = None
+) -> MemberContext | None:
+    read_date = as_of or current_date()
     with neo4j_session() as session:
         profile = _read_member_profile(session, member_id)
         if profile is None:
             return None
+        injuries = _read_member_injuries(session, member_id)
+        workout_sessions = _read_workout_sessions(session, member_id)
         morning_brief = _read_morning_brief(session, member_id)
         if morning_brief is None:
             raise RuntimeError(f"Member {member_id} has no morning brief")
         return MemberContext(
             profile=profile,
+            journey_stage=derive_journey_stage(
+                member_node_id=profile.node_id,
+                member_since=profile.member_since,
+                injuries=tuple((injury.node_id, injury.status) for injury in injuries),
+                workout_sessions=tuple(
+                    (workout.node_id, workout.completed) for workout in workout_sessions
+                ),
+                as_of=read_date,
+            ),
             goals=_read_member_goals(session, member_id),
-            injuries=_read_member_injuries(session, member_id),
-            workout_sessions=_read_workout_sessions(session, member_id),
-            observations=_read_observations(session, member_id),
+            injuries=injuries,
+            workout_sessions=workout_sessions,
+            observations=_read_observations(session, member_id, as_of=read_date),
             chat_messages=_read_chat_messages(session, member_id),
             morning_brief=morning_brief,
         )
@@ -154,6 +183,15 @@ def get_member_context(member_id: str) -> MemberContext | None:
 def get_member_profile(member_id: str) -> MemberProfile | None:
     with neo4j_session() as session:
         return _read_member_profile(session, member_id)
+
+
+def get_member_node_id(member_id: str) -> str | None:
+    with neo4j_session() as session:
+        record = session.run(
+            "MATCH (member:Member {id: $member_id}) RETURN member.id AS node_id",
+            member_id=member_id,
+        ).single()
+    return None if record is None else cast(str, record["node_id"])
 
 
 def get_member_goals(member_id: str) -> tuple[GoalView, ...]:
@@ -166,14 +204,24 @@ def get_member_injuries(member_id: str) -> tuple[MemberInjuryView, ...]:
         return _read_member_injuries(session, member_id)
 
 
-def get_workout_sessions(member_id: str) -> tuple[WorkoutSessionView, ...]:
+def get_workout_sessions(
+    member_id: str, *, as_of: date | None = None
+) -> tuple[WorkoutSessionView, ...]:
     with neo4j_session() as session:
-        return _read_workout_sessions(session, member_id)
+        workout_sessions = _read_workout_sessions(session, member_id)
+    return scope_relevance_window(
+        workout_sessions,
+        kind="adherence-week",
+        observed_at=lambda workout: workout.date,
+        as_of=as_of or current_date(),
+    )
 
 
-def get_observations(member_id: str) -> tuple[ObservationView, ...]:
+def get_observations(
+    member_id: str, *, as_of: date | None = None
+) -> tuple[ObservationView, ...]:
     with neo4j_session() as session:
-        return _read_observations(session, member_id)
+        return _read_observations(session, member_id, as_of=as_of or current_date())
 
 
 def get_chat_messages(member_id: str) -> tuple[ChatMessageView, ...]:
@@ -181,15 +229,30 @@ def get_chat_messages(member_id: str) -> tuple[ChatMessageView, ...]:
         return _read_chat_messages(session, member_id)
 
 
-def get_morning_brief(member_id: str) -> MorningBrief | None:
+def get_morning_brief(
+    member_id: str, *, as_of: date | None = None
+) -> MorningBrief | None:
     with neo4j_session() as session:
-        return _read_morning_brief(session, member_id)
+        morning_brief = _read_morning_brief(session, member_id)
+    if morning_brief is None:
+        return None
+    scoped_briefs = scope_relevance_window(
+        (morning_brief,),
+        kind="adherence-week",
+        observed_at=lambda brief: brief.generated_for,
+        as_of=as_of or current_date(),
+    )
+    return scoped_briefs[0] if scoped_briefs else None
 
 
 def _read_member_profile(session: Session, member_id: str) -> MemberProfile | None:
     record = session.run(
         "MATCH (member:Member {id: $member_id}) "
-        "RETURN member.id AS node_id, properties(member) AS properties",
+        "OPTIONAL MATCH (member)-[:owns]->(equipment:Equipment) "
+        "WITH member, collect(DISTINCT equipment.id) AS equipment_node_ids "
+        "OPTIONAL MATCH (member)-[:dislikes]->(exercise:Exercise) "
+        "RETURN member.id AS node_id, properties(member) AS properties, "
+        "equipment_node_ids, collect(DISTINCT exercise.id) AS exercise_node_ids",
         member_id=member_id,
     ).single()
     if record is None:
@@ -212,6 +275,8 @@ def _read_member_profile(session: Session, member_id: str) -> MemberProfile | No
         preference_notes=_string(properties, "preference_notes"),
         equipment_available=_strings(properties, "equipment_available"),
         dislikes=_strings(properties, "dislikes"),
+        equipment_node_ids=tuple(sorted(cast(list[str], record["equipment_node_ids"]))),
+        exercise_node_ids=tuple(sorted(cast(list[str], record["exercise_node_ids"]))),
     )
 
 
@@ -256,14 +321,16 @@ def _read_workout_sessions(
     return tuple(_workout_session(record) for record in records)
 
 
-def _read_observations(session: Session, member_id: str) -> tuple[ObservationView, ...]:
+def _read_observations(
+    session: Session, member_id: str, *, as_of: date
+) -> tuple[ObservationView, ...]:
     records = session.run(
         "MATCH (:Member {id: $member_id})-[:observed]->(observation:Observation) "
         "RETURN observation.id AS node_id, properties(observation) AS properties "
         "ORDER BY observation.observed_at DESC, observation.kind, observation.id",
         member_id=member_id,
     )
-    return tuple(_observation(record) for record in records)
+    return scope_observations(_observation(record, as_of=as_of) for record in records)
 
 
 def _read_chat_messages(
@@ -357,9 +424,12 @@ def _workout_session(record: Record) -> WorkoutSessionView:
     )
 
 
-def _observation(record: Record) -> ObservationView:
+def _observation(record: Record, *, as_of: date) -> ObservationView:
     properties = _properties(record)
     value = _optional_number(properties, "value")
+    kind = as_observation_kind(_string(properties, "kind"))
+    observed_at = _string(properties, "observed_at")
+    staleness = observation_staleness(kind, observed_at, as_of=as_of)
     excluded = {
         "id",
         "member_id",
@@ -378,8 +448,10 @@ def _observation(record: Record) -> ObservationView:
     )
     return ObservationView(
         node_id=cast(str, record["node_id"]),
-        kind=_string(properties, "kind"),
-        observed_at=_string(properties, "observed_at"),
+        kind=kind,
+        observed_at=observed_at,
+        age_days=staleness.age_days,
+        stale=staleness.stale,
         value=value,
         unit=_optional_string(properties, "unit"),
         measurements=measurements,
