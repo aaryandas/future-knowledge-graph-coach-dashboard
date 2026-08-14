@@ -3,11 +3,21 @@
 from langchain_core.messages import AIMessage
 
 from app.copilot.actions import (
+    AddSessionPlanRow,
     CoachAction,
     CoachActionDecision,
     CoachActionWriter,
+    EditSessionPlanRow,
+    RemoveSessionPlanRow,
+    ReorderSessionPlanRow,
     SendMemberMessage,
+    SessionPlanEdit,
+    SessionPlanReader,
+    SessionPlanVerdict,
+    SessionPlanVerdictEvaluator,
     UpdateBriefTask,
+    WriteSessionPlan,
+    write_coach_action,
 )
 from app.copilot.agent import (
     _DATA_PARTS_KEY,
@@ -60,6 +70,15 @@ from app.copilot.tools import (
     get_observations,
     get_workout_sessions,
 )
+from app.graph import SessionPlan, SessionPlanRow, get_session_plan, ingest_kg2
+from app.safety import (
+    GraphDecision,
+    Verdict,
+    VerdictTraceEvent,
+    WalkedEdge,
+    WalkedNode,
+    WalkedPath,
+)
 
 
 def copilot_response(
@@ -80,6 +99,7 @@ def copilot_response(
 __all__ = [
     "COPILOT_TONE_FACT_LABELS",
     "MAX_TOOL_ROUNDS",
+    "AddSessionPlanRow",
     "BarrierData",
     "ChatMessageData",
     "ChatMessagesResult",
@@ -95,8 +115,10 @@ __all__ = [
     "CopilotToneFact",
     "CopilotTurn",
     "CopilotTurnResult",
+    "EditSessionPlanRow",
     "FakeCopilotLLM",
     "GoalData",
+    "GraphDecision",
     "JsonValue",
     "MemberGoalsResult",
     "MemberInjuriesResult",
@@ -110,10 +132,24 @@ __all__ = [
     "ObservationsResult",
     "QuickPrompt",
     "QuickPromptId",
+    "RemoveSessionPlanRow",
+    "ReorderSessionPlanRow",
     "SendMemberMessage",
+    "SessionPlan",
+    "SessionPlanEdit",
+    "SessionPlanReader",
+    "SessionPlanRow",
+    "SessionPlanVerdict",
+    "SessionPlanVerdictEvaluator",
     "UpdateBriefTask",
+    "Verdict",
+    "VerdictTraceEvent",
+    "WalkedEdge",
+    "WalkedNode",
+    "WalkedPath",
     "WorkoutSessionData",
     "WorkoutSessionsResult",
+    "WriteSessionPlan",
     "copilot_response",
     "get_chat_messages",
     "get_copilot_tone_facts",
@@ -122,10 +158,13 @@ __all__ = [
     "get_member_profile",
     "get_morning_brief",
     "get_observations",
+    "get_session_plan",
     "get_workout_sessions",
+    "ingest_kg2",
     "open_postgres_checkpointer",
     "replay_copilot_history",
     "resume_copilot_action",
     "run_copilot_turn",
     "run_quick_prompt",
+    "write_coach_action",
 ]
