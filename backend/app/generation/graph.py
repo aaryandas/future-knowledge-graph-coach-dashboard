@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any, Literal, TypedDict, cast
 
@@ -26,7 +26,8 @@ from app.generation._packing import PackingFailure, pack
 from app.generation._resolution import resolve_intent
 from app.generation._safety import evaluate_generation_safety
 from app.generation._substitution import pair_substitutions
-from app.generation._trace import TraceEvent
+from app.generation._trace import AgentTraceEvent, TraceEvent
+from app.generation.annotation import AnnotationLLM, annotate
 from app.generation.intent import Intent, InterpretationFailure, interpret
 from app.generation.llm import IntentLLM
 from app.safety import Verdict
@@ -36,6 +37,10 @@ type MemberContextReader = Callable[[str], GenerationMemberContext | None]
 type VerdictEvaluator = Callable[
     [str, tuple[str, ...], tuple[ResolvedMention, ...]],
     tuple[Verdict, ...],
+]
+type AnnotationTraceRecorder = Callable[
+    [tuple[TraceEvent, ...], AgentTraceEvent],
+    None,
 ]
 type GenerationRoute = Literal["resolve", "pack", "__end__"]
 
@@ -63,6 +68,7 @@ class GenerationTurn:
     resolved_intent: ResolvedIntent | None
     failure: GenerationFailure | None
     text: str
+    coaching_note_parts: Iterable[str] = ()
 
 
 def run_generation_session(
@@ -73,10 +79,12 @@ def run_generation_session(
     *,
     checkpointer: BaseCheckpointSaver[Any],
     llm: IntentLLM | None = None,
+    annotation_llm: AnnotationLLM | None = None,
     message_id: str | None = None,
     catalog_reader: CatalogReader = read_catalog_exercises,
     member_context_reader: MemberContextReader = read_generation_member_context,
     verdict_evaluator: VerdictEvaluator = evaluate_generation_safety,
+    annotation_trace_recorder: AnnotationTraceRecorder | None = None,
 ) -> GenerationTurn:
     """Run one checkpointed generation turn using the useChat thread id."""
     if not coach_message.strip():
@@ -91,6 +99,7 @@ def run_generation_session(
         member_context_reader=member_context_reader,
         verdict_evaluator=verdict_evaluator,
     )
+    config = _thread_config(thread_id)
     state = cast(
         _GenerationState,
         graph.invoke(
@@ -101,18 +110,58 @@ def run_generation_session(
                 "trace": (),
                 "failure": None,
             },
-            _thread_config(thread_id),
+            config,
         ),
     )
     failure = state.get("failure")
+    plan = state.get("plan")
+    trace = state.get("trace", ())
+    annotation_trace = trace
+
+    def record_annotation_event(event: AgentTraceEvent) -> None:
+        nonlocal annotation_trace
+        previous_trace = annotation_trace
+        annotation_trace = (*previous_trace, event)
+        if annotation_trace_recorder is None:
+            graph.update_state(config, {"trace": annotation_trace})
+            return
+        annotation_trace_recorder(previous_trace, event)
+
     return GenerationTurn(
         message_id=f"{message_id or thread_id}-assistant",
-        plan=state.get("plan"),
-        trace=state.get("trace", ()),
+        plan=plan,
+        trace=trace,
         resolved_intent=state.get("resolved_intent"),
         failure=failure,
         text=failure.message if failure is not None else "Session ready.",
+        coaching_note_parts=(
+            annotate(
+                plan,
+                coach_message.strip(),
+                llm=annotation_llm,
+                record_trace_event=record_annotation_event,
+            )
+            if plan is not None
+            else ()
+        ),
     )
+
+
+def append_annotation_trace_event(
+    thread_id: str,
+    trace: tuple[TraceEvent, ...],
+    event: AgentTraceEvent,
+    *,
+    checkpointer: BaseCheckpointSaver[Any],
+) -> None:
+    graph = _build_graph(
+        checkpointer=checkpointer,
+        llm=None,
+        catalog_reader=read_catalog_exercises,
+        member_context_reader=read_generation_member_context,
+        verdict_evaluator=evaluate_generation_safety,
+    )
+    graph.update_state(_thread_config(thread_id), {"trace": (*trace, event)})
 
 
 def _build_graph(

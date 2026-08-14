@@ -55,6 +55,16 @@ class PackingTraceEvent:
 
 
 @dataclass(frozen=True)
+class AgentTraceEvent:
+    action: Literal["annotation"]
+    reason: str
+    used: tuple[str, ...]
+    kind: Literal["agent"] = field(default="agent", init=False)
+    was_generated_by: Literal["annotate"] = field(default="annotate", init=False)
+    was_attributed_to: Literal["agent"] = field(default="agent", init=False)
+
+
+@dataclass(frozen=True)
 class SubstitutionTraceEvent:
     dropped_exercise_id: str
     replacement_exercise_id: str
@@ -74,5 +84,6 @@ type TraceEvent = (
     ResolutionTraceEvent
     | VerdictTraceEvent
     | PackingTraceEvent
+    | AgentTraceEvent
     | SubstitutionTraceEvent
 )
