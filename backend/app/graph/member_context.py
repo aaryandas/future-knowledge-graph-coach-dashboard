@@ -13,6 +13,7 @@ from app.graph.relevance import (
     current_date,
     observation_staleness,
     scope_observations,
+    scope_relevance_window,
 )
 from app.graph.store import neo4j_session
 
@@ -37,6 +38,8 @@ class MemberProfile:
     preference_notes: str
     equipment_available: tuple[str, ...]
     dislikes: tuple[str, ...]
+    equipment_node_ids: tuple[str, ...]
+    exercise_node_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -192,9 +195,17 @@ def get_member_injuries(member_id: str) -> tuple[MemberInjuryView, ...]:
         return _read_member_injuries(session, member_id)
 
 
-def get_workout_sessions(member_id: str) -> tuple[WorkoutSessionView, ...]:
+def get_workout_sessions(
+    member_id: str, *, as_of: date | None = None
+) -> tuple[WorkoutSessionView, ...]:
     with neo4j_session() as session:
-        return _read_workout_sessions(session, member_id)
+        workout_sessions = _read_workout_sessions(session, member_id)
+    return scope_relevance_window(
+        workout_sessions,
+        kind="adherence-week",
+        observed_at=lambda workout: workout.date,
+        as_of=as_of or current_date(),
+    )
 
 
 def get_observations(
@@ -209,15 +220,30 @@ def get_chat_messages(member_id: str) -> tuple[ChatMessageView, ...]:
         return _read_chat_messages(session, member_id)
 
 
-def get_morning_brief(member_id: str) -> MorningBrief | None:
+def get_morning_brief(
+    member_id: str, *, as_of: date | None = None
+) -> MorningBrief | None:
     with neo4j_session() as session:
-        return _read_morning_brief(session, member_id)
+        morning_brief = _read_morning_brief(session, member_id)
+    if morning_brief is None:
+        return None
+    scoped_briefs = scope_relevance_window(
+        (morning_brief,),
+        kind="adherence-week",
+        observed_at=lambda brief: brief.generated_for,
+        as_of=as_of or current_date(),
+    )
+    return scoped_briefs[0] if scoped_briefs else None
 
 
 def _read_member_profile(session: Session, member_id: str) -> MemberProfile | None:
     record = session.run(
         "MATCH (member:Member {id: $member_id}) "
-        "RETURN member.id AS node_id, properties(member) AS properties",
+        "OPTIONAL MATCH (member)-[:owns]->(equipment:Equipment) "
+        "WITH member, collect(DISTINCT equipment.id) AS equipment_node_ids "
+        "OPTIONAL MATCH (member)-[:dislikes]->(exercise:Exercise) "
+        "RETURN member.id AS node_id, properties(member) AS properties, "
+        "equipment_node_ids, collect(DISTINCT exercise.id) AS exercise_node_ids",
         member_id=member_id,
     ).single()
     if record is None:
@@ -240,6 +266,8 @@ def _read_member_profile(session: Session, member_id: str) -> MemberProfile | No
         preference_notes=_string(properties, "preference_notes"),
         equipment_available=_strings(properties, "equipment_available"),
         dislikes=_strings(properties, "dislikes"),
+        equipment_node_ids=tuple(sorted(cast(list[str], record["equipment_node_ids"]))),
+        exercise_node_ids=tuple(sorted(cast(list[str], record["exercise_node_ids"]))),
     )
 
 

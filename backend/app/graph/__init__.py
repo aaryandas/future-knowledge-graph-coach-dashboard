@@ -1,10 +1,6 @@
 """Build and read the Movement/Clinical and Member Context Graphs."""
 
-from .constants import (
-    OBSERVATION_RELEVANCE_WINDOWS,
-    ObservationKind,
-    RelevanceWindow,
-)
+from .constants import ObservationKind
 from .ingest import KG1Counts, KG2Counts, ingest_kg1, ingest_kg2
 from .journey import (
     JourneyStage,
@@ -32,16 +28,8 @@ from .member_context import (
     get_observations,
     get_workout_sessions,
 )
-from .relevance import (
-    ObservationStaleness,
-    as_observation_kind,
-    observation_staleness,
-    scope_observations,
-    scope_relevance_window,
-)
 
 __all__ = [
-    "OBSERVATION_RELEVANCE_WINDOWS",
     "BarrierView",
     "ChatMessageView",
     "CoachTaskView",
@@ -56,12 +44,9 @@ __all__ = [
     "MemberProfile",
     "MorningBrief",
     "ObservationKind",
-    "ObservationStaleness",
     "ObservationValue",
     "ObservationView",
-    "RelevanceWindow",
     "WorkoutSessionView",
-    "as_observation_kind",
     "get_chat_messages",
     "get_member_context",
     "get_member_goals",
@@ -72,7 +57,4 @@ __all__ = [
     "get_workout_sessions",
     "ingest_kg1",
     "ingest_kg2",
-    "observation_staleness",
-    "scope_observations",
-    "scope_relevance_window",
 ]

@@ -1,22 +1,46 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
-from datetime import UTC, date, datetime
-from typing import Any, Literal
+from datetime import date
+from typing import Literal
 
 from langchain_core.tools import BaseTool, tool
-from neo4j import Record
 
 from app.graph import (
+    BarrierView,
+    ChatMessageView,
+    CoachTaskView,
+    GoalView,
+    MemberInjuryView,
+    MemberProfile,
+    MorningBrief,
     ObservationKind,
-    as_observation_kind,
-    observation_staleness,
-    scope_observations,
-    scope_relevance_window,
+    ObservationView,
+    WorkoutSessionView,
 )
-from app.graph.store import neo4j_session
+from app.graph import (
+    get_chat_messages as read_chat_messages,
+)
+from app.graph import (
+    get_member_goals as read_member_goals,
+)
+from app.graph import (
+    get_member_injuries as read_member_injuries,
+)
+from app.graph import (
+    get_member_profile as read_member_profile,
+)
+from app.graph import (
+    get_morning_brief as read_morning_brief,
+)
+from app.graph import (
+    get_observations as read_observations,
+)
+from app.graph import (
+    get_workout_sessions as read_workout_sessions,
+)
 
 type ObservationScalar = str | int | float | bool
 type ChatSender = Literal["member", "coach"]
@@ -186,33 +210,14 @@ class MemberProfileResult(_JsonToolResult):
 @tool
 def get_observations(member_id: str, as_of: date | None = None) -> ObservationsResult:
     """Read current `Member -[:observed]-> Observation` values and latest labs, newest first."""
-    read_date = _read_date(as_of)
-    with neo4j_session() as session:
-        records = session.run(
-            "MATCH (member:Member {id: $member_id}) "
-            "OPTIONAL MATCH (member)-[:observed]->(observation:Observation) "
-            "RETURN member.id AS member_node_id, observation.id AS node_id, "
-            "properties(observation) AS properties "
-            "ORDER BY observation.observed_at DESC, observation.kind, observation.id",
-            member_id=member_id,
-        )
-        member_node_id: str | None = None
-        observations: list[ObservationData] = []
-        observation_node_ids: list[str] = []
-        for record in records:
-            member_node_id = _optional_record_string(record, "member_node_id")
-            node_id = _optional_record_string(record, "node_id")
-            if node_id is None:
-                continue
-            properties = _record_properties(record)
-            observations.append(_observation_data(node_id, properties, as_of=read_date))
-        scoped_observations = scope_observations(observations)
-        observation_node_ids.extend(
-            observation.node_id for observation in scoped_observations
-        )
+    observations = read_observations(member_id, as_of=as_of)
     return ObservationsResult(
-        observations=scoped_observations,
-        node_ids=_node_ids(member_node_id, observation_node_ids),
+        observations=tuple(
+            _observation_data(observation) for observation in observations
+        ),
+        node_ids=_node_ids(
+            member_id, (observation.node_id for observation in observations)
+        ),
     )
 
 
@@ -221,45 +226,17 @@ def get_workout_sessions(
     member_id: str, as_of: date | None = None
 ) -> WorkoutSessionsResult:
     """Read current-adherence-window `Member -[:performed]-> WorkoutSession -[:included]-> Exercise`."""
-    read_date = _read_date(as_of)
-    with neo4j_session() as session:
-        records = session.run(
-            "MATCH (member:Member {id: $member_id}) "
-            "OPTIONAL MATCH (member)-[:performed]->(workout:WorkoutSession) "
-            "OPTIONAL MATCH (workout)-[:included]->(exercise:Exercise) "
-            "RETURN member.id AS member_node_id, workout.id AS node_id, "
-            "properties(workout) AS properties, "
-            "[node IN collect(DISTINCT exercise) WHERE node IS NOT NULL | node.id] "
-            "AS exercise_ids, workout.date AS sort_date "
-            "ORDER BY sort_date DESC, node_id",
-            member_id=member_id,
-        )
-        member_node_id: str | None = None
-        workout_sessions: list[WorkoutSessionData] = []
-        for record in records:
-            member_node_id = _optional_record_string(record, "member_node_id")
-            node_id = _optional_record_string(record, "node_id")
-            if node_id is None:
-                continue
-            properties = _record_properties(record)
-            exercise_ids = tuple(sorted(_record_strings(record, "exercise_ids")))
-            workout_sessions.append(
-                _workout_session_data(node_id, properties, exercise_ids)
-            )
-        scoped_workout_sessions = scope_relevance_window(
-            workout_sessions,
-            kind="adherence-week",
-            observed_at=lambda workout: workout.date,
-            as_of=read_date,
-        )
+    workout_sessions = read_workout_sessions(member_id, as_of=as_of)
     return WorkoutSessionsResult(
-        workout_sessions=scoped_workout_sessions,
+        workout_sessions=tuple(
+            _workout_session_data(workout) for workout in workout_sessions
+        ),
         node_ids=_node_ids(
-            member_node_id,
-            (workout.node_id for workout in scoped_workout_sessions),
+            member_id,
+            (workout.node_id for workout in workout_sessions),
             (
                 exercise_node_id
-                for workout in scoped_workout_sessions
+                for workout in workout_sessions
                 for exercise_node_id in workout.exercise_ids
             ),
         ),
@@ -269,37 +246,12 @@ def get_workout_sessions(
 @tool
 def get_chat_messages(member_id: str, as_of: date | None = None) -> ChatMessagesResult:
     """Read `Member -[:said|received]-> ChatMessage`, newest first; chat has no relevance window."""
-    read_date = _read_date(as_of)
-    with neo4j_session() as session:
-        records = session.run(
-            "MATCH (member:Member {id: $member_id}) "
-            "OPTIONAL MATCH (member)-[:said|received]->(message:ChatMessage) "
-            "RETURN member.id AS member_node_id, message.id AS node_id, "
-            "properties(message) AS properties "
-            "ORDER BY message.timestamp DESC, message.id",
-            member_id=member_id,
-        )
-        member_node_id: str | None = None
-        chat_messages: list[ChatMessageData] = []
-        for record in records:
-            member_node_id = _optional_record_string(record, "member_node_id")
-            node_id = _optional_record_string(record, "node_id")
-            if node_id is None:
-                continue
-            chat_messages.append(
-                _chat_message_data(node_id, _record_properties(record))
-            )
-        scoped_chat_messages = scope_relevance_window(
-            chat_messages,
-            kind=None,
-            observed_at=lambda message: message.timestamp,
-            as_of=read_date,
-        )
+    chat_messages = read_chat_messages(member_id)
     return ChatMessagesResult(
-        chat_messages=scoped_chat_messages,
+        chat_messages=tuple(_chat_message_data(message) for message in chat_messages),
         node_ids=_node_ids(
-            member_node_id,
-            (message.node_id for message in scoped_chat_messages),
+            member_id,
+            (message.node_id for message in chat_messages),
         ),
     )
 
@@ -307,35 +259,12 @@ def get_chat_messages(member_id: str, as_of: date | None = None) -> ChatMessages
 @tool
 def get_member_goals(member_id: str, as_of: date | None = None) -> MemberGoalsResult:
     """Read current `Member -[:pursues]-> Goal` records, highest priority first."""
-    read_date = _read_date(as_of)
-    with neo4j_session() as session:
-        records = session.run(
-            "MATCH (member:Member {id: $member_id}) "
-            "OPTIONAL MATCH (member)-[:pursues]->(goal:Goal) "
-            "RETURN member.id AS member_node_id, goal.id AS node_id, "
-            "properties(goal) AS properties "
-            "ORDER BY goal.priority, goal.id",
-            member_id=member_id,
-        )
-        member_node_id: str | None = None
-        goals: list[GoalData] = []
-        for record in records:
-            member_node_id = _optional_record_string(record, "member_node_id")
-            node_id = _optional_record_string(record, "node_id")
-            if node_id is None:
-                continue
-            goals.append(_goal_data(node_id, _record_properties(record)))
-        scoped_goals = scope_relevance_window(
-            goals,
-            kind=None,
-            observed_at=lambda goal: goal.target_date,
-            as_of=read_date,
-        )
+    goals = read_member_goals(member_id)
     return MemberGoalsResult(
-        goals=scoped_goals,
+        goals=tuple(_goal_data(goal) for goal in goals),
         node_ids=_node_ids(
-            member_node_id,
-            (goal.node_id for goal in scoped_goals),
+            member_id,
+            (goal.node_id for goal in goals),
         ),
     )
 
@@ -345,50 +274,15 @@ def get_member_injuries(
     member_id: str, as_of: date | None = None
 ) -> MemberInjuriesResult:
     """Read current `Member -[:has]-> MemberInjury -[:exactMatch]-> ClinicalFinding` records."""
-    read_date = _read_date(as_of)
-    with neo4j_session() as session:
-        records = session.run(
-            "MATCH (member:Member {id: $member_id}) "
-            "OPTIONAL MATCH (member)-[:has]->(injury:MemberInjury) "
-            "OPTIONAL MATCH (injury)-[:exactMatch]->(finding:ClinicalFinding) "
-            "RETURN member.id AS member_node_id, injury.id AS node_id, "
-            "properties(injury) AS properties, "
-            "[node IN collect(DISTINCT finding) WHERE node IS NOT NULL | node.id] "
-            "AS clinical_finding_ids, injury.since AS sort_since "
-            "ORDER BY sort_since DESC, node_id",
-            member_id=member_id,
-        )
-        member_node_id: str | None = None
-        injuries: list[MemberInjuryData] = []
-        for record in records:
-            member_node_id = _optional_record_string(record, "member_node_id")
-            node_id = _optional_record_string(record, "node_id")
-            if node_id is None:
-                continue
-            clinical_finding_ids = tuple(
-                sorted(_record_strings(record, "clinical_finding_ids"))
-            )
-            injuries.append(
-                _member_injury_data(
-                    node_id,
-                    _record_properties(record),
-                    clinical_finding_ids,
-                )
-            )
-        scoped_injuries = scope_relevance_window(
-            injuries,
-            kind=None,
-            observed_at=lambda injury: injury.since,
-            as_of=read_date,
-        )
+    injuries = read_member_injuries(member_id)
     return MemberInjuriesResult(
-        injuries=scoped_injuries,
+        injuries=tuple(_member_injury_data(injury) for injury in injuries),
         node_ids=_node_ids(
-            member_node_id,
-            (injury.node_id for injury in scoped_injuries),
+            member_id,
+            (injury.node_id for injury in injuries),
             (
                 finding_node_id
-                for injury in scoped_injuries
+                for injury in injuries
                 for finding_node_id in injury.clinical_finding_ids
             ),
         ),
@@ -398,61 +292,23 @@ def get_member_injuries(
 @tool
 def get_morning_brief(member_id: str, as_of: date | None = None) -> MorningBriefResult:
     """Read the current-adherence-window brief through `addresses` and `evidencedBy`."""
-    read_date = _read_date(as_of)
-    with neo4j_session() as session:
-        record = session.run(
-            "MATCH (member:Member {id: $member_id}) "
-            "OPTIONAL MATCH (task:CoachTask {member_id: $member_id}) "
-            "OPTIONAL MATCH (task)-[:addresses]->(addressed) "
-            "WITH member, collect(DISTINCT {node_id: task.id, "
-            "properties: properties(task), addressed_node_id: addressed.id}) "
-            "AS task_rows "
-            "OPTIONAL MATCH (barrier:Barrier {member_id: $member_id}) "
-            "OPTIONAL MATCH (barrier)-[:evidencedBy]->(evidence) "
-            "RETURN member.id AS member_node_id, properties(member) AS properties, "
-            "task_rows, collect(DISTINCT {node_id: barrier.id, "
-            "properties: properties(barrier), evidence_node_id: evidence.id}) "
-            "AS barrier_rows",
-            member_id=member_id,
-        ).single()
-    if record is None:
-        return MorningBriefResult(morning_brief=None, node_ids=())
-
-    member_node_id = _record_string(record, "member_node_id")
-    properties = _record_properties(record)
-    coach_tasks = _coach_tasks(_record_mappings(record, "task_rows"))
-    barriers = _barriers(_record_mappings(record, "barrier_rows"))
-    scoped_briefs = scope_relevance_window(
-        (
-            MorningBriefData(
-                generated_for=_string(properties, "brief_generated_for"),
-                churn_risk_level=_string(properties, "churn_risk_level"),
-                churn_risk_reasons=_strings(properties, "churn_risk_reasons"),
-                barriers=barriers,
-                coach_tasks=coach_tasks,
-            ),
-        ),
-        kind="adherence-week",
-        observed_at=lambda brief: brief.generated_for,
-        as_of=read_date,
-    )
-    if not scoped_briefs:
-        return MorningBriefResult(morning_brief=None, node_ids=(member_node_id,))
-    morning_brief = scoped_briefs[0]
+    morning_brief = read_morning_brief(member_id, as_of=as_of)
+    if morning_brief is None:
+        return MorningBriefResult(morning_brief=None, node_ids=(member_id,))
     return MorningBriefResult(
-        morning_brief=morning_brief,
+        morning_brief=_morning_brief_data(morning_brief),
         node_ids=_node_ids(
-            member_node_id,
-            (task.node_id for task in coach_tasks),
+            member_id,
+            (task.node_id for task in morning_brief.coach_tasks),
             (
                 addressed_node_id
-                for task in coach_tasks
+                for task in morning_brief.coach_tasks
                 for addressed_node_id in task.addressed_node_ids
             ),
-            (barrier.node_id for barrier in barriers),
+            (barrier.node_id for barrier in morning_brief.barriers),
             (
                 evidence_node_id
-                for barrier in barriers
+                for barrier in morning_brief.barriers
                 for evidence_node_id in barrier.evidence_node_ids
             ),
         ),
@@ -464,36 +320,15 @@ def get_member_profile(
     member_id: str, as_of: date | None = None
 ) -> MemberProfileResult:
     """Read `Member -[:owns]-> Equipment` and `Member -[:dislikes]-> Exercise` with the Member profile."""
-    read_date = _read_date(as_of)
-    with neo4j_session() as session:
-        record = session.run(
-            "MATCH (member:Member {id: $member_id}) "
-            "OPTIONAL MATCH (member)-[:owns]->(equipment:Equipment) "
-            "WITH member, collect(DISTINCT equipment.id) AS equipment_node_ids "
-            "OPTIONAL MATCH (member)-[:dislikes]->(exercise:Exercise) "
-            "RETURN member.id AS member_node_id, properties(member) AS properties, "
-            "equipment_node_ids, collect(DISTINCT exercise.id) AS exercise_node_ids",
-            member_id=member_id,
-        ).single()
-    if record is None:
+    profile = read_member_profile(member_id)
+    if profile is None:
         return MemberProfileResult(profile=None, node_ids=())
-
-    member_node_id = _record_string(record, "member_node_id")
-    properties = _record_properties(record)
-    equipment_node_ids = sorted(_record_strings(record, "equipment_node_ids"))
-    exercise_node_ids = sorted(_record_strings(record, "exercise_node_ids"))
-    scoped_profiles = scope_relevance_window(
-        (_member_profile_data(member_node_id, properties),),
-        kind=None,
-        observed_at=lambda profile: profile.member_since,
-        as_of=read_date,
-    )
     return MemberProfileResult(
-        profile=scoped_profiles[0],
+        profile=_member_profile_data(profile),
         node_ids=_node_ids(
-            member_node_id,
-            equipment_node_ids,
-            exercise_node_ids,
+            profile.node_id,
+            profile.equipment_node_ids,
+            profile.exercise_node_ids,
         ),
     )
 
@@ -509,173 +344,126 @@ RETRIEVAL_TOOLS: tuple[BaseTool, ...] = (
 )
 
 
-def _observation_data(
-    node_id: str, properties: dict[str, Any], *, as_of: date
-) -> ObservationData:
-    kind = as_observation_kind(_string(properties, "kind"))
-    observed_at = _string(properties, "observed_at")
-    staleness = observation_staleness(kind, observed_at, as_of=as_of)
-    excluded = {
-        "id",
-        "member_id",
-        "kind",
-        "observed_at",
-        "value",
-        "unit",
-        "source",
-        "version",
-        "ingested_at",
-    }
-    measurements = tuple(
-        ObservationMeasurement(name=key, value=_observation_scalar(item, key))
-        for key, item in sorted(properties.items())
-        if key not in excluded
-    )
+def _observation_data(observation: ObservationView) -> ObservationData:
     return ObservationData(
-        node_id=node_id,
-        kind=kind,
-        observed_at=observed_at,
-        age_days=staleness.age_days,
-        stale=staleness.stale,
-        value=_optional_number(properties, "value"),
-        unit=_optional_string(properties, "unit"),
-        measurements=measurements,
+        node_id=observation.node_id,
+        kind=observation.kind,
+        observed_at=observation.observed_at,
+        age_days=observation.age_days,
+        stale=observation.stale,
+        value=observation.value,
+        unit=observation.unit,
+        measurements=tuple(
+            ObservationMeasurement(name=value.name, value=value.value)
+            for value in observation.measurements
+        ),
     )
 
 
-def _workout_session_data(
-    node_id: str,
-    properties: dict[str, Any],
-    exercise_ids: tuple[str, ...],
-) -> WorkoutSessionData:
+def _workout_session_data(workout: WorkoutSessionView) -> WorkoutSessionData:
     return WorkoutSessionData(
-        node_id=node_id,
-        date=_string(properties, "date"),
-        title=_string(properties, "title"),
-        planned=_bool(properties, "planned"),
-        completed=_bool(properties, "completed"),
-        duration_min=_int(properties, "duration_min"),
-        rpe=_optional_number(properties, "rpe"),
-        exercise_mentions=_strings(properties, "exercise_mentions"),
-        exercise_ids=exercise_ids,
+        node_id=workout.node_id,
+        date=workout.date,
+        title=workout.title,
+        planned=workout.planned,
+        completed=workout.completed,
+        duration_min=workout.duration_min,
+        rpe=workout.rpe,
+        exercise_mentions=workout.exercise_mentions,
+        exercise_ids=workout.exercise_ids,
     )
 
 
-def _chat_message_data(node_id: str, properties: dict[str, Any]) -> ChatMessageData:
-    sender = _string(properties, "sender")
-    if sender not in ("member", "coach"):
-        raise ValueError(f"ChatMessage {node_id} has unsupported sender {sender}")
+def _chat_message_data(message: ChatMessageView) -> ChatMessageData:
+    if message.sender not in ("member", "coach"):
+        raise ValueError(
+            f"ChatMessage {message.node_id} has unsupported sender {message.sender}"
+        )
     return ChatMessageData(
-        node_id=node_id,
-        timestamp=_string(properties, "timestamp"),
-        sender=sender,
-        text=_string(properties, "text"),
-        attachments_json=_optional_string(properties, "attachments_json"),
+        node_id=message.node_id,
+        timestamp=message.timestamp,
+        sender=message.sender,
+        text=message.text,
+        attachments_json=message.attachments_json,
     )
 
 
-def _goal_data(node_id: str, properties: dict[str, Any]) -> GoalData:
+def _goal_data(goal: GoalView) -> GoalData:
     return GoalData(
-        node_id=node_id,
-        external_id=_string(properties, "external_id"),
-        text=_string(properties, "text"),
-        priority=_int(properties, "priority"),
-        target_date=_optional_string(properties, "target_date"),
+        node_id=goal.node_id,
+        external_id=goal.external_id,
+        text=goal.text,
+        priority=goal.priority,
+        target_date=goal.target_date,
     )
 
 
-def _member_injury_data(
-    node_id: str,
-    properties: dict[str, Any],
-    clinical_finding_ids: tuple[str, ...],
-) -> MemberInjuryData:
+def _member_injury_data(injury: MemberInjuryView) -> MemberInjuryData:
     return MemberInjuryData(
-        node_id=node_id,
-        external_id=_string(properties, "external_id"),
-        region=_string(properties, "region"),
-        joint=_string(properties, "joint"),
-        status=_string(properties, "status"),
-        severity=_string(properties, "severity"),
-        since=_string(properties, "since"),
-        notes=_string(properties, "notes"),
-        snomedct_hint=_optional_string(properties, "snomedct_hint"),
-        clinical_finding_mentions=_strings(properties, "clinical_finding_mentions"),
-        clinical_finding_ids=clinical_finding_ids,
+        node_id=injury.node_id,
+        external_id=injury.external_id,
+        region=injury.region,
+        joint=injury.joint,
+        status=injury.status,
+        severity=injury.severity,
+        since=injury.since,
+        notes=injury.notes,
+        snomedct_hint=injury.snomedct_hint,
+        clinical_finding_mentions=injury.clinical_finding_mentions,
+        clinical_finding_ids=injury.clinical_finding_ids,
     )
 
 
-def _member_profile_data(node_id: str, properties: dict[str, Any]) -> MemberProfileData:
+def _member_profile_data(profile: MemberProfile) -> MemberProfileData:
     return MemberProfileData(
-        node_id=node_id,
-        name=_string(properties, "name"),
-        age=_int(properties, "age"),
-        sex=_string(properties, "sex"),
-        height_cm=_number(properties, "height_cm"),
-        weight_kg=_number(properties, "weight_kg"),
-        timezone=_string(properties, "timezone"),
-        member_since=_string(properties, "member_since"),
-        coach_id=_string(properties, "coach_id"),
-        tier=_string(properties, "tier"),
-        preferred_session_minutes=_int(properties, "preferred_session_minutes"),
-        training_days_per_week=_int(properties, "training_days_per_week"),
-        preferred_days=_strings(properties, "preferred_days"),
-        preference_notes=_string(properties, "preference_notes"),
-        equipment_available=_strings(properties, "equipment_available"),
-        dislikes=_strings(properties, "dislikes"),
+        node_id=profile.node_id,
+        name=profile.name,
+        age=profile.age,
+        sex=profile.sex,
+        height_cm=profile.height_cm,
+        weight_kg=profile.weight_kg,
+        timezone=profile.timezone,
+        member_since=profile.member_since,
+        coach_id=profile.coach_id,
+        tier=profile.tier,
+        preferred_session_minutes=profile.preferred_session_minutes,
+        training_days_per_week=profile.training_days_per_week,
+        preferred_days=profile.preferred_days,
+        preference_notes=profile.preference_notes,
+        equipment_available=profile.equipment_available,
+        dislikes=profile.dislikes,
     )
 
 
-def _coach_tasks(rows: list[Mapping[str, Any]]) -> tuple[CoachTaskData, ...]:
-    task_rows: dict[str, tuple[dict[str, Any], set[str]]] = {}
-    for row in rows:
-        node_id = _optional_mapping_string(row, "node_id")
-        if node_id is None:
-            continue
-        properties = _mapping_properties(row)
-        addressed_node_id = _optional_mapping_string(row, "addressed_node_id")
-        if node_id not in task_rows:
-            task_rows[node_id] = (properties, set())
-        if addressed_node_id is not None:
-            task_rows[node_id][1].add(addressed_node_id)
-    return tuple(
-        CoachTaskData(
-            node_id=node_id,
-            generated_for=_string(properties, "generated_for"),
-            type=_string(properties, "type"),
-            text=_string(properties, "text"),
-            status=_string(properties, "status"),
-            addressed_node_ids=tuple(sorted(addressed_node_ids)),
-        )
-        for node_id, (properties, addressed_node_ids) in sorted(
-            sorted(task_rows.items()),
-            key=lambda item: _string(item[1][0], "generated_for"),
-            reverse=True,
-        )
+def _morning_brief_data(morning_brief: MorningBrief) -> MorningBriefData:
+    return MorningBriefData(
+        generated_for=morning_brief.generated_for,
+        churn_risk_level=morning_brief.churn_risk_level,
+        churn_risk_reasons=morning_brief.churn_risk_reasons,
+        barriers=tuple(_barrier_data(barrier) for barrier in morning_brief.barriers),
+        coach_tasks=tuple(_coach_task_data(task) for task in morning_brief.coach_tasks),
     )
 
 
-def _barriers(rows: list[Mapping[str, Any]]) -> tuple[BarrierData, ...]:
-    barrier_rows: dict[str, tuple[dict[str, Any], set[str]]] = {}
-    for row in rows:
-        node_id = _optional_mapping_string(row, "node_id")
-        if node_id is None:
-            continue
-        properties = _mapping_properties(row)
-        evidence_node_id = _optional_mapping_string(row, "evidence_node_id")
-        if node_id not in barrier_rows:
-            barrier_rows[node_id] = (properties, set())
-        if evidence_node_id is not None:
-            barrier_rows[node_id][1].add(evidence_node_id)
-    return tuple(
-        BarrierData(
-            node_id=node_id,
-            kind=_string(properties, "kind"),
-            copper_id=_string(properties, "copper_id"),
-            reason=_string(properties, "reason"),
-            risk_level=_string(properties, "risk_level"),
-            evidence_node_ids=tuple(sorted(evidence_node_ids)),
-        )
-        for node_id, (properties, evidence_node_ids) in sorted(barrier_rows.items())
+def _barrier_data(barrier: BarrierView) -> BarrierData:
+    return BarrierData(
+        node_id=barrier.node_id,
+        kind=barrier.kind,
+        copper_id=barrier.copper_id,
+        reason=barrier.reason,
+        risk_level=barrier.risk_level,
+        evidence_node_ids=barrier.evidence_node_ids,
+    )
+
+
+def _coach_task_data(task: CoachTaskView) -> CoachTaskData:
+    return CoachTaskData(
+        node_id=task.node_id,
+        generated_for=task.generated_for,
+        type=task.type,
+        text=task.text,
+        status=task.status,
+        addressed_node_ids=task.addressed_node_ids,
     )
 
 
@@ -695,115 +483,3 @@ def _node_ids(
             seen.add(node_id)
             node_ids.append(node_id)
     return tuple(node_ids)
-
-
-def _record_properties(record: Record) -> dict[str, Any]:
-    properties = record["properties"]
-    if not isinstance(properties, Mapping):
-        raise TypeError("Expected properties to be a mapping")
-    return dict(properties)
-
-
-def _record_string(record: Record, key: str) -> str:
-    value = record[key]
-    if not isinstance(value, str):
-        raise TypeError(f"Expected {key} to be a string")
-    return value
-
-
-def _optional_record_string(record: Record, key: str) -> str | None:
-    value = record[key]
-    if value is not None and not isinstance(value, str):
-        raise TypeError(f"Expected {key} to be a string or null")
-    return value
-
-
-def _record_strings(record: Record, key: str) -> tuple[str, ...]:
-    value = record[key]
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise TypeError(f"Expected {key} to be a list of strings")
-    return tuple(value)
-
-
-def _record_mappings(record: Record, key: str) -> list[Mapping[str, Any]]:
-    value = record[key]
-    if not isinstance(value, list) or not all(
-        isinstance(item, Mapping) for item in value
-    ):
-        raise TypeError(f"Expected {key} to be a list of mappings")
-    return value
-
-
-def _mapping_properties(value: Mapping[str, Any]) -> dict[str, Any]:
-    properties = value.get("properties")
-    if not isinstance(properties, Mapping):
-        raise TypeError("Expected properties to be a mapping")
-    return dict(properties)
-
-
-def _optional_mapping_string(value: Mapping[str, Any], key: str) -> str | None:
-    item = value.get(key)
-    if item is not None and not isinstance(item, str):
-        raise TypeError(f"Expected {key} to be a string or null")
-    return item
-
-
-def _string(properties: Mapping[str, Any], key: str) -> str:
-    value = properties.get(key)
-    if not isinstance(value, str):
-        raise TypeError(f"Expected {key} to be a string")
-    return value
-
-
-def _optional_string(properties: Mapping[str, Any], key: str) -> str | None:
-    value = properties.get(key)
-    if value is not None and not isinstance(value, str):
-        raise TypeError(f"Expected {key} to be a string or null")
-    return value
-
-
-def _strings(properties: Mapping[str, Any], key: str) -> tuple[str, ...]:
-    value = properties.get(key)
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise TypeError(f"Expected {key} to be a list of strings")
-    return tuple(value)
-
-
-def _bool(properties: Mapping[str, Any], key: str) -> bool:
-    value = properties.get(key)
-    if not isinstance(value, bool):
-        raise TypeError(f"Expected {key} to be a boolean")
-    return value
-
-
-def _int(properties: Mapping[str, Any], key: str) -> int:
-    value = properties.get(key)
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise TypeError(f"Expected {key} to be an integer")
-    return value
-
-
-def _number(properties: Mapping[str, Any], key: str) -> int | float:
-    value = properties.get(key)
-    if not isinstance(value, int | float) or isinstance(value, bool):
-        raise TypeError(f"Expected {key} to be a number")
-    return value
-
-
-def _optional_number(properties: Mapping[str, Any], key: str) -> int | float | None:
-    value = properties.get(key)
-    if value is not None and (
-        not isinstance(value, int | float) or isinstance(value, bool)
-    ):
-        raise TypeError(f"Expected {key} to be a number or null")
-    return value
-
-
-def _observation_scalar(value: Any, name: str) -> ObservationScalar:
-    if not isinstance(value, str | int | float | bool):
-        raise TypeError(f"Expected Observation measurement {name} to be a scalar")
-    return value
-
-
-def _read_date(as_of: date | None) -> date:
-    return as_of or datetime.now(UTC).date()
