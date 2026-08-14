@@ -116,6 +116,9 @@ class _MovementPatternVocabulary:
     def token_aliases(self) -> Iterable[tuple[tuple[str, ...], tuple[str, ...]]]:
         return ()
 
+    def embeddings(self) -> None:
+        return None
+
 
 @dataclass(frozen=True)
 class KG1Payload:
