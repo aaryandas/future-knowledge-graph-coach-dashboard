@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, Self
 
+from openai import OpenAIError
+
 from ._model import Embedding
 
 EMBEDDING_SCHEMA_VERSION = 1
@@ -67,7 +69,10 @@ class ArtifactEmbeddings:
     def query(self, text: str) -> Embedding | None:
         if self._provider is None:
             return None
-        embedding = self._provider.embed_query(text)
+        try:
+            embedding = self._provider.embed_query(text)
+        except (ConnectionError, OpenAIError, TimeoutError):
+            return None
         if embedding is None:
             return None
         return _optional_embedding(embedding, self.dimensions)

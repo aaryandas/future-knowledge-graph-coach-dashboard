@@ -5,8 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from app.resolver import ArtifactVocabulary, resolve
-from app.resolver._embeddings import ArtifactEmbeddings
+from app.resolver import ArtifactEmbeddings, ArtifactVocabulary, resolve
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CASES_PATH = Path(__file__).parent / "cases" / "resolver.json"
@@ -36,6 +35,11 @@ class FixtureEmbeddingProvider:
 class OfflineEmbeddingProvider:
     def embed_query(self, text: str) -> None:
         return None
+
+
+class FailingEmbeddingProvider:
+    def embed_query(self, text: str) -> tuple[float, ...]:
+        raise ConnectionError("embedding provider is offline")
 
 
 EQUIPMENT_EMBEDDINGS = ArtifactEmbeddings.from_file(
@@ -113,6 +117,24 @@ def test_vector_pass_skips_cleanly_without_an_embedding(
     embeddings = ArtifactEmbeddings.from_file(
         EQUIPMENT_EMBEDDINGS_PATH,
         provider=provider,
+    )
+    vocabulary = ArtifactVocabulary.from_file(
+        EXERCISES_PATH,
+        kind="Equipment",
+        synonyms_path=SYNONYMS_PATH,
+        embeddings=embeddings,
+    )
+
+    resolution = resolve("portable hand weights", vocabulary)
+
+    assert resolution.concept_id is None
+    assert resolution.pass_ == "none"
+
+
+def test_vector_pass_degrades_when_embedding_provider_connection_fails() -> None:
+    embeddings = ArtifactEmbeddings.from_file(
+        EQUIPMENT_EMBEDDINGS_PATH,
+        provider=FailingEmbeddingProvider(),
     )
     vocabulary = ArtifactVocabulary.from_file(
         EXERCISES_PATH,
