@@ -44,14 +44,14 @@ model. Tests use the small committed fixtures under `backend/tests/fixtures/` an
 OpenRouter.
 
 Railway supplies `OPENROUTER_API_KEY` to the deployed backend from the backend service
-variables. The artifact build uses the key to create the committed concept vectors. An ad hoc
-or acceptance resolve run can also use the key to embed query text. That run must explicitly
+variables. The artifact build uses the key to create the committed concept vectors. An acceptance
+check can also use the key to embed query text. That run must
 configure the vocabulary with the matching embedding artifact and an OpenRouter embedding
 provider.
 
 The deployed generation runtime does not configure an embedding artifact or provider. It
 runs the exact and fuzzy passes without vector embeddings and does not make vector queries.
-For an explicitly configured local live check, read the variable with the logged-in Railway
+For a local live check with a configured resolver, read the variable with the logged-in Railway
 CLI from the linked project:
 
 ```sh
