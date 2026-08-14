@@ -1,39 +1,26 @@
-import pickle
+from collections.abc import Iterator
+from contextlib import contextmanager
 from inspect import signature
-from typing import Any, cast
+from typing import cast
 
 import pytest
-from app.generation import run_generation_session
+from app.generation import GenerationTurn, run_generation_session
 from app.generation.testing import (
     CatalogExercise,
     FakeAnnotationLLM,
     FakeLLM,
     GenerationMemberContext,
-    GenerationTurn,
+    InMemorySaver,
     LLMProviderError,
     ResolvedMention,
     TraceEvent,
     Verdict,
     WalkedPath,
-    run_checkpointed_session,
+    generation_test_adapters,
 )
-from langgraph.checkpoint.memory import InMemorySaver
 
 MEMBER_ID = "mbr_01HX9JORDAN"
 THREAD_ID = "annotation-test-thread"
-
-
-class _PickleSerializer:
-    def dumps_typed(self, obj: Any) -> tuple[str, bytes]:
-        return "pickle", pickle.dumps(obj)
-
-    def loads_typed(self, data: tuple[str, bytes]) -> Any:
-        _, value = data
-        return pickle.loads(value)
-
-
-def _in_memory_generation_checkpointer() -> InMemorySaver:
-    return InMemorySaver(serde=_PickleSerializer())
 
 
 def test_generation_session_streams_each_template_as_its_pair_validates() -> None:
@@ -61,24 +48,24 @@ def test_generation_session_streams_each_template_as_its_pair_validates() -> Non
             },
         ]
     )
-    checkpointer = _in_memory_generation_checkpointer()
-    turn = _run_turn(annotation_llm=annotation_llm, checkpointer=checkpointer)
-    parts = iter(turn.coaching_note_parts)
 
-    assert not any(event.kind == "agent" for event in turn.trace)
-    assert next(parts) == "Reduce the load on Box Squat."
-    assert annotation_llm.parts_requested == 1
-    assert tuple(parts) == ("Stop Box Squat if you feel pain.",)
-    assert len(annotation_llm.calls) == 1
-    system_prompt = str(annotation_llm.calls[0][0].content)
-    plan_context = str(annotation_llm.calls[0][1].content)
-    assert "structured caution form" in system_prompt
-    assert "caution_text" not in system_prompt
-    assert "plan_item_id=ex-main" in plan_context
-    assert [event.kind for event in _checkpoint_trace(checkpointer)[-2:]] == [
-        "agent",
-        "agent",
-    ]
+    with _run_turn(annotation_llm=annotation_llm) as (turn, checkpointer):
+        parts = iter(turn.coaching_note_parts)
+
+        assert not any(event.kind == "agent" for event in turn.trace)
+        assert next(parts) == "Reduce the load on Box Squat."
+        assert annotation_llm.parts_requested == 1
+        assert tuple(parts) == ("Stop Box Squat if you feel pain.",)
+        assert len(annotation_llm.calls) == 1
+        system_prompt = str(annotation_llm.calls[0][0].content)
+        plan_context = str(annotation_llm.calls[0][1].content)
+        assert "structured caution form" in system_prompt
+        assert "caution_text" not in system_prompt
+        assert "plan_item_id=ex-main" in plan_context
+        assert [event.kind for event in _checkpoint_trace(checkpointer)[-2:]] == [
+            "agent",
+            "agent",
+        ]
 
 
 @pytest.mark.parametrize(
@@ -152,9 +139,8 @@ def test_generation_session_only_emits_closed_pair_templates(
     payload: dict[str, object],
     expected: tuple[str, ...],
 ) -> None:
-    turn = _run_turn(annotation_llm=FakeAnnotationLLM([payload]))
-
-    assert tuple(turn.coaching_note_parts) == expected
+    with _run_turn(annotation_llm=FakeAnnotationLLM([payload])) as (turn, _):
+        assert tuple(turn.coaching_note_parts) == expected
 
 
 @pytest.mark.parametrize(
@@ -183,9 +169,8 @@ def test_generation_session_renders_each_tightening_kind_from_a_fixed_template(
         ]
     )
 
-    turn = _run_turn(annotation_llm=annotation_llm)
-
-    assert tuple(turn.coaching_note_parts) == (expected,)
+    with _run_turn(annotation_llm=annotation_llm) as (turn, _):
+        assert tuple(turn.coaching_note_parts) == (expected,)
 
 
 def test_generation_session_drops_the_whole_note_on_mid_note_provider_error() -> None:
@@ -201,22 +186,23 @@ def test_generation_session_drops_the_whole_note_on_mid_note_provider_error() ->
             LLMProviderError("offline"),
         ]
     )
-    checkpointer = _in_memory_generation_checkpointer()
-    turn = _run_turn(annotation_llm=annotation_llm, checkpointer=checkpointer)
 
-    assert tuple(turn.coaching_note_parts) == ()
-    assert annotation_llm.parts_requested == 2
-    assert not any(event.kind == "agent" for event in _checkpoint_trace(checkpointer))
+    with _run_turn(annotation_llm=annotation_llm) as (turn, checkpointer):
+        assert tuple(turn.coaching_note_parts) == ()
+        assert annotation_llm.parts_requested == 2
+        assert not any(
+            event.kind == "agent" for event in _checkpoint_trace(checkpointer)
+        )
 
 
 def test_generation_session_without_an_api_key_has_no_coaching_note(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    turn = _run_turn()
 
-    assert tuple(turn.coaching_note_parts) == ()
-    assert not any(event.kind == "agent" for event in turn.trace)
+    with _run_turn() as (turn, _):
+        assert tuple(turn.coaching_note_parts) == ()
+        assert not any(event.kind == "agent" for event in turn.trace)
 
 
 def test_generation_service_facade_exposes_only_session_inputs() -> None:
@@ -229,17 +215,12 @@ def test_generation_service_facade_exposes_only_session_inputs() -> None:
     )
 
 
+@contextmanager
 def _run_turn(
     *,
     annotation_llm: FakeAnnotationLLM | None = None,
-    checkpointer: InMemorySaver | None = None,
-) -> GenerationTurn:
-    return run_checkpointed_session(
-        MEMBER_ID,
-        "Build a careful full-body workout.",
-        20,
-        THREAD_ID,
-        checkpointer=checkpointer or _in_memory_generation_checkpointer(),
+) -> Iterator[tuple[GenerationTurn, InMemorySaver]]:
+    with generation_test_adapters(
         llm=FakeLLM(
             [
                 {
@@ -252,14 +233,23 @@ def _run_turn(
             ]
         ),
         annotation_llm=annotation_llm,
-        message_id="annotation-user-message",
         catalog_reader=_catalog,
         member_context_reader=lambda member_id: GenerationMemberContext(
             equipment_ids=(),
             disliked_exercise_ids=(),
         ),
         verdict_evaluator=_clear_verdicts,
-    )
+    ) as checkpointer:
+        yield (
+            run_generation_session(
+                MEMBER_ID,
+                "Build a careful full-body workout.",
+                20,
+                THREAD_ID,
+                "annotation-user-message",
+            ),
+            checkpointer,
+        )
 
 
 def _checkpoint_trace(checkpointer: InMemorySaver) -> tuple[TraceEvent, ...]:

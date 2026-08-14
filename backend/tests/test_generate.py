@@ -2,7 +2,16 @@ import json
 
 from app.api.generate import TurnRunner, create_generate_router
 from app.generation import GenerationTurn
-from app.generation.testing import AgentTraceEvent, Plan, PlanEntry, PlanSection
+from app.generation.testing import (
+    AgentTraceEvent,
+    ConstraintSet,
+    Plan,
+    PlanEntry,
+    PlanSection,
+    Resolution,
+    ResolvedIntent,
+    ResolvedMention,
+)
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -24,9 +33,9 @@ def test_generate_stream_calls_the_generation_session_seam() -> None:
         assert message_id == "user-1"
         return GenerationTurn(
             message_id="user-1-assistant",
-            plan=None,
+            plan=_plan(),
             trace=(),
-            resolved_intent=None,
+            resolved_intent=_resolved_intent(),
             failure=None,
             text="Session ready.",
         )
@@ -52,9 +61,11 @@ def test_generate_stream_calls_the_generation_session_seam() -> None:
     )
 
     assert response.status_code == 200
-    assert [event["type"] for event in _events(response.text)] == [
+    events = _events(response.text)
+    assert [event["type"] for event in events] == [
         "start",
         "start-step",
+        "data-plan",
         "data-trace",
         "data-constraints",
         "text-start",
@@ -63,6 +74,22 @@ def test_generate_stream_calls_the_generation_session_seam() -> None:
         "finish-step",
         "finish",
     ]
+    data_parts = [event for event in events if str(event["type"]).startswith("data-")]
+    assert [(part["type"], part["id"]) for part in data_parts] == [
+        ("data-plan", "generation-plan"),
+        ("data-trace", "generation-trace"),
+        ("data-constraints", "generation-constraints"),
+    ]
+    constraints_part = next(
+        part for part in data_parts if part["type"] == "data-constraints"
+    )
+    constraints_data = constraints_part["data"]
+    assert isinstance(constraints_data, dict)
+    suggestions = constraints_data["session_injury_persistence_suggestions"]
+    assert isinstance(suggestions, list)
+    suggestion = suggestions[0]
+    assert isinstance(suggestion, dict)
+    assert suggestion["requires_confirmation"] is True
 
 
 def test_coaching_note_text_parts_stream_after_plan_and_trace() -> None:
@@ -177,4 +204,28 @@ def _plan() -> Plan:
         cool_down=PlanSection(section="cool-down", entries=(entry,), minutes=3.0),
         requested_minutes=20,
         packed_minutes=20.0,
+    )
+
+
+def _resolved_intent() -> ResolvedIntent:
+    knee = ResolvedMention(
+        purpose="session injury",
+        vocabulary="Joint",
+        resolution=Resolution(
+            concept_id="fkg:joint/knee",
+            confidence=1.0,
+            pass_="exact",
+            candidates=(),
+            raw_text="knee",
+            modifiers=(),
+        ),
+        enforced=True,
+    )
+    return ResolvedIntent(
+        targets=(),
+        constraints=ConstraintSet(
+            exclusions=(),
+            session_injuries=(knee,),
+            equipment_override=None,
+        ),
     )
