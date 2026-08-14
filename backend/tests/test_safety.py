@@ -119,7 +119,7 @@ def test_safety_layers_return_verdicts_with_walked_paths(
         (
             SessionInjury(concept_id="fkg:joint/knee", kind="Joint"),
             CYCLIST_SQUAT_ID,
-            "SNOMED anatomical fallback",
+            "clinical directive",
             ("Joint", "Exercise"),
         ),
     ),
@@ -269,7 +269,9 @@ def test_resolver_parsed_clinical_clearance_has_highest_precedence(
     assert decision.layer == "clinical directive"
 
 
-def test_clinical_directive_walks_the_connected_joint_path(tmp_path: Path) -> None:
+def test_session_injury_clinical_directive_matches_recorded_injury(
+    tmp_path: Path,
+) -> None:
     data_directory = tmp_path / "data"
     shutil.copytree(DATA_DIRECTORY, data_directory)
     member_path = data_directory / "member-context.json"
@@ -281,25 +283,44 @@ def test_clinical_directive_walks_the_connected_joint_path(tmp_path: Path) -> No
 
     try:
         ingest_kg2(data_directory)
-        (verdict,) = evaluate_safety(member_id, (CYCLIST_SQUAT_ID,))
+        (recorded_verdict,) = evaluate_safety(member_id, (CYCLIST_SQUAT_ID,))
+        (session_verdict,) = evaluate_safety(
+            "mbr_session_only",
+            (CYCLIST_SQUAT_ID,),
+            session_injuries=(
+                SessionInjury(concept_id="fkg:joint/knee", kind="Joint"),
+            ),
+        )
     finally:
         ingest_kg2()
 
-    decision = verdict.decisions[0]
-    assert verdict.status == "exclude"
+    decision = recorded_verdict.decisions[0]
+    assert recorded_verdict.status == "exclude"
     assert decision.kind == "graph"
     assert decision.layer == "clinical directive"
     assert decision.reason == "Clinical directive: exclude knee"
-    assert tuple(node.kind for node in verdict.walked_path.nodes) == (
+    assert tuple(node.kind for node in recorded_verdict.walked_path.nodes) == (
         "MemberInjury",
         "Joint",
         "Exercise",
     )
-    assert tuple(edge.kind for edge in verdict.walked_path.edges) == (
+    assert tuple(edge.kind for edge in recorded_verdict.walked_path.edges) == (
         "clinicalDirective",
         "loads",
     )
-    assert len(verdict.walked_path.edges) == len(verdict.walked_path.nodes) - 1
+    session_decision = session_verdict.decisions[0]
+    assert session_decision.kind == "graph"
+    assert (
+        session_verdict.status,
+        session_decision.layer,
+    ) == (
+        recorded_verdict.status,
+        decision.layer,
+    )
+    assert (
+        len(recorded_verdict.walked_path.edges)
+        == len(recorded_verdict.walked_path.nodes) - 1
+    )
 
 
 def test_resolved_injury_stays_visible_without_softening_another_injury(
