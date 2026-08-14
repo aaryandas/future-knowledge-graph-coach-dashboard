@@ -14,6 +14,9 @@ importers:
       '@base-ui/react':
         specifier: ^1.7.0
         version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      ai:
+        specifier: ^7.0.65
+        version: 7.0.65(zod@4.4.3)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1

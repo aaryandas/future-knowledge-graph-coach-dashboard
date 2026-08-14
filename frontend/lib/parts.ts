@@ -1,3 +1,124 @@
+import type { UIMessage } from "@ai-sdk/react";
+
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+export interface Source {
+  tool: string;
+  node_ids: string[];
+}
+
+export interface DataSources {
+  sources: Source[];
+}
+
+export interface DataSourcesPart {
+  type: "data-sources";
+  data: DataSources;
+}
+
+export interface DataPart {
+  type: string;
+  data: JsonValue;
+}
+
+export type ResolutionPurpose =
+  | "target"
+  | "exclusion"
+  | "session injury"
+  | "equipment override";
+
+export type ResolutionVocabulary =
+  | "Exercise"
+  | "MuscleGroup"
+  | "Joint"
+  | "Equipment"
+  | "AnatomicalStructure"
+  | "ClinicalFinding";
+
+export type ResolverPass = "exact" | "fuzzy" | "vector" | "none";
+
+export interface ResolutionCandidate {
+  concept_id: string;
+  preferred_term: string;
+  confidence: number;
+}
+
+export interface ResolvedMention {
+  purpose: ResolutionPurpose;
+  vocabulary: ResolutionVocabulary;
+  raw_text: string;
+  concept_id: string | null;
+  confidence: number;
+  pass: ResolverPass;
+  candidates: ResolutionCandidate[];
+  modifiers: string[];
+  enforced: boolean;
+  message: string | null;
+}
+
+export interface ConstraintSet {
+  exclusions: ResolvedMention[];
+  session_injuries: ResolvedMention[];
+  equipment_override: ResolvedMention[] | null;
+}
+
+export type GenerationFailureReason =
+  | "llm-unavailable"
+  | "provider-error"
+  | "invalid-output"
+  | "member-not-found"
+  | "empty-section"
+  | "minimum-plan-exceeds-window";
+
+export type PlanSectionName = "warm-up" | "main" | "cool-down";
+export type Verdict = "exclude" | "caution" | "clear";
+
+export interface GenerationFailure {
+  reason: GenerationFailureReason;
+  message: string;
+  section: PlanSectionName | null;
+  attempts: number | null;
+}
+
+export interface PlanEntry {
+  exercise_id: string;
+  name: string;
+  sets: number;
+  reps: number | null;
+  hold_minutes: number | null;
+  rest_minutes: number;
+  per_side: boolean;
+  supports_weight: boolean;
+  verdict: Verdict;
+  caution_note: string | null;
+  minutes: number;
+}
+
+export interface PlanSection {
+  section: PlanSectionName;
+  entries: PlanEntry[];
+  minutes: number;
+}
+
+export interface Plan {
+  warm_up: PlanSection;
+  main: PlanSection;
+  cool_down: PlanSection;
+  requested_minutes: number;
+  packed_minutes: number;
+}
+
+export interface DataPlanPart {
+  type: "data-plan";
+  data: Plan;
+}
+
 export type GraphNodeKind =
   | "Exercise"
   | "MuscleGroup"
@@ -34,8 +155,93 @@ export type GraphEdgeKind =
   | "received"
   | "dislikes"
   | "included"
+  | "clinicalDirective"
   | "evidencedBy"
   | "addresses";
+
+export interface WalkedNode {
+  node_id: string;
+  kind: GraphNodeKind;
+  name: string | null;
+}
+
+export interface WalkedEdge {
+  edge_id: string;
+  kind: GraphEdgeKind;
+  source_id: string;
+  target_id: string;
+}
+
+export interface WalkedPath {
+  nodes: WalkedNode[];
+  edges: WalkedEdge[];
+}
+
+export interface ResolutionTraceEvent {
+  kind: "resolution";
+  purpose: ResolutionPurpose;
+  vocabulary: ResolutionVocabulary;
+  raw_text: string;
+  concept_id: string | null;
+  confidence: number;
+  pass: ResolverPass;
+  candidates: ResolutionCandidate[];
+  modifiers: string[];
+  enforced: boolean;
+  reason: string;
+  used: string[];
+  wasGeneratedBy: "resolve";
+  wasAttributedTo: "graph";
+}
+
+export interface VerdictTraceEvent {
+  kind: "verdict";
+  exercise_id: string;
+  status: Verdict;
+  layer:
+    | "clinical directive"
+    | "contraindication"
+    | "SNOMED anatomical fallback"
+    | null;
+  reason: string;
+  walked_path: WalkedPath;
+  used: string[];
+  wasGeneratedBy: "evaluate_safety";
+  wasAttributedTo: "graph" | "agent";
+}
+
+export interface PackingTraceEvent {
+  kind: "packing";
+  action: "filtered" | "selected" | "cut";
+  section: PlanSectionName | null;
+  exercise_id: string;
+  reason: string;
+  used: string[];
+  score: number | null;
+  wasGeneratedBy: "pack";
+  wasAttributedTo: "graph";
+}
+
+export type TraceEvent =
+  | ResolutionTraceEvent
+  | VerdictTraceEvent
+  | PackingTraceEvent;
+
+export interface DataTracePart {
+  type: "data-trace";
+  data: TraceEvent[];
+}
+
+export interface ConstraintsData {
+  targets: ResolvedMention[];
+  constraints: ConstraintSet;
+  failure: GenerationFailure | null;
+}
+
+export interface DataConstraintsPart {
+  type: "data-constraints";
+  data: ConstraintsData;
+}
 
 export type GraphName =
   | "Movement/Clinical Graph (KG1)"
@@ -155,3 +361,24 @@ export interface MemberSnapshotPart {
   morning_brief: MorningBriefSnapshot;
   journey_stage: JourneyStageSnapshot;
 }
+
+export type ChatDataParts = {
+  plan: Plan;
+  trace: TraceEvent[];
+  constraints: ConstraintsData;
+  sources: DataSources;
+  chart: JsonValue;
+  brief: JsonValue;
+  action: JsonValue;
+};
+
+export type DashboardMessage = UIMessage<unknown, ChatDataParts>;
+
+export type TypedDataPart =
+  | DataPlanPart
+  | DataTracePart
+  | DataConstraintsPart
+  | DataSourcesPart
+  | GraphNeighborhoodPart
+  | MemberSnapshotPart
+  | DataPart;
