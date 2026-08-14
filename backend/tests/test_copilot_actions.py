@@ -2,9 +2,9 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import cast
 
-import pytest
 from app.copilot.testing import (
     CoachAction,
+    CopilotConflict,
     CopilotToneFact,
     CopilotTurn,
     FakeCopilotLLM,
@@ -48,6 +48,7 @@ def test_send_member_message_pauses_with_the_exact_data_action() -> None:
     )
 
     assert writer.calls == []
+    assert isinstance(turn, CopilotTurn)
     assert turn.text == "Review this proposed coach action."
     assert _action_payload(turn) == {
         "action_id": "send-1",
@@ -109,6 +110,7 @@ def test_confirm_uses_the_edited_message_once_and_replaces_the_pending_card() ->
             coach_task_id="task-1",
         )
     ]
+    assert isinstance(turn, CopilotTurn)
     assert turn.text == "Message sent."
     assert _action_payload(turn)["status"] == "confirmed"
     history = replay_copilot_history(MEMBER_ID, checkpointer=checkpointer)
@@ -147,6 +149,7 @@ def test_discard_resumes_the_interrupt_without_calling_the_writer() -> None:
     )
 
     assert writer.calls == []
+    assert isinstance(turn, CopilotTurn)
     assert turn.text == "Action discarded."
     assert _action_payload(turn)["status"] == "discarded"
 
@@ -173,16 +176,20 @@ def test_pending_action_blocks_a_new_member_thread_turn() -> None:
         action_writer=writer,
     )
 
-    with pytest.raises(ValueError, match="Resolve the pending coach action"):
-        run_copilot_turn(
-            MEMBER_ID,
-            "Start another turn",
-            checkpointer=checkpointer,
-            llm=llm,
-            retrieval_tools=(),
-            tone_fact_reader=_no_tone_facts,
-            action_writer=writer,
-        )
+    result = run_copilot_turn(
+        MEMBER_ID,
+        "Start another turn",
+        checkpointer=checkpointer,
+        llm=llm,
+        retrieval_tools=(),
+        tone_fact_reader=_no_tone_facts,
+        action_writer=writer,
+    )
+
+    assert result == CopilotConflict(
+        kind="pending-action",
+        detail="Resolve the pending coach action before starting a new turn.",
+    )
 
 
 def test_confirmed_task_update_emits_the_current_data_brief_before_data_action() -> (
@@ -225,6 +232,7 @@ def test_confirmed_task_update_emits_the_current_data_brief_before_data_action()
             status="completed",
         )
     ]
+    assert isinstance(turn, CopilotTurn)
     assert [part.type for part in turn.data_parts] == [
         "data-sources",
         "data-brief",
@@ -263,6 +271,7 @@ def test_pending_action_resumes_after_postgres_checkpointer_restart() -> None:
                 tone_fact_reader=_no_tone_facts,
                 action_writer=writer,
             )
+        assert isinstance(proposed, CopilotTurn)
         assert _action_payload(proposed)["status"] == "pending"
 
         with open_postgres_checkpointer() as checkpointer:
@@ -275,6 +284,7 @@ def test_pending_action_resumes_after_postgres_checkpointer_restart() -> None:
                 action_writer=writer,
             )
 
+        assert isinstance(confirmed, CopilotTurn)
         assert _action_payload(confirmed)["status"] == "confirmed"
         assert len(writer.calls) == 1
     finally:

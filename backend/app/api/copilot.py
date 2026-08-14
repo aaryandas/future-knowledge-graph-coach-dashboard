@@ -12,9 +12,11 @@ from pydantic import BaseModel, ConfigDict, JsonValue
 from app.api.copilot_action_models import DataAction, DataActionPart
 from app.api.copilot_brief_models import DataBrief, DataBriefPart
 from app.copilot import (
+    CopilotConflict,
     CopilotDataPart,
     CopilotHistoryMessage,
     CopilotTurn,
+    CopilotTurnResult,
     replay_copilot_history,
     run_copilot_turn,
 )
@@ -84,7 +86,7 @@ class CopilotHistory(BaseModel):
     messages: list[CopilotReplayMessage]
 
 
-type TurnRunner = Callable[[str, str, str], CopilotTurn]
+type TurnRunner = Callable[[str, str, str], CopilotTurnResult]
 type HistoryReader = Callable[[str], tuple[CopilotHistoryMessage, ...]]
 
 _DATA_PART_ORDER = {
@@ -116,7 +118,7 @@ def create_copilot_router(
             )
         user_message = _latest_user_message(request.messages)
         try:
-            turn = run_turn(
+            result = run_turn(
                 member_id,
                 _message_text(user_message.parts),
                 user_message.id,
@@ -126,10 +128,10 @@ def create_copilot_router(
                 status_code=503,
                 detail="Copilot thread storage is unavailable.",
             ) from error
-        except ValueError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
+        if isinstance(result, CopilotConflict):
+            raise HTTPException(status_code=409, detail=result.detail)
         return StreamingResponse(
-            copilot_turn_stream(turn),
+            copilot_turn_stream(result),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -159,7 +161,7 @@ def _run_turn(
     member_id: str,
     message: str,
     message_id: str,
-) -> CopilotTurn:
+) -> CopilotTurnResult:
     return run_copilot_turn(
         member_id,
         message,

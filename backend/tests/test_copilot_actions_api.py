@@ -3,7 +3,12 @@ import json
 from app.api.copilot_action_models import DataActionPart
 from app.api.copilot_actions import ActionResumer, create_copilot_actions_router
 from app.api.copilot_brief_models import DataBriefPart
-from app.copilot import CopilotDataPart, CopilotTurn
+from app.copilot import (
+    CopilotConflict,
+    CopilotDataPart,
+    CopilotTurn,
+    CopilotTurnResult,
+)
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -73,8 +78,11 @@ def test_confirm_route_maps_a_non_pending_action_to_conflict() -> None:
         member_id: str,
         action_id: str,
         resolution: dict[str, object],
-    ) -> CopilotTurn:
-        raise ValueError("The member thread has no pending coach action.")
+    ) -> CopilotTurnResult:
+        return CopilotConflict(
+            kind="no-pending-action",
+            detail="The member thread has no pending coach action.",
+        )
 
     response = _client(reject_action).post(
         f"/api/members/{MEMBER_ID}/copilot/actions/missing/confirm",

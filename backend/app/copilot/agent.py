@@ -108,6 +108,23 @@ class CopilotTurn:
     data_parts: tuple[CopilotDataPart, ...]
 
 
+type CopilotConflictKind = Literal[
+    "pending-action",
+    "no-pending-action",
+    "action-id-mismatch",
+    "invalid-resolution",
+]
+
+
+@dataclass(frozen=True)
+class CopilotConflict:
+    kind: CopilotConflictKind
+    detail: str
+
+
+type CopilotTurnResult = CopilotTurn | CopilotConflict
+
+
 @dataclass(frozen=True)
 class CopilotHistoryMessage:
     id: str
@@ -150,7 +167,7 @@ def run_copilot_turn(
     retrieval_tools: Sequence[BaseTool] = RETRIEVAL_TOOLS,
     tone_fact_reader: CopilotToneFactReader = get_copilot_tone_facts,
     action_writer: CoachActionWriter = write_coach_action,
-) -> CopilotTurn:
+) -> CopilotTurnResult:
     """Run one checkpointed copilot turn for the member's single thread."""
     user_text = message.strip()
     if not user_text:
@@ -170,7 +187,10 @@ def run_copilot_turn(
         action_writer,
     )
     if graph.get_state(_thread_config(member_id)).interrupts:
-        raise ValueError("Resolve the pending coach action before starting a new turn.")
+        return CopilotConflict(
+            kind="pending-action",
+            detail="Resolve the pending coach action before starting a new turn.",
+        )
     state = cast(
         "_CopilotState",
         graph.invoke(
@@ -198,7 +218,7 @@ def resume_copilot_action(
     checkpointer: BaseCheckpointSaver[Any],
     retrieval_tools: Sequence[BaseTool] = RETRIEVAL_TOOLS,
     action_writer: CoachActionWriter = write_coach_action,
-) -> CopilotTurn:
+) -> CopilotTurnResult:
     """Resume the member thread at its pending coach action interrupt."""
     graph = _build_graph(
         None,
@@ -210,20 +230,42 @@ def resume_copilot_action(
         action_writer,
     )
     snapshot = graph.get_state(_thread_config(member_id))
+    if not snapshot.interrupts:
+        return CopilotConflict(
+            kind="no-pending-action",
+            detail="The member thread has no pending coach action.",
+        )
     if len(snapshot.interrupts) != 1:
-        raise ValueError("The member thread has no pending coach action.")
+        raise RuntimeError(
+            "A member thread cannot have multiple coach action interrupts."
+        )
     interrupt_value = snapshot.interrupts[0].value
     if (
         not isinstance(interrupt_value, dict)
         or interrupt_value.get("type") != "data-action"
         or not isinstance((data := interrupt_value.get("data")), dict)
-        or data.get("action_id") != action_id
     ):
-        raise ValueError("The pending coach action does not match this action id.")
+        raise RuntimeError(
+            "A coach action interrupt must contain a data-action payload."
+        )
+    if data.get("action_id") != action_id:
+        return CopilotConflict(
+            kind="action-id-mismatch",
+            detail="The pending coach action does not match this action id.",
+        )
+    pending_action = coach_action_from_payload(data)
+    if pending_action is None:
+        raise RuntimeError("A coach action interrupt requires a pending action.")
+    resume_value = {"action_id": action_id, **resolution}
+    if coach_action_decision(pending_action, resume_value) is None:
+        return CopilotConflict(
+            kind="invalid-resolution",
+            detail="The coach action resolution is invalid.",
+        )
     state = cast(
         "_CopilotState",
         graph.invoke(
-            Command(resume={"action_id": action_id, **resolution}),
+            Command(resume=resume_value),
             _thread_config(member_id),
         ),
     )
@@ -245,7 +287,7 @@ def run_quick_prompt(
     as_of: date | None = None,
     retrieval_tools: Sequence[BaseTool] = RETRIEVAL_TOOLS,
     tone_fact_reader: CopilotToneFactReader = get_copilot_tone_facts,
-) -> CopilotTurn:
+) -> CopilotTurnResult:
     prompt = next(prompt for prompt in QUICK_PROMPTS if prompt.id == quick_prompt_id)
     return run_copilot_turn(
         member_id,
@@ -417,7 +459,7 @@ def _build_graph(
         )
         decision = coach_action_decision(pending_action, resumed)
         if decision is None:
-            raise ValueError("The coach action resolution is invalid.")
+            raise RuntimeError("A validated coach action resolution must be valid.")
         sources = _sources(state["messages"])
         if decision.decision == "discard":
             return {

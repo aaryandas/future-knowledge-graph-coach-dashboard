@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.api.copilot import copilot_turn_stream
 from app.api.copilot_action_models import CoachAction
-from app.copilot import CopilotTurn, resume_copilot_action
+from app.copilot import CopilotConflict, CopilotTurnResult, resume_copilot_action
 
 
 class CoachActionResolution(BaseModel):
@@ -21,7 +21,7 @@ class CoachActionResolution(BaseModel):
     action: CoachAction | None = None
 
 
-type ActionResumer = Callable[[str, str, dict[str, object]], CopilotTurn]
+type ActionResumer = Callable[[str, str, dict[str, object]], CopilotTurnResult]
 
 
 def create_copilot_actions_router(
@@ -39,9 +39,7 @@ def create_copilot_actions_router(
         if request.action is not None:
             resolution["action"] = request.action.model_dump(mode="json")
         try:
-            turn = action_resumer(member_id, action_id, resolution)
-        except ValueError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
+            result = action_resumer(member_id, action_id, resolution)
         except psycopg.Error as error:
             raise HTTPException(
                 status_code=503,
@@ -52,8 +50,10 @@ def create_copilot_actions_router(
                 status_code=503,
                 detail="Member Context Graph (KG2) is unavailable.",
             ) from error
+        if isinstance(result, CopilotConflict):
+            raise HTTPException(status_code=409, detail=result.detail)
         return StreamingResponse(
-            copilot_turn_stream(turn),
+            copilot_turn_stream(result),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
