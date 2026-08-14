@@ -22,6 +22,8 @@ class CopilotLLM(Protocol):
         self,
         messages: Sequence[BaseMessage],
         tools: Sequence[BaseTool],
+        *,
+        require_tool_call: bool = False,
     ) -> object: ...
 
 
@@ -29,6 +31,7 @@ class CopilotLLM(Protocol):
 class CopilotLLMCall:
     messages: tuple[BaseMessage, ...]
     tool_names: tuple[str, ...]
+    require_tool_call: bool
 
 
 class _OpenRouterCopilotLLM:
@@ -39,9 +42,16 @@ class _OpenRouterCopilotLLM:
         self,
         messages: Sequence[BaseMessage],
         tools: Sequence[BaseTool],
+        *,
+        require_tool_call: bool = False,
     ) -> object:
         try:
-            return self._chat_model.bind_tools(list(tools)).invoke(list(messages))
+            bound_model = (
+                self._chat_model.bind_tools(list(tools), tool_choice="required")
+                if require_tool_call
+                else self._chat_model.bind_tools(list(tools))
+            )
+            return bound_model.invoke(list(messages))
         except Exception as error:
             raise LLMProviderError from error
 
@@ -59,11 +69,14 @@ class FakeCopilotLLM:
         self,
         messages: Sequence[BaseMessage],
         tools: Sequence[BaseTool],
+        *,
+        require_tool_call: bool = False,
     ) -> object:
         self._calls.append(
             CopilotLLMCall(
                 messages=tuple(messages),
                 tool_names=tuple(tool.name for tool in tools),
+                require_tool_call=require_tool_call,
             )
         )
         if not self._responses:
