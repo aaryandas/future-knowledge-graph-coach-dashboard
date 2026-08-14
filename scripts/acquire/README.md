@@ -39,20 +39,26 @@ The script sends one string per concept through LangChain `Embeddings` to OpenRo
 string contains the concept name and its aliases, including SNOMED synonyms. It uses
 `qwen/qwen3-embedding-4b` in batches and writes one committed JSON file per vocabulary under
 `data/resolver-embeddings/`. Review and commit those artifacts after each intentional
-vocabulary or model update. Runtime queries must use the same model. Tests use the small
-committed fixtures under `backend/tests/fixtures/` and never call OpenRouter.
+vocabulary or model update. A resolver query that uses vector embeddings must use the same
+model. Tests use the small committed fixtures under `backend/tests/fixtures/` and never call
+OpenRouter.
 
 Railway supplies `OPENROUTER_API_KEY` to the deployed backend from the backend service
-variables. The runtime uses the key to embed only the query text. It reads the concept
-vectors from the committed artifacts. For a local live check, read the same variable with
-the logged-in Railway CLI from the linked project:
+variables. The artifact build uses the key to create the committed concept vectors. An ad hoc
+or acceptance resolve run can also use the key to embed query text. That run must explicitly
+configure the vocabulary with the matching embedding artifact and an OpenRouter embedding
+provider.
+
+The deployed generation runtime does not configure an embedding artifact or provider. It
+runs the exact and fuzzy passes without vector embeddings and does not make vector queries.
+For an explicitly configured local live check, read the variable with the logged-in Railway
+CLI from the linked project:
 
 ```sh
 export OPENROUTER_API_KEY="$(railway variables --service backend --json | jq -r .OPENROUTER_API_KEY)"
 ```
 
 Do not print or commit the value. CI deliberately leaves this variable empty and does not
-call OpenRouter. Without a key, configure the vocabulary without an embedding provider.
-`resolve(text, vocab)` still runs the exact and fuzzy passes, skips the vector pass, and
-returns a `Resolution` value instead of raising an exception. The artifact build command
-above still requires the key because it creates the committed concept vectors.
+call OpenRouter. When a vocabulary has no embedding provider, `resolve(text, vocab)` runs the
+exact and fuzzy passes, skips the vector pass, and returns a `Resolution` value instead of
+raising an exception. The artifact build command above still requires the key.
