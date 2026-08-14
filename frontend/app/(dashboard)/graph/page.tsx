@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
-import { GraphView } from "@/app/components/graph-view";
+import { Suspense } from "react";
+import { GraphSkeleton, GraphView } from "@/app/components/graph-view";
+import { getGraphNeighborhood } from "@/lib/graph-neighborhood";
+
+const memberId = "mbr_01HX9JORDAN";
 
 export const metadata: Metadata = {
   title: "Graph",
@@ -13,7 +17,14 @@ export default function GraphPage() {
           Graph view
         </h1>
       </header>
-      <GraphView memberId="mbr_01HX9JORDAN" />
+      <Suspense fallback={<GraphSkeleton />}>
+        <GraphNeighborhood />
+      </Suspense>
     </div>
   );
+}
+
+async function GraphNeighborhood() {
+  const part = await getGraphNeighborhood(memberId);
+  return <GraphView part={part} />;
 }

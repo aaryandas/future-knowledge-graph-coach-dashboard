@@ -1,19 +1,15 @@
-from app.api.graph_view import (
-    GraphEdge,
-    GraphNeighborhoodPart,
-    GraphNode,
-    create_graph_view_router,
-)
+from app.api.graph_view import create_graph_view_router
+from app.graph import GraphEdge, GraphNeighborhood, GraphNode
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 
-def _graph_neighborhood(member_id: str) -> GraphNeighborhoodPart | None:
+def _graph_neighborhood(member_id: str) -> GraphNeighborhood | None:
     if member_id != "mbr_01HX9JORDAN":
         return None
-    return GraphNeighborhoodPart(
+    return GraphNeighborhood(
         member_id=member_id,
-        nodes=[
+        nodes=(
             GraphNode(
                 id=member_id,
                 kind="Member",
@@ -28,15 +24,15 @@ def _graph_neighborhood(member_id: str) -> GraphNeighborhoodPart | None:
                 label="left knee",
                 properties={"status": "recovering", "severity": "mild"},
             ),
-        ],
-        edges=[
+        ),
+        edges=(
             GraphEdge(
                 id=f"{member_id}:has:inj_knee_left",
                 source=member_id,
                 target="inj_knee_left",
                 kind="has",
-            )
-        ],
+            ),
+        ),
     )
 
 

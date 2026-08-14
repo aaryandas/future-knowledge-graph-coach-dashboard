@@ -2,7 +2,6 @@
 
 import { useMemo, useState, type CSSProperties } from "react";
 import { useCopilotSidebar } from "./copilot-sidebar-context";
-import { useGraphNeighborhood } from "@/lib/graph-neighborhood";
 import type {
   GraphNeighborhoodPart,
   GraphNode,
@@ -38,29 +37,38 @@ const nodeLanes: Partial<Record<GraphNodeKind, NodeLane>> = {
 };
 
 const fallbackLane: NodeLane = { x: 470, firstY: 360, gap: 50, width: 170 };
-const hiddenPreviewProperties = new Set([
-  "created_at",
-  "id",
-  "kind",
-  "name",
-  "preferred_term",
-  "region",
-  "source",
-  "text",
-  "updated_at",
-  "version",
-]);
+const previewPropertyLabels: Record<string, string> = {
+  age: "age",
+  bilateral_pair_id: "bilateral pairing",
+  code: "SNOMED code",
+  height_cm: "height (cm)",
+  is_bilateral: "bilateral pairing",
+  joint: "Joint",
+  member_since: "member since",
+  name: "name",
+  notes: "notes",
+  preferred_term: "preferred term",
+  priority: "priority",
+  priority_tier: "priority tier",
+  region: "region",
+  severity: "severity",
+  side: "side",
+  since: "since",
+  snomedct_hint: "SNOMED hint",
+  status: "status",
+  synonyms: "synonyms",
+  target_date: "target date",
+  text: "goal",
+  tier: "tier",
+  timezone: "timezone",
+  weight_kg: "weight (kg)",
+};
 
-export function GraphView({ memberId }: { memberId: string }) {
-  const { part, error, isLoading } = useGraphNeighborhood(memberId);
-
-  if (isLoading) {
-    return <GraphSkeleton />;
-  }
-  if (error !== null || part === null) {
+export function GraphView({ part }: { part: GraphNeighborhoodPart | null }) {
+  if (part === null) {
     return (
       <div className="graph-state glass" role="status">
-        {error ?? "Graph neighborhood is unavailable."}
+        Graph neighborhood is unavailable.
       </div>
     );
   }
@@ -221,9 +229,7 @@ function NodePreview({
   onAskCopilot(): void;
   onClose(): void;
 }) {
-  const properties = Object.entries(node.properties)
-    .filter(([key]) => !hiddenPreviewProperties.has(key))
-    .slice(0, 4);
+  const properties = previewProperties(node);
   const previewStyle = {
     "--preview-x": `${Math.min(node.x + node.width + 12, 842) / viewBox.width * 100}%`,
     "--preview-y": `${Math.min(node.y + nodeHeight + 10, 300) / viewBox.height * 100}%`,
@@ -242,16 +248,14 @@ function NodePreview({
         </button>
       </div>
       <strong>{node.label}</strong>
-      {properties.length === 0 ? null : (
-        <dl>
-          {properties.map(([key, value]) => (
-            <div key={key}>
-              <dt>{key}</dt>
-              <dd>{formatProperty(value)}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
+      <dl>
+        {properties.map(({ key, label, value }) => (
+          <div key={key}>
+            <dt>{label}</dt>
+            <dd>{formatProperty(value)}</dd>
+          </div>
+        ))}
+      </dl>
       <button type="button" className="graph-preview-ask press" onClick={onAskCopilot}>
         Ask copilot <span aria-hidden="true">→</span>
       </button>
@@ -259,7 +263,7 @@ function NodePreview({
   );
 }
 
-function GraphSkeleton() {
+export function GraphSkeleton() {
   return (
     <div className="graph-card glass skeleton-shimmer" aria-label="Loading graph neighborhood">
       <svg
@@ -284,6 +288,17 @@ function GraphSkeleton() {
       </svg>
     </div>
   );
+}
+
+function previewProperties(node: GraphNode) {
+  const properties = Object.entries(node.properties).flatMap(([key, value]) => {
+    const label = previewPropertyLabels[key];
+    return label === undefined ? [] : [{ key, label, value }];
+  });
+  if (properties.length === 0) {
+    return [{ key: "name", label: "name", value: node.label }];
+  }
+  return properties.slice(0, 4);
 }
 
 function positionNodes(nodes: GraphNode[]): PositionedNode[] {
