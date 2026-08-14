@@ -6,6 +6,7 @@ from typing import Final, Literal
 type ObservationKind = Literal[
     "sleep-night",
     "adherence-week",
+    "message-pattern-day",
     "resting-hr",
     "hrv",
     "weight",
@@ -28,6 +29,9 @@ OBSERVATION_RELEVANCE_WINDOWS: Final[Mapping[ObservationKind, RelevanceWindow]] 
                 days=7, latest_value=False, stale_after_days=7
             ),
             "adherence-week": RelevanceWindow(
+                days=28, latest_value=False, stale_after_days=28
+            ),
+            "message-pattern-day": RelevanceWindow(
                 days=28, latest_value=False, stale_after_days=28
             ),
             "resting-hr": RelevanceWindow(

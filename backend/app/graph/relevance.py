@@ -1,12 +1,17 @@
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import Protocol, cast
+from types import MappingProxyType
+from typing import Final, Literal, Protocol, cast
 
 from app.graph.constants import (
     OBSERVATION_RELEVANCE_WINDOWS,
     ObservationKind,
 )
+
+type RelevanceWindowName = Literal["7-days", "28-days"]
+
+RELEVANCE_WINDOW_DAYS: Final = MappingProxyType({"7-days": 7, "28-days": 28})
 
 
 @dataclass(frozen=True)
@@ -68,21 +73,29 @@ def scope_observations[T: RelevanceScopedObservation](
 def scope_relevance_window[T](
     values: Iterable[T],
     *,
-    kind: ObservationKind | None,
+    kind: ObservationKind | None = None,
+    window: RelevanceWindowName | None = None,
     observed_at: Callable[[T], str | None],
     as_of: date,
 ) -> tuple[T, ...]:
     values = tuple(values)
-    if kind is None:
+    if kind is not None and window is not None:
+        raise ValueError("A relevance read cannot select both kind and window")
+    if kind is None and window is None:
         return values
-    window = OBSERVATION_RELEVANCE_WINDOWS[kind]
-    if window.latest_value:
+    relevance_window = OBSERVATION_RELEVANCE_WINDOWS[kind] if kind is not None else None
+    if relevance_window is not None and relevance_window.latest_value:
         return values[:1]
+    stale_after_days = (
+        relevance_window.stale_after_days
+        if relevance_window is not None
+        else RELEVANCE_WINDOW_DAYS[cast(RelevanceWindowName, window)]
+    )
     return tuple(
         value
         for value in values
         if (value_observed_at := observed_at(value)) is not None
-        and _age_days(value_observed_at, as_of=as_of) <= window.stale_after_days
+        and _age_days(value_observed_at, as_of=as_of) <= stale_after_days
     )
 
 

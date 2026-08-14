@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import date
-from typing import cast
+from typing import Literal, cast
 
 from app.copilot.testing import (
     MAX_TOOL_ROUNDS,
@@ -8,6 +8,7 @@ from app.copilot.testing import (
     CopilotToneFact,
     CopilotTurn,
     FakeCopilotLLM,
+    JsonValue,
     MemberGoalsResult,
     copilot_response,
     open_postgres_checkpointer,
@@ -20,6 +21,8 @@ from langchain_core.tools import StructuredTool
 from langgraph.checkpoint.memory import InMemorySaver
 
 MEMBER_ID = "test-member-copilot"
+type _ChartKind = Literal["sleep_week"]
+type _ChartWindow = Literal["7-days"]
 
 
 def test_copilot_tool_loop_persists_follow_ups_and_replays_sources() -> None:
@@ -158,6 +161,20 @@ def test_copilot_rejects_member_answer_without_current_retrieval() -> None:
     assert _source_payload(turn.data_parts) == []
 
 
+def test_copilot_default_tool_registry_includes_render_chart() -> None:
+    llm = FakeCopilotLLM((AIMessage(content="Ungrounded answer."),))
+
+    run_copilot_turn(
+        MEMBER_ID,
+        "Draw a chart",
+        checkpointer=InMemorySaver(),
+        llm=llm,
+        tone_fact_reader=_no_tone_facts,
+    )
+
+    assert "render_chart" in llm.calls[0].tool_names
+
+
 def test_quick_prompt_is_a_canned_message_through_the_same_loop() -> None:
     llm = FakeCopilotLLM(
         (_tool_call("goals-quick"), AIMessage(content="Adherence is trending down."))
@@ -176,15 +193,41 @@ def test_quick_prompt_is_a_canned_message_through_the_same_loop() -> None:
     assert str(llm.calls[0].messages[-1].text) == "How's adherence trending?"
 
 
-def test_copilot_thread_and_data_parts_replay_after_restart() -> None:
-    chart = CopilotDataPart(
+def test_copilot_emits_chart_data_only_from_the_render_chart_tool() -> None:
+    invented_chart = CopilotDataPart(
         type="data-chart",
-        data={"kind": "sleep-week", "series": [{"day": "Mon", "hours": 7.5}]},
+        data={"kind": "sleep_week", "series": [{"hours": 1000}]},
     )
     llm = FakeCopilotLLM(
         (
-            _tool_call("goals-postgres"),
-            copilot_response("A persisted answer.", data_parts=(chart,)),
+            _tool_call("goals-before-chart", name="get_member_goals"),
+            copilot_response("Invented chart.", data_parts=(invented_chart,)),
+        )
+    )
+
+    turn = run_copilot_turn(
+        MEMBER_ID,
+        "Draw a chart",
+        checkpointer=InMemorySaver(),
+        llm=llm,
+        retrieval_tools=(_goals_tool(),),
+        tone_fact_reader=_no_tone_facts,
+    )
+
+    assert isinstance(turn, CopilotTurn)
+    assert [part.type for part in turn.data_parts] == ["data-sources"]
+
+
+def test_copilot_thread_and_data_parts_replay_after_restart() -> None:
+    chart = CopilotDataPart(type="data-chart", data=_chart_data())
+    llm = FakeCopilotLLM(
+        (
+            _tool_call(
+                "chart-postgres",
+                name="render_chart",
+                args={"kind": "sleep_week", "window": "7-days"},
+            ),
+            AIMessage(content="A persisted answer."),
         )
     )
     with open_postgres_checkpointer() as checkpointer:
@@ -198,7 +241,7 @@ def test_copilot_thread_and_data_parts_replay_after_restart() -> None:
                 checkpointer=checkpointer,
                 llm=llm,
                 message_id="postgres-user-1",
-                retrieval_tools=(_goals_tool(),),
+                retrieval_tools=(_chart_tool(),),
                 tone_fact_reader=_no_tone_facts,
             )
 
@@ -220,18 +263,75 @@ def test_copilot_thread_and_data_parts_replay_after_restart() -> None:
             checkpointer.delete_thread(MEMBER_ID)
 
 
-def _tool_call(call_id: str, *, name: str = "get_member_goals") -> AIMessage:
+def _tool_call(
+    call_id: str,
+    *,
+    name: str = "get_member_goals",
+    args: dict[str, object] | None = None,
+) -> AIMessage:
     return AIMessage(
         content="",
         tool_calls=[
             {
                 "name": name,
-                "args": {},
+                "args": args or {},
                 "id": call_id,
                 "type": "tool_call",
             }
         ],
     )
+
+
+@dataclass(frozen=True)
+class _ChartResult:
+    node_ids: tuple[str, ...]
+
+    @property
+    def data_part(self) -> dict[str, object]:
+        return {"type": "data-chart", "data": _chart_data()}
+
+
+def _chart_tool() -> StructuredTool:
+    def render_chart(
+        member_id: str,
+        kind: _ChartKind,
+        window: _ChartWindow,
+        as_of: date | None = None,
+    ) -> _ChartResult:
+        assert kind == "sleep_week"
+        assert window == "7-days"
+        return _ChartResult(node_ids=(member_id, "observation:sleep:2026-06-03"))
+
+    return StructuredTool.from_function(
+        func=render_chart,
+        name="render_chart",
+        description="Build a chart from graph data.",
+    )
+
+
+def _chart_data() -> JsonValue:
+    return {
+        "kind": "sleep_week",
+        "window": "7-days",
+        "axes": {
+            "x": {"label": "Night", "values": ["2026-06-03"]},
+            "y": {
+                "label": "Sleep",
+                "unit": "hours",
+                "minimum": 0,
+                "maximum": 9,
+                "ticks": [0, 3, 6, 9],
+            },
+        },
+        "series": [
+            {
+                "observed_at": "2026-06-03",
+                "hours": 7.5,
+                "observation_node_id": "observation:sleep:2026-06-03",
+            }
+        ],
+        "observation_node_ids": ["observation:sleep:2026-06-03"],
+    }
 
 
 def _goals_tool() -> StructuredTool:
