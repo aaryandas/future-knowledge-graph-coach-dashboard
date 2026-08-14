@@ -87,19 +87,19 @@
       "confidence": 1.0
     },
     {
-      "id": "skos-map:fkg:joint/lumbar-spine:exactMatch:snomedct:786966006",
+      "id": "skos-map:fkg:joint/lumbar-spine:exactMatch:snomedct:52612000",
       "source_id": "fkg:joint/lumbar-spine",
       "predicate": "skos:exactMatch",
-      "target_id": "snomedct:786966006",
-      "target_label": "Structure of lumbar spine joint region",
+      "target_id": "snomedct:52612000",
+      "target_label": "Structure of lumbar region of back",
       "confidence": 1.0
     },
     {
-      "id": "skos-map:fkg:joint/shoulder:exactMatch:snomedct:31398001",
+      "id": "skos-map:fkg:joint/shoulder:exactMatch:snomedct:16982005",
       "source_id": "fkg:joint/shoulder",
       "predicate": "skos:exactMatch",
-      "target_id": "snomedct:31398001",
-      "target_label": "Joint structure of shoulder region",
+      "target_id": "snomedct:16982005",
+      "target_label": "Shoulder region structure",
       "confidence": 1.0
     },
     {

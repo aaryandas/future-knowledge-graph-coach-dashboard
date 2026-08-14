@@ -11,46 +11,55 @@
     {
       "id": "snomedct:70258002",
       "catalog_term": "ankle",
+      "subset_root_id": "snomedct:70258002",
       "max_depth": 3
     },
     {
       "id": "snomedct:786964009",
       "catalog_term": "cervical spine",
+      "subset_root_id": "snomedct:786964009",
       "max_depth": 3
     },
     {
       "id": "snomedct:16953009",
       "catalog_term": "elbow",
+      "subset_root_id": "snomedct:16953009",
       "max_depth": 3
     },
     {
       "id": "snomedct:24136001",
       "catalog_term": "hip",
+      "subset_root_id": "snomedct:24136001",
       "max_depth": 3
     },
     {
       "id": "snomedct:49076000",
       "catalog_term": "knee",
+      "subset_root_id": "snomedct:49076000",
       "max_depth": 3
     },
     {
-      "id": "snomedct:786966006",
+      "id": "snomedct:52612000",
       "catalog_term": "lumbar spine",
+      "subset_root_id": "snomedct:786966006",
       "max_depth": 3
     },
     {
-      "id": "snomedct:31398001",
+      "id": "snomedct:16982005",
       "catalog_term": "shoulder",
+      "subset_root_id": "snomedct:31398001",
       "max_depth": 3
     },
     {
       "id": "snomedct:786965005",
       "catalog_term": "thoracic spine",
+      "subset_root_id": "snomedct:786965005",
       "max_depth": 3
     },
     {
       "id": "snomedct:74670003",
       "catalog_term": "wrist",
+      "subset_root_id": "snomedct:74670003",
       "max_depth": 3
     }
   ],
@@ -4413,7 +4422,7 @@
       ]
     }
   ],
-  "relationships": [
+  "edges": [
     {
       "id": "snomedct:11271009:isA:49855009",
       "source_id": "snomedct:11271009",
