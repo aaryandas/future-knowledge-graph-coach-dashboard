@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, JsonValue
 
+from app.api.data_chart import DataChartPart
 from app.copilot import (
     CopilotDataPart,
     CopilotHistoryMessage,
@@ -72,7 +73,7 @@ class CopilotReplayMessage(BaseModel):
 
     id: str
     role: Literal["user", "assistant"]
-    parts: list[TextPart | DataSourcesPart | DataPart]
+    parts: list[TextPart | DataChartPart | DataSourcesPart | DataPart]
 
 
 class CopilotHistory(BaseModel):
@@ -190,14 +191,18 @@ def _message_text(parts: list[dict[str, object]]) -> str:
     )
 
 
-def _data_part(part: CopilotDataPart) -> DataSourcesPart | DataPart:
+def _data_part(
+    part: CopilotDataPart,
+) -> DataChartPart | DataSourcesPart | DataPart:
+    if part.type == "data-chart":
+        return DataChartPart.model_validate({"data": part.data})
     if part.type == "data-sources":
         return DataSourcesPart(data=DataSources.model_validate(part.data))
     return DataPart(type=part.type, data=part.data)
 
 
 def _replay_message(message: CopilotHistoryMessage) -> CopilotReplayMessage:
-    parts: list[TextPart | DataSourcesPart | DataPart] = [
+    parts: list[TextPart | DataChartPart | DataSourcesPart | DataPart] = [
         *(_data_part(part) for part in _ordered_data_parts(message.data_parts)),
         TextPart(text=message.text),
     ]
