@@ -202,7 +202,7 @@ def test_exact_named_adjustment_preserves_unaffected_plan_entries() -> None:
     assert substitution.replacement_exercise_id == _HIGH_PLANK_BIRD_DOG_ID
 
 
-def test_movement_pattern_adjustment_excludes_family() -> None:
+def test_natural_movement_pattern_adjustment_excludes_matching_exercises() -> None:
     llm = FakeLLM(
         [
             {
@@ -215,7 +215,7 @@ def test_movement_pattern_adjustment_excludes_family() -> None:
             {
                 "focus": None,
                 "targets": [],
-                "exclusions": ["core - anti-extension"],
+                "exclusions": ["deadlifts"],
                 "injuries": [],
                 "equipment": [],
             },
@@ -224,39 +224,43 @@ def test_movement_pattern_adjustment_excludes_family() -> None:
 
     with generation_test_adapters(
         llm=llm,
-        catalog_reader=_local_adjustment_catalog,
+        catalog_reader=_movement_pattern_adjustment_catalog,
         member_context_reader=_member_context,
         verdict_evaluator=_clear_verdicts,
     ):
         initial = run_generation_session(
             MEMBER_ID,
-            "Build a yoga-mat workout.",
+            "Build a lower-body workout.",
             20,
-            "thread-family-removal",
+            "thread-movement-pattern-removal",
             "message-1",
         )
         adjusted = run_generation_session(
             MEMBER_ID,
-            "Remove core anti-extension exercises.",
+            "Remove deadlifts.",
             20,
-            "thread-family-removal",
+            "thread-movement-pattern-removal",
             "message-2",
         )
 
     assert initial.plan is not None
     assert adjusted.plan is not None
     assert {entry.exercise_id for entry in initial.plan.main.entries}.issuperset(
-        {_BODYWEIGHT_PIKE_ID, _LOW_PLANK_ID}
+        _DEADLIFT_IDS
     )
     assert {entry.exercise_id for entry in adjusted.plan.main.entries}.isdisjoint(
-        {_BODYWEIGHT_PIKE_ID, _LOW_PLANK_ID}
+        _DEADLIFT_IDS
     )
     assert adjusted.resolved_intent is not None
-    family_exclusion = adjusted.resolved_intent.constraints.exclusions[0]
-    assert family_exclusion.vocabulary == "MovementPattern"
+    movement_pattern_exclusion = adjusted.resolved_intent.constraints.exclusions[0]
+    assert movement_pattern_exclusion.vocabulary == "MovementPattern"
+    assert (
+        movement_pattern_exclusion.resolution.concept_id
+        == _HIP_HINGE_MOVEMENT_PATTERN_ID
+    )
 
 
-def test_failed_adjustment_does_not_emit_checkpoint_stale_plan() -> None:
+def test_failed_adjustment_does_not_emit_previous_incompatible_plan() -> None:
     llm = FakeLLM(
         [
             {
@@ -330,6 +334,15 @@ _MAIN_KETTLEBELL_ID = "00036a08-7c22-42e4-8fe5-323b53e31667"
 _BODYWEIGHT_PIKE_ID = "0a2dc786-fb42-4571-9b26-f58cdeb2c70e"
 _LOW_PLANK_ID = "00e18a26-70dd-4d43-b013-5038b75a41f3"
 _HIGH_PLANK_BIRD_DOG_ID = "01f5a2bb-ecf7-4168-92b3-35bd78592e26"
+_BARBELL_DEADLIFT_ID = "2f787955-4e40-4103-9d9e-7f0d22b3e194"
+_DUMBBELL_ROMANIAN_DEADLIFT_ID = "9b09c2e8-d997-4b9b-b13b-986ade901fc7"
+_KETTLEBELL_ROMANIAN_DEADLIFT_ID = "90900327-80eb-4981-9a09-c218484be28b"
+_DEADLIFT_IDS = {
+    _BARBELL_DEADLIFT_ID,
+    _DUMBBELL_ROMANIAN_DEADLIFT_ID,
+    _KETTLEBELL_ROMANIAN_DEADLIFT_ID,
+}
+_HIP_HINGE_MOVEMENT_PATTERN_ID = "fkg:movement-pattern/lower-pull-hip-hinge"
 
 
 def _catalog() -> tuple[CatalogExercise, ...]:
@@ -398,6 +411,39 @@ def _local_adjustment_catalog() -> tuple[CatalogExercise, ...]:
             rep_duration=0.2,
             priority_tier=3,
         ),
+        cool_down,
+    )
+
+
+def _movement_pattern_adjustment_catalog() -> tuple[CatalogExercise, ...]:
+    warm_up, _, replacement, cool_down = _catalog()
+    return (
+        warm_up,
+        _exercise(
+            exercise_id=_BARBELL_DEADLIFT_ID,
+            name="Barbell Deadlift",
+            pattern="lower pull - hip hinge",
+            muscles=("glutes", "hamstrings", "quads", "lower back"),
+            is_reps=True,
+            rep_duration=0.1,
+        ),
+        _exercise(
+            exercise_id=_DUMBBELL_ROMANIAN_DEADLIFT_ID,
+            name="Dumbbell Romanian Deadlift",
+            pattern="lower pull - hip hinge",
+            muscles=("hamstrings", "glutes", "lower back"),
+            is_reps=True,
+            rep_duration=0.1,
+        ),
+        _exercise(
+            exercise_id=_KETTLEBELL_ROMANIAN_DEADLIFT_ID,
+            name="Kettlebell Romanian Deadlift",
+            pattern="lower pull - hip hinge",
+            muscles=("hamstrings", "glutes", "lower back"),
+            is_reps=True,
+            rep_duration=0.1,
+        ),
+        replacement,
         cool_down,
     )
 
