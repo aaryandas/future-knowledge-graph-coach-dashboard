@@ -1,11 +1,12 @@
 import json
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from time import perf_counter
 from typing import Any
 
 import pytest
 from app.api.generate import TurnRunner, create_generate_router
-from app.generation import GenerationTurn
+from app.generation import GenerationTurn, run_generation_session
 from app.generation.testing import (
     AgentTraceEvent,
     ConstraintSet,
@@ -16,13 +17,12 @@ from app.generation.testing import (
     Resolution,
     ResolvedIntent,
     ResolvedMention,
-    run_checkpointed_session,
+    generation_test_adapters,
 )
 from app.graph import get_member_injuries, ingest_kg1, ingest_kg2
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx2 import Response
-from langgraph.checkpoint.memory import InMemorySaver
 
 MEMBER_ID = "mbr_01HX9JORDAN"
 BARBELL_EXERCISE_IDS = frozenset(
@@ -196,7 +196,7 @@ def test_generate_stream_enforces_a_session_injury_without_persisting_it(
     seeded_generation_graph: None,
 ) -> None:
     before = get_member_injuries(MEMBER_ID)
-    client = _generation_client(
+    with _generation_client(
         [
             {
                 "focus": "full-body",
@@ -206,16 +206,15 @@ def test_generate_stream_enforces_a_session_injury_without_persisting_it(
                 "equipment": [],
             }
         ]
-    )
-
-    started_at = perf_counter()
-    response = _generate(
-        client,
-        thread_id="knee-session",
-        message_id="knee-message",
-        text="Build a full-body plan; her left knee is bothering her.",
-    )
-    elapsed = perf_counter() - started_at
+    ) as client:
+        started_at = perf_counter()
+        response = _generate(
+            client,
+            thread_id="knee-session",
+            message_id="knee-message",
+            text="Build a full-body plan; her left knee is bothering her.",
+        )
+        elapsed = perf_counter() - started_at
 
     assert response.status_code == 200
     parts = _data_parts(response.text)
@@ -266,20 +265,19 @@ def test_generate_stream_drops_unavailable_equipment_and_is_byte_deterministic(
         "injuries": [],
         "equipment": ["Dumbbell", "Kettlebell"],
     }
-    client = _generation_client([intent, intent])
-
-    first = _generate(
-        client,
-        thread_id="equipment-session-1",
-        message_id="equipment-message-1",
-        text="She has no barbell, only dumbbells and a kettlebell.",
-    )
-    second = _generate(
-        client,
-        thread_id="equipment-session-2",
-        message_id="equipment-message-2",
-        text="She has no barbell, only dumbbells and a kettlebell.",
-    )
+    with _generation_client([intent, intent]) as client:
+        first = _generate(
+            client,
+            thread_id="equipment-session-1",
+            message_id="equipment-message-1",
+            text="She has no barbell, only dumbbells and a kettlebell.",
+        )
+        second = _generate(
+            client,
+            thread_id="equipment-session-2",
+            message_id="equipment-message-2",
+            text="She has no barbell, only dumbbells and a kettlebell.",
+        )
 
     assert first.status_code == 200
     assert second.status_code == 200
@@ -320,28 +318,12 @@ def _client(*, turn_runner: TurnRunner) -> TestClient:
     return TestClient(test_app)
 
 
-def _generation_client(responses: Iterable[Mapping[str, object]]) -> TestClient:
-    checkpointer = InMemorySaver()
-    llm = FakeLLM(responses)
-
-    def run_turn(
-        member_id: str,
-        message: str,
-        window: int,
-        thread_id: str,
-        message_id: str,
-    ) -> GenerationTurn:
-        return run_checkpointed_session(
-            member_id,
-            message,
-            window,
-            thread_id,
-            checkpointer=checkpointer,
-            llm=llm,
-            message_id=message_id,
-        )
-
-    return _client(turn_runner=run_turn)
+@contextmanager
+def _generation_client(
+    responses: Iterable[Mapping[str, object]],
+) -> Iterator[TestClient]:
+    with generation_test_adapters(llm=FakeLLM(responses)):
+        yield _client(turn_runner=run_generation_session)
 
 
 def _generate(
