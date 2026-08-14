@@ -64,6 +64,73 @@
     "expected_modifiers": ["box-supported"]
   },
   {
+    "name": "fuzzy equipment typo",
+    "text": "dumbells",
+    "vocabulary": "equipment",
+    "expected_id": "fkg:equipment/dumbbell",
+    "expected_pass": "fuzzy",
+    "expected_confidence": 0.875,
+    "expected_modifiers": []
+  },
+  {
+    "name": "fuzzy exercise word order",
+    "text": "squat cyclist goblet kettlebell",
+    "vocabulary": "exercise",
+    "expected_id": "00036a08-7c22-42e4-8fe5-323b53e31667",
+    "expected_pass": "fuzzy",
+    "expected_confidence": 1.0,
+    "expected_modifiers": []
+  },
+  {
+    "name": "fuzzy left knee anatomy",
+    "text": "left knee",
+    "vocabulary": "snomed_anatomy",
+    "expected_id": "snomedct:735263003",
+    "expected_pass": "fuzzy",
+    "expected_confidence": 1.0,
+    "expected_modifiers": []
+  },
+  {
+    "name": "vector equipment semantic hit",
+    "text": "portable hand weights",
+    "vocabulary": "equipment",
+    "expected_id": "fkg:equipment/dumbbell",
+    "expected_pass": "vector",
+    "expected_confidence": 0.8,
+    "expected_modifiers": []
+  },
+  {
+    "name": "vector anatomy semantic hit",
+    "text": "kneecap discomfort",
+    "vocabulary": "snomed_anatomy",
+    "expected_id": "snomedct:129160003",
+    "expected_pass": "vector",
+    "expected_confidence": 0.8,
+    "expected_modifiers": []
+  },
+  {
+    "name": "fuzzy below-floor garbage",
+    "text": "garxage trxck",
+    "vocabulary": "fuzzy_floor",
+    "expected_id": null,
+    "expected_pass": "none",
+    "expected_confidence": 0.0,
+    "expected_candidate_id": "fixture:garbage-truck",
+    "expected_candidate_confidence": 0.8461538461538461,
+    "expected_modifiers": []
+  },
+  {
+    "name": "vector below-floor garbage",
+    "text": "unclassifiable request",
+    "vocabulary": "equipment",
+    "expected_id": null,
+    "expected_pass": "none",
+    "expected_confidence": 0.0,
+    "expected_candidate_id": "fkg:equipment/dumbbell",
+    "expected_candidate_confidence": 0.64,
+    "expected_modifiers": []
+  },
+  {
     "name": "member dislike Deadlift",
     "source": "member-context",
     "text": "Deadlift",
@@ -131,8 +198,8 @@
     "source": "member-context",
     "text": "Goblet Squat (box-supported)",
     "vocabulary": "exercise",
-    "expected_id": null,
-    "expected_pass": "none",
+    "expected_id": "02fe4cf5-bb21-4bef-868f-fea1477e2a53",
+    "expected_pass": "fuzzy",
     "expected_modifiers": ["box-supported"]
   },
   {
@@ -185,8 +252,8 @@
     "source": "member-context",
     "text": "Step-Up",
     "vocabulary": "exercise",
-    "expected_id": null,
-    "expected_pass": "none",
+    "expected_id": "00c7ac93-153e-4b96-be56-b4ca6b465369",
+    "expected_pass": "fuzzy",
     "expected_modifiers": []
   },
   {

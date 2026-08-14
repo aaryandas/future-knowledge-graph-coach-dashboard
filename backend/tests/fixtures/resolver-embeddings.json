@@ -1,0 +1,17 @@
+{
+  "artifact_id": "resolver:test-concept-embeddings",
+  "schema_version": 1,
+  "model": "fixture/qwen3-embedding",
+  "dimensions": 5,
+  "embeddings": {
+    "fkg:equipment/barbell": [0.0, 0.0, 1.0, 0.0, 0.0],
+    "fkg:equipment/dumbbell": [1.0, 0.0, 0.0, 0.0, 0.0],
+    "fkg:equipment/kettlebell": [0.0, 1.0, 0.0, 0.0, 0.0],
+    "snomedct:129160003": [0.0, 0.0, 0.0, 1.0, 0.0]
+  },
+  "queries": {
+    "kneecap discomfort": [0.0, 0.0, 0.0, 0.8, 0.6],
+    "portable hand weights": [0.8, 0.6, 0.0, 0.0, 0.0],
+    "unclassifiable request": [0.64, 0.64, 0.425205832509386, 0.0, 0.0]
+  }
+}
