@@ -36,6 +36,7 @@ type EdgeType = Literal[
     "received",
     "dislikes",
     "included",
+    "clinicalDirective",
     "evidencedBy",
     "addresses",
 ]
@@ -87,6 +88,7 @@ KG2_EDGE_TYPES: tuple[EdgeType, ...] = (
     "dislikes",
     "included",
     "exactMatch",
+    "clinicalDirective",
     "evidencedBy",
     "addresses",
 )
