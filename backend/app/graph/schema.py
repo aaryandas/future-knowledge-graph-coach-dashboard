@@ -6,6 +6,7 @@ type NodeLabel = Literal[
     "Joint",
     "MovementPattern",
     "Equipment",
+    "Injury",
     "AnatomicalStructure",
     "ClinicalFinding",
     "Member",
@@ -25,6 +26,7 @@ type EdgeType = Literal[
     "findingSite",
     "isA",
     "exactMatch",
+    "contraindicates",
     "pursues",
     "has",
     "owns",
@@ -45,6 +47,7 @@ KG1_NODE_LABELS: tuple[NodeLabel, ...] = (
     "Joint",
     "MovementPattern",
     "Equipment",
+    "Injury",
     "AnatomicalStructure",
     "ClinicalFinding",
 )
@@ -70,6 +73,7 @@ KG1_EDGE_TYPES: tuple[EdgeType, ...] = (
     "findingSite",
     "isA",
     "exactMatch",
+    "contraindicates",
 )
 
 KG2_EDGE_TYPES: tuple[EdgeType, ...] = (
