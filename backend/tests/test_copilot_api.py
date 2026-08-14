@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from app.api.copilot import (
     DataChartPart,
     DataPart,
@@ -165,10 +166,25 @@ def test_data_chart_part_is_a_frozen_discriminated_pydantic_contract() -> None:
         "message_pattern",
         "four_week_comparison",
     }
+    assert schema["$defs"]["SleepWeekWindow"] == {
+        "const": "7-days",
+        "type": "string",
+    }
+    assert schema["$defs"]["FourWeekComparisonWindow"] == {
+        "const": "28-days",
+        "type": "string",
+    }
 
     chart = DataChartPart.model_validate({"data": _chart_part().data})
     assert chart.data.kind == "sleep_week"
     assert chart.model_dump()["data"]["series"][0]["hours"] == 7.5
+
+    chart_data = _chart_part().data
+    assert isinstance(chart_data, dict)
+    contradictory = dict(chart_data)
+    contradictory["window"] = "28-days"
+    with pytest.raises(ValueError):
+        DataChartPart.model_validate({"data": contradictory})
 
 
 def test_data_part_keeps_future_data_kinds_generic() -> None:

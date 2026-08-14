@@ -346,15 +346,16 @@ def _append_member(
         node_rows,
         edge_rows,
     )
+    messages = _append_chat_messages(member, member_id, stamp, node_rows, edge_rows)
     observations = _append_observations(
         member,
         member_id,
         _required_string(coach_brief, "generated_for"),
+        messages,
         stamp,
         node_rows,
         edge_rows,
     )
-    messages = _append_chat_messages(member, member_id, stamp, node_rows, edge_rows)
     barrier_ids = _append_barriers(
         churn_risk,
         member_id,
@@ -524,6 +525,7 @@ def _append_observations(
     member: JsonObject,
     member_id: str,
     generated_for: str,
+    messages: list[tuple[str, JsonObject]],
     stamp: JsonObject,
     node_rows: dict[NodeLabel, list[Node]],
     edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Edge]],
@@ -580,6 +582,34 @@ def _append_observations(
             "sleep-night",
             observed_at,
             {"value": value, "unit": "hours"},
+            stamp,
+            observations,
+            node_rows,
+            edge_rows,
+        )
+
+    daily_message_counts: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"member": 0, "coach": 0}
+    )
+    for _, properties in messages:
+        observed_at = (
+            datetime.fromisoformat(cast(str, properties["timestamp"]))
+            .date()
+            .isoformat()
+        )
+        sender = cast(str, properties["sender"])
+        daily_message_counts[observed_at][sender] += 1
+    for observed_at, counts in sorted(daily_message_counts.items()):
+        _append_observation(
+            member_id,
+            "message-pattern-day",
+            observed_at,
+            {
+                "value": counts["member"] + counts["coach"],
+                "unit": "messages",
+                "member_count": counts["member"],
+                "coach_count": counts["coach"],
+            },
             stamp,
             observations,
             node_rows,

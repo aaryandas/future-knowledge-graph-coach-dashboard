@@ -4,13 +4,16 @@ from datetime import date
 from typing import Any, get_args, get_origin, get_type_hints
 
 import pytest
-from app.copilot.testing import (
+from app.copilot.context import (
     COPILOT_TONE_FACT_LABELS,
+    CopilotToneFact,
+    get_copilot_tone_facts,
+)
+from app.copilot.tools import (
     BarrierData,
     ChatMessageData,
     ChatMessagesResult,
     CoachTaskData,
-    CopilotToneFact,
     GoalData,
     MemberGoalsResult,
     MemberInjuriesResult,
@@ -25,7 +28,6 @@ from app.copilot.testing import (
     WorkoutSessionData,
     WorkoutSessionsResult,
     get_chat_messages,
-    get_copilot_tone_facts,
     get_member_goals,
     get_member_injuries,
     get_member_profile,

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime
 from typing import Literal, cast
@@ -9,11 +8,12 @@ from typing import Literal, cast
 from langchain_core.tools import tool
 
 from app.graph import (
-    ChatMessageView,
+    ObservationKind,
     ObservationView,
-    get_chat_messages,
+    RelevanceWindowName,
     get_member_node_id,
     get_observations,
+    scope_relevance_window,
 )
 
 type ChartKind = Literal[
@@ -22,7 +22,9 @@ type ChartKind = Literal[
     "message_pattern",
     "four_week_comparison",
 ]
-type ChartWindow = Literal["7-days", "28-days"]
+type ChartWindow = RelevanceWindowName
+type SleepWeekWindow = Literal["7-days"]
+type FourWeekComparisonWindow = Literal["28-days"]
 type ChartNumber = int | float
 
 CHART_KINDS: tuple[ChartKind, ...] = (
@@ -32,7 +34,6 @@ CHART_KINDS: tuple[ChartKind, ...] = (
     "four_week_comparison",
 )
 CHART_WINDOWS: tuple[ChartWindow, ...] = ("7-days", "28-days")
-_WINDOW_DAYS: dict[ChartWindow, int] = {"7-days": 7, "28-days": 28}
 
 
 @dataclass(frozen=True)
@@ -75,7 +76,7 @@ class MessagePatternPoint:
     date: str
     member_count: int
     coach_count: int
-    chat_message_node_ids: tuple[str, ...]
+    observation_node_id: str
 
 
 @dataclass(frozen=True)
@@ -97,7 +98,7 @@ class AdherenceTrendChart:
 @dataclass(frozen=True)
 class SleepWeekChart:
     kind: Literal["sleep_week"]
-    window: ChartWindow
+    window: SleepWeekWindow
     axes: ChartAxes
     series: tuple[SleepWeekPoint, ...]
     observation_node_ids: tuple[str, ...]
@@ -109,13 +110,13 @@ class MessagePatternChart:
     window: ChartWindow
     axes: ChartAxes
     series: tuple[MessagePatternPoint, ...]
-    chat_message_node_ids: tuple[str, ...]
+    observation_node_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class FourWeekComparisonChart:
     kind: Literal["four_week_comparison"]
-    window: ChartWindow
+    window: FourWeekComparisonWindow
     axes: ChartAxes
     series: tuple[FourWeekComparisonPoint, ...]
     observation_node_ids: tuple[str, ...]
@@ -149,70 +150,78 @@ def render_chart(
     window: ChartWindow,
     as_of: date | None = None,
 ) -> RenderChartResult:
-    """Build one chart from `observed` Observations or `said|received` ChatMessages; supply only kind and window."""
+    """Build one chart from `Member -[:observed]-> Observation`; supply only kind and window."""
+    _validate_window(kind, window)
     member_node_id = get_member_node_id(member_id)
     read_date = as_of or datetime.now(UTC).date()
-    if kind == "message_pattern":
-        data = _message_pattern(
-            get_chat_messages(member_id) if member_node_id is not None else (),
-            window,
-            as_of=read_date,
-        )
-        return RenderChartResult(
-            data=data,
-            node_ids=_node_ids(member_node_id, data.chat_message_node_ids),
-        )
-
     observations = (
         get_observations(member_id, as_of=read_date)
         if member_node_id is not None
         else ()
     )
     if kind == "adherence_trend":
-        adherence = _adherence_observations(observations, window)
+        adherence = _chart_observations(
+            observations,
+            kind="adherence-week",
+            window=window,
+            as_of=read_date,
+        )
         data = _adherence_trend(adherence, window)
     elif kind == "sleep_week":
-        sleep = _sleep_observations(observations, window)
-        data = _sleep_week(sleep, window)
+        sleep = _chart_observations(
+            observations,
+            kind="sleep-night",
+            window=window,
+            as_of=read_date,
+        )
+        data = _sleep_week(sleep)
+    elif kind == "message_pattern":
+        message_pattern = _chart_observations(
+            observations,
+            kind="message-pattern-day",
+            window=window,
+            as_of=read_date,
+        )
+        data = _message_pattern(message_pattern, window)
     else:
-        adherence = _adherence_observations(observations, window)
-        data = _four_week_comparison(adherence, window)
+        adherence = _chart_observations(
+            observations,
+            kind="adherence-week",
+            window=window,
+            as_of=read_date,
+        )
+        data = _four_week_comparison(adherence)
     return RenderChartResult(
         data=data,
         node_ids=_node_ids(member_node_id, data.observation_node_ids),
     )
 
 
-def _adherence_observations(
+def _validate_window(kind: ChartKind, window: ChartWindow) -> None:
+    if kind == "sleep_week" and window != "7-days":
+        raise ValueError("sleep_week requires window 7-days")
+    if kind == "four_week_comparison" and window != "28-days":
+        raise ValueError("four_week_comparison requires window 28-days")
+
+
+def _chart_observations(
     observations: tuple[ObservationView, ...],
-    window: ChartWindow,
+    *,
+    kind: ObservationKind,
+    window: RelevanceWindowName,
+    as_of: date,
 ) -> tuple[ObservationView, ...]:
     return tuple(
         sorted(
-            (
-                observation
-                for observation in observations
-                if observation.kind == "adherence-week"
-                and observation.value is not None
-                and observation.age_days <= _WINDOW_DAYS[window]
-            ),
-            key=lambda observation: (observation.observed_at, observation.node_id),
-        )
-    )
-
-
-def _sleep_observations(
-    observations: tuple[ObservationView, ...],
-    window: ChartWindow,
-) -> tuple[ObservationView, ...]:
-    return tuple(
-        sorted(
-            (
-                observation
-                for observation in observations
-                if observation.kind == "sleep-night"
-                and observation.value is not None
-                and observation.age_days <= _WINDOW_DAYS[window]
+            scope_relevance_window(
+                (
+                    observation
+                    for observation in observations
+                    if observation.kind == kind and observation.value is not None
+                ),
+                window=window,
+                observed_at=lambda observation: observation.observed_at,
+                as_of=as_of,
             ),
             key=lambda observation: (observation.observed_at, observation.node_id),
         )
@@ -242,7 +251,6 @@ def _adherence_trend(
 
 def _sleep_week(
     observations: tuple[ObservationView, ...],
-    window: ChartWindow,
 ) -> SleepWeekChart:
     series = tuple(
         SleepWeekPoint(
@@ -254,7 +262,7 @@ def _sleep_week(
     )
     return SleepWeekChart(
         kind="sleep_week",
-        window=window,
+        window="7-days",
         axes=ChartAxes(
             x=CategoryAxis(
                 label="Night",
@@ -274,28 +282,17 @@ def _sleep_week(
 
 
 def _message_pattern(
-    messages: tuple[ChatMessageView, ...],
+    observations: tuple[ObservationView, ...],
     window: ChartWindow,
-    *,
-    as_of: date,
 ) -> MessagePatternChart:
-    grouped: dict[str, list[ChatMessageView]] = defaultdict(list)
-    for message in messages:
-        observed_on = datetime.fromisoformat(message.timestamp).date()
-        age_days = max(0, (as_of - observed_on).days)
-        if age_days <= _WINDOW_DAYS[window]:
-            grouped[observed_on.isoformat()].append(message)
     series = tuple(
         MessagePatternPoint(
-            date=observed_on,
-            member_count=sum(message.sender == "member" for message in daily_messages),
-            coach_count=sum(message.sender == "coach" for message in daily_messages),
-            chat_message_node_ids=tuple(
-                message.node_id
-                for message in sorted(daily_messages, key=lambda item: item.node_id)
-            ),
+            date=observation.observed_at,
+            member_count=_integer_measurement(observation, "member_count"),
+            coach_count=_integer_measurement(observation, "coach_count"),
+            observation_node_id=observation.node_id,
         )
-        for observed_on, daily_messages in sorted(grouped.items())
+        for observation in observations
     )
     maximum = max(
         (point.member_count + point.coach_count for point in series),
@@ -318,15 +315,12 @@ def _message_pattern(
             ),
         ),
         series=series,
-        chat_message_node_ids=tuple(
-            node_id for point in series for node_id in point.chat_message_node_ids
-        ),
+        observation_node_ids=tuple(point.observation_node_id for point in series),
     )
 
 
 def _four_week_comparison(
     observations: tuple[ObservationView, ...],
-    window: ChartWindow,
 ) -> FourWeekComparisonChart:
     series = tuple(
         FourWeekComparisonPoint(
@@ -338,11 +332,25 @@ def _four_week_comparison(
     )
     return FourWeekComparisonChart(
         kind="four_week_comparison",
-        window=window,
+        window="28-days",
         axes=_adherence_axes(tuple(point.week_of for point in series)),
         series=series,
         observation_node_ids=tuple(point.observation_node_id for point in series),
     )
+
+
+def _integer_measurement(observation: ObservationView, name: str) -> int:
+    value = next(
+        (
+            measurement.value
+            for measurement in observation.measurements
+            if measurement.name == name
+        ),
+        None,
+    )
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise TypeError(f"Observation {observation.node_id} requires integer {name}")
+    return value
 
 
 def _adherence_axes(values: tuple[str, ...]) -> ChartAxes:

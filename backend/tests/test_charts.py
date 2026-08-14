@@ -1,266 +1,254 @@
-from dataclasses import asdict, is_dataclass
+from collections.abc import Sequence
 from datetime import date
-from typing import Any
+from typing import cast
 
 import pytest
-from app.copilot.testing import (
-    CHART_KINDS,
-    CHART_WINDOWS,
-    AdherenceTrendChart,
-    AdherenceTrendPoint,
-    CategoryAxis,
-    ChartAxes,
-    FourWeekComparisonChart,
-    FourWeekComparisonPoint,
-    MessagePatternChart,
-    MessagePatternPoint,
-    NumericAxis,
-    RenderChartResult,
-    SleepWeekChart,
-    SleepWeekPoint,
-    render_chart,
-)
+from app.copilot.agent import run_copilot_turn
+from app.copilot.context import CopilotToneFact
 from app.graph import ingest_kg2
+from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.tools import BaseTool
+from langgraph.checkpoint.memory import InMemorySaver
 
 MEMBER_ID = "mbr_01HX9JORDAN"
 AS_OF = date(2026, 6, 4)
 
-CHART_DOMAIN_TYPES = (
-    CategoryAxis,
-    NumericAxis,
-    ChartAxes,
-    AdherenceTrendPoint,
-    SleepWeekPoint,
-    MessagePatternPoint,
-    FourWeekComparisonPoint,
-    AdherenceTrendChart,
-    SleepWeekChart,
-    MessagePatternChart,
-    FourWeekComparisonChart,
-    RenderChartResult,
+
+@pytest.mark.parametrize(
+    ("kind", "window", "expected_series"),
+    [
+        (
+            "adherence_trend",
+            "28-days",
+            [
+                {
+                    "observed_at": "2026-05-12",
+                    "completion_percent": 100,
+                    "observation_node_id": (
+                        f"{MEMBER_ID}:observation:adherence-week:2026-05-12"
+                    ),
+                },
+                {
+                    "observed_at": "2026-05-19",
+                    "completion_percent": 100,
+                    "observation_node_id": (
+                        f"{MEMBER_ID}:observation:adherence-week:2026-05-19"
+                    ),
+                },
+                {
+                    "observed_at": "2026-05-26",
+                    "completion_percent": 75,
+                    "observation_node_id": (
+                        f"{MEMBER_ID}:observation:adherence-week:2026-05-26"
+                    ),
+                },
+                {
+                    "observed_at": "2026-06-02",
+                    "completion_percent": 50,
+                    "observation_node_id": (
+                        f"{MEMBER_ID}:observation:adherence-week:2026-06-02"
+                    ),
+                },
+            ],
+        ),
+        (
+            "sleep_week",
+            "7-days",
+            [
+                {
+                    "observed_at": observed_at,
+                    "hours": hours,
+                    "observation_node_id": (
+                        f"{MEMBER_ID}:observation:sleep-night:{observed_at}"
+                    ),
+                }
+                for observed_at, hours in (
+                    ("2026-05-28", 6.1),
+                    ("2026-05-29", 5.4),
+                    ("2026-05-30", 7.2),
+                    ("2026-05-31", 6.0),
+                    ("2026-06-01", 5.1),
+                    ("2026-06-02", 7.8),
+                    ("2026-06-03", 6.3),
+                )
+            ],
+        ),
+        (
+            "message_pattern",
+            "28-days",
+            [
+                {
+                    "date": observed_at,
+                    "member_count": member_count,
+                    "coach_count": coach_count,
+                    "observation_node_id": (
+                        f"{MEMBER_ID}:observation:message-pattern-day:{observed_at}"
+                    ),
+                }
+                for observed_at, member_count, coach_count in (
+                    ("2026-05-22", 1, 0),
+                    ("2026-05-30", 1, 0),
+                    ("2026-06-03", 1, 1),
+                )
+            ],
+        ),
+        (
+            "four_week_comparison",
+            "28-days",
+            [
+                {
+                    "week_of": observed_at,
+                    "completion_percent": completion_percent,
+                    "observation_node_id": (
+                        f"{MEMBER_ID}:observation:adherence-week:{observed_at}"
+                    ),
+                }
+                for observed_at, completion_percent in (
+                    ("2026-05-12", 100),
+                    ("2026-05-19", 100),
+                    ("2026-05-26", 75),
+                    ("2026-06-02", 50),
+                )
+            ],
+        ),
+    ],
 )
+def test_registered_render_chart_emits_server_built_observation_payload(
+    kind: str,
+    window: str,
+    expected_series: list[dict[str, object]],
+) -> None:
+    chart, sources = _render(kind, window)
 
-
-def test_render_chart_exposes_only_the_closed_kinds_and_windows() -> None:
-    assert CHART_KINDS == (
-        "adherence_trend",
-        "sleep_week",
-        "message_pattern",
-        "four_week_comparison",
-    )
-    assert CHART_WINDOWS == ("7-days", "28-days")
-    schema = render_chart.get_input_jsonschema()
-    assert tuple(schema["$defs"]["ChartKind"]["enum"]) == CHART_KINDS
-    assert tuple(schema["$defs"]["ChartWindow"]["enum"]) == CHART_WINDOWS
-
-
-@pytest.mark.parametrize("domain_type", CHART_DOMAIN_TYPES)
-def test_chart_domain_values_are_frozen_dataclasses(domain_type: type[Any]) -> None:
-    assert is_dataclass(domain_type)
-    assert domain_type.__dataclass_params__.frozen
-
-
-def test_adherence_trend_is_built_from_window_scoped_observations() -> None:
-    result = _render("adherence_trend", "28-days")
-
-    assert isinstance(result.data, AdherenceTrendChart)
-    assert asdict(result.data) == {
-        "kind": "adherence_trend",
-        "window": "28-days",
-        "axes": {
-            "x": {
-                "label": "Week of",
-                "values": (
-                    "2026-05-12",
-                    "2026-05-19",
-                    "2026-05-26",
-                    "2026-06-02",
-                ),
-            },
-            "y": {
-                "label": "Completion",
-                "unit": "percent",
-                "minimum": 0,
-                "maximum": 100,
-                "ticks": (0, 25, 50, 75, 100),
-            },
-        },
-        "series": (
+    assert chart["kind"] == kind
+    assert chart["window"] == window
+    assert chart["series"] == expected_series
+    observation_node_ids = cast("list[object]", chart["observation_node_ids"])
+    assert observation_node_ids == [
+        point["observation_node_id"] for point in expected_series
+    ]
+    axes = cast("dict[str, object]", chart["axes"])
+    assert set(axes) == {"x", "y"}
+    assert sources == {
+        "sources": [
             {
-                "observed_at": "2026-05-12",
-                "completion_percent": 100,
-                "observation_node_id": (
-                    f"{MEMBER_ID}:observation:adherence-week:2026-05-12"
-                ),
-            },
-            {
-                "observed_at": "2026-05-19",
-                "completion_percent": 100,
-                "observation_node_id": (
-                    f"{MEMBER_ID}:observation:adherence-week:2026-05-19"
-                ),
-            },
-            {
-                "observed_at": "2026-05-26",
-                "completion_percent": 75,
-                "observation_node_id": (
-                    f"{MEMBER_ID}:observation:adherence-week:2026-05-26"
-                ),
-            },
-            {
-                "observed_at": "2026-06-02",
-                "completion_percent": 50,
-                "observation_node_id": (
-                    f"{MEMBER_ID}:observation:adherence-week:2026-06-02"
-                ),
-            },
-        ),
-        "observation_node_ids": (
-            f"{MEMBER_ID}:observation:adherence-week:2026-05-12",
-            f"{MEMBER_ID}:observation:adherence-week:2026-05-19",
-            f"{MEMBER_ID}:observation:adherence-week:2026-05-26",
-            f"{MEMBER_ID}:observation:adherence-week:2026-06-02",
-        ),
+                "tool": "render_chart",
+                "node_ids": [MEMBER_ID, *observation_node_ids],
+            }
+        ]
     }
-    assert result.node_ids == (MEMBER_ID, *result.data.observation_node_ids)
-
-
-def test_sleep_week_is_built_from_the_seven_day_observation_window() -> None:
-    result = _render("sleep_week", "28-days")
-
-    assert isinstance(result.data, SleepWeekChart)
-    assert tuple((point.observed_at, point.hours) for point in result.data.series) == (
-        ("2026-05-28", 6.1),
-        ("2026-05-29", 5.4),
-        ("2026-05-30", 7.2),
-        ("2026-05-31", 6.0),
-        ("2026-06-01", 5.1),
-        ("2026-06-02", 7.8),
-        ("2026-06-03", 6.3),
-    )
-    assert result.data.window == "28-days"
-    assert result.data.axes.y == NumericAxis(
-        label="Sleep",
-        unit="hours",
-        minimum=0,
-        maximum=9,
-        ticks=(0, 3, 6, 9),
-    )
-    assert result.data.observation_node_ids == tuple(
-        point.observation_node_id for point in result.data.series
-    )
-
-
-def test_message_pattern_is_built_from_chat_messages_in_the_requested_window() -> None:
-    result = _render("message_pattern", "28-days")
-
-    assert isinstance(result.data, MessagePatternChart)
-    assert tuple(
-        (point.date, point.member_count, point.coach_count)
-        for point in result.data.series
-    ) == (
-        ("2026-05-22", 1, 0),
-        ("2026-05-30", 1, 0),
-        ("2026-06-03", 1, 1),
-    )
-    assert result.data.axes.y == NumericAxis(
-        label="Messages",
-        unit="count",
-        minimum=0,
-        maximum=2,
-        ticks=(0, 1, 2),
-    )
-    assert result.data.chat_message_node_ids == tuple(
-        node_id
-        for point in result.data.series
-        for node_id in point.chat_message_node_ids
-    )
-    assert result.node_ids == (MEMBER_ID, *result.data.chat_message_node_ids)
-
-
-def test_four_week_comparison_is_built_from_adherence_observations() -> None:
-    result = _render("four_week_comparison", "28-days")
-
-    assert isinstance(result.data, FourWeekComparisonChart)
-    assert tuple(
-        (point.week_of, point.completion_percent) for point in result.data.series
-    ) == (
-        ("2026-05-12", 100),
-        ("2026-05-19", 100),
-        ("2026-05-26", 75),
-        ("2026-06-02", 50),
-    )
-    assert result.data.observation_node_ids == tuple(
-        point.observation_node_id for point in result.data.series
-    )
 
 
 @pytest.mark.parametrize(
     ("kind", "expected_dates"),
     [
-        ("adherence_trend", ("2026-06-02",)),
-        (
-            "sleep_week",
-            (
-                "2026-05-28",
-                "2026-05-29",
-                "2026-05-30",
-                "2026-05-31",
-                "2026-06-01",
-                "2026-06-02",
-                "2026-06-03",
-            ),
-        ),
-        ("message_pattern", ("2026-05-30", "2026-06-03")),
-        ("four_week_comparison", ("2026-06-02",)),
+        ("adherence_trend", ["2026-06-02"]),
+        ("message_pattern", ["2026-05-30", "2026-06-03"]),
     ],
 )
-def test_render_chart_applies_the_llm_selected_window(
+def test_registered_render_chart_uses_graph_owned_seven_day_window(
     kind: str,
-    expected_dates: tuple[str, ...],
+    expected_dates: list[str],
 ) -> None:
-    result = _render(kind, "7-days")
+    chart, _ = _render(kind, "7-days")
 
-    dates = tuple(_point_date(point) for point in result.data.series)
-    assert dates == expected_dates
-
-
-def test_render_chart_returns_empty_server_built_payload_for_unknown_member() -> None:
-    result = render_chart.invoke(
-        {
-            "member_id": "unknown-member",
-            "kind": "adherence_trend",
-            "window": "28-days",
-            "as_of": AS_OF,
-        }
-    )
-
-    assert isinstance(result, RenderChartResult)
-    assert isinstance(result.data, AdherenceTrendChart)
-    assert result.data.series == ()
-    assert result.data.observation_node_ids == ()
-    assert result.node_ids == ()
+    series = cast("list[dict[str, object]]", chart["series"])
+    assert [_point_date(point) for point in series] == expected_dates
 
 
-def _render(kind: str, window: str) -> RenderChartResult:
+@pytest.mark.parametrize(
+    ("kind", "window", "message"),
+    [
+        ("sleep_week", "28-days", "sleep_week requires window 7-days"),
+        (
+            "four_week_comparison",
+            "7-days",
+            "four_week_comparison requires window 28-days",
+        ),
+    ],
+)
+def test_registered_render_chart_rejects_contradictory_kind_window_metadata(
+    kind: str,
+    window: str,
+    message: str,
+) -> None:
     ingest_kg2()
-    result = render_chart.invoke(
-        {
-            "member_id": MEMBER_ID,
-            "kind": kind,
-            "window": window,
-            "as_of": AS_OF,
-        }
+
+    with pytest.raises(ValueError, match=message):
+        _run_chart_turn(MEMBER_ID, kind, window)
+
+
+def test_registered_render_chart_emits_empty_payload_for_unknown_member() -> None:
+    chart, sources = _render("adherence_trend", "28-days", member_id="unknown-member")
+
+    assert chart["series"] == []
+    assert chart["observation_node_ids"] == []
+    assert sources == {"sources": [{"tool": "render_chart", "node_ids": []}]}
+
+
+class _ChartLLM:
+    def __init__(self, kind: str, window: str) -> None:
+        self._kind = kind
+        self._window = window
+        self._tool_called = False
+
+    def invoke(
+        self,
+        messages: Sequence[BaseMessage],
+        tools: Sequence[BaseTool],
+    ) -> object:
+        if not self._tool_called:
+            assert any(tool.name == "render_chart" for tool in tools)
+            self._tool_called = True
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "render_chart",
+                        "args": {"kind": self._kind, "window": self._window},
+                        "id": "render-chart-1",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        return AIMessage(content="Chart ready.")
+
+
+def _render(
+    kind: str,
+    window: str,
+    *,
+    member_id: str = MEMBER_ID,
+) -> tuple[dict[str, object], object]:
+    ingest_kg2()
+    turn = _run_chart_turn(member_id, kind, window)
+    assert [part.type for part in turn.data_parts] == [
+        "data-chart",
+        "data-sources",
+    ]
+    chart_part, sources_part = turn.data_parts
+    assert isinstance(chart_part.data, dict)
+    return cast("dict[str, object]", chart_part.data), sources_part.data
+
+
+def _run_chart_turn(member_id: str, kind: str, window: str):
+    return run_copilot_turn(
+        member_id,
+        "Draw a chart",
+        checkpointer=InMemorySaver(),
+        llm=_ChartLLM(kind, window),
+        as_of=AS_OF,
+        tone_fact_reader=_no_tone_facts,
     )
-    assert isinstance(result, RenderChartResult)
-    return result
 
 
-def _point_date(point: object) -> str:
-    if isinstance(point, AdherenceTrendPoint | SleepWeekPoint):
-        return point.observed_at
-    if isinstance(point, MessagePatternPoint):
-        return point.date
-    if isinstance(point, FourWeekComparisonPoint):
-        return point.week_of
-    raise AssertionError(f"Unsupported chart point {point!r}")
+def _point_date(point: dict[str, object]) -> object:
+    return point.get("observed_at") or point.get("date") or point.get("week_of")
+
+
+def _no_tone_facts(
+    member_id: str,
+    *,
+    as_of: date | None = None,
+) -> tuple[CopilotToneFact, ...]:
+    return ()

@@ -3,6 +3,8 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 type ChartWindow = Literal["7-days", "28-days"]
+type SleepWeekWindow = Literal["7-days"]
+type FourWeekComparisonWindow = Literal["28-days"]
 type ChartNumber = int | float
 
 
@@ -52,7 +54,7 @@ class MessagePatternPoint(BaseModel):
     date: str
     member_count: int
     coach_count: int
-    chat_message_node_ids: list[str]
+    observation_node_id: str
 
 
 class FourWeekComparisonPoint(BaseModel):
@@ -77,7 +79,7 @@ class SleepWeekChart(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     kind: Literal["sleep_week"]
-    window: ChartWindow
+    window: SleepWeekWindow
     axes: ChartAxes
     series: list[SleepWeekPoint]
     observation_node_ids: list[str]
@@ -90,14 +92,14 @@ class MessagePatternChart(BaseModel):
     window: ChartWindow
     axes: ChartAxes
     series: list[MessagePatternPoint]
-    chat_message_node_ids: list[str]
+    observation_node_ids: list[str]
 
 
 class FourWeekComparisonChart(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     kind: Literal["four_week_comparison"]
-    window: ChartWindow
+    window: FourWeekComparisonWindow
     axes: ChartAxes
     series: list[FourWeekComparisonPoint]
     observation_node_ids: list[str]
