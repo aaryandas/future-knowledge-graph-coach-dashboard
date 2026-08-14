@@ -11,7 +11,7 @@ from app.graph.journey import JourneyStage, derive_journey_stage
 from app.graph.relevance import (
     as_observation_kind,
     current_date,
-    observation_freshness,
+    observation_staleness,
     scope_observations,
 )
 from app.graph.store import neo4j_session
@@ -392,7 +392,7 @@ def _observation(record: Record, *, as_of: date) -> ObservationView:
     value = _optional_number(properties, "value")
     kind = as_observation_kind(_string(properties, "kind"))
     observed_at = _string(properties, "observed_at")
-    freshness = observation_freshness(kind, observed_at, as_of=as_of)
+    staleness = observation_staleness(kind, observed_at, as_of=as_of)
     excluded = {
         "id",
         "member_id",
@@ -413,8 +413,8 @@ def _observation(record: Record, *, as_of: date) -> ObservationView:
         node_id=cast(str, record["node_id"]),
         kind=kind,
         observed_at=observed_at,
-        age_days=freshness.age_days,
-        stale=freshness.stale,
+        age_days=staleness.age_days,
+        stale=staleness.stale,
         value=value,
         unit=_optional_string(properties, "unit"),
         measurements=measurements,

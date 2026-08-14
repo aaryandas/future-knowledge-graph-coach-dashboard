@@ -3,18 +3,18 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any, Literal
 
 from langchain_core.tools import BaseTool, tool
 from neo4j import Record
 
-from app.graph.constants import ObservationKind
-from app.graph.relevance import (
+from app.graph import (
+    ObservationKind,
     as_observation_kind,
-    current_date,
-    observation_freshness,
+    observation_staleness,
     scope_observations,
+    scope_relevance_window,
 )
 from app.graph.store import neo4j_session
 
@@ -186,7 +186,7 @@ class MemberProfileResult(_JsonToolResult):
 @tool
 def get_observations(member_id: str, as_of: date | None = None) -> ObservationsResult:
     """Read current `Member -[:observed]-> Observation` values and latest labs, newest first."""
-    read_date = as_of or current_date()
+    read_date = _read_date(as_of)
     with neo4j_session() as session:
         records = session.run(
             "MATCH (member:Member {id: $member_id}) "
@@ -217,8 +217,11 @@ def get_observations(member_id: str, as_of: date | None = None) -> ObservationsR
 
 
 @tool
-def get_workout_sessions(member_id: str) -> WorkoutSessionsResult:
-    """Read `Member -[:performed]-> WorkoutSession -[:included]-> Exercise`, newest first."""
+def get_workout_sessions(
+    member_id: str, as_of: date | None = None
+) -> WorkoutSessionsResult:
+    """Read current-adherence-window `Member -[:performed]-> WorkoutSession -[:included]-> Exercise`."""
+    read_date = _read_date(as_of)
     with neo4j_session() as session:
         records = session.run(
             "MATCH (member:Member {id: $member_id}) "
@@ -233,8 +236,6 @@ def get_workout_sessions(member_id: str) -> WorkoutSessionsResult:
         )
         member_node_id: str | None = None
         workout_sessions: list[WorkoutSessionData] = []
-        workout_node_ids: list[str] = []
-        exercise_node_ids: list[str] = []
         for record in records:
             member_node_id = _optional_record_string(record, "member_node_id")
             node_id = _optional_record_string(record, "node_id")
@@ -245,21 +246,30 @@ def get_workout_sessions(member_id: str) -> WorkoutSessionsResult:
             workout_sessions.append(
                 _workout_session_data(node_id, properties, exercise_ids)
             )
-            workout_node_ids.append(node_id)
-            exercise_node_ids.extend(exercise_ids)
+        scoped_workout_sessions = scope_relevance_window(
+            workout_sessions,
+            kind="adherence-week",
+            observed_at=lambda workout: workout.date,
+            as_of=read_date,
+        )
     return WorkoutSessionsResult(
-        workout_sessions=tuple(workout_sessions),
+        workout_sessions=scoped_workout_sessions,
         node_ids=_node_ids(
             member_node_id,
-            workout_node_ids,
-            exercise_node_ids,
+            (workout.node_id for workout in scoped_workout_sessions),
+            (
+                exercise_node_id
+                for workout in scoped_workout_sessions
+                for exercise_node_id in workout.exercise_ids
+            ),
         ),
     )
 
 
 @tool
-def get_chat_messages(member_id: str) -> ChatMessagesResult:
-    """Read `Member -[:said|received]-> ChatMessage`, newest first."""
+def get_chat_messages(member_id: str, as_of: date | None = None) -> ChatMessagesResult:
+    """Read `Member -[:said|received]-> ChatMessage`, newest first; chat has no relevance window."""
+    read_date = _read_date(as_of)
     with neo4j_session() as session:
         records = session.run(
             "MATCH (member:Member {id: $member_id}) "
@@ -271,7 +281,6 @@ def get_chat_messages(member_id: str) -> ChatMessagesResult:
         )
         member_node_id: str | None = None
         chat_messages: list[ChatMessageData] = []
-        message_node_ids: list[str] = []
         for record in records:
             member_node_id = _optional_record_string(record, "member_node_id")
             node_id = _optional_record_string(record, "node_id")
@@ -280,16 +289,25 @@ def get_chat_messages(member_id: str) -> ChatMessagesResult:
             chat_messages.append(
                 _chat_message_data(node_id, _record_properties(record))
             )
-            message_node_ids.append(node_id)
+        scoped_chat_messages = scope_relevance_window(
+            chat_messages,
+            kind=None,
+            observed_at=lambda message: message.timestamp,
+            as_of=read_date,
+        )
     return ChatMessagesResult(
-        chat_messages=tuple(chat_messages),
-        node_ids=_node_ids(member_node_id, message_node_ids),
+        chat_messages=scoped_chat_messages,
+        node_ids=_node_ids(
+            member_node_id,
+            (message.node_id for message in scoped_chat_messages),
+        ),
     )
 
 
 @tool
-def get_member_goals(member_id: str) -> MemberGoalsResult:
-    """Read `Member -[:pursues]-> Goal`, highest priority first."""
+def get_member_goals(member_id: str, as_of: date | None = None) -> MemberGoalsResult:
+    """Read current `Member -[:pursues]-> Goal` records, highest priority first."""
+    read_date = _read_date(as_of)
     with neo4j_session() as session:
         records = session.run(
             "MATCH (member:Member {id: $member_id}) "
@@ -301,23 +319,33 @@ def get_member_goals(member_id: str) -> MemberGoalsResult:
         )
         member_node_id: str | None = None
         goals: list[GoalData] = []
-        goal_node_ids: list[str] = []
         for record in records:
             member_node_id = _optional_record_string(record, "member_node_id")
             node_id = _optional_record_string(record, "node_id")
             if node_id is None:
                 continue
             goals.append(_goal_data(node_id, _record_properties(record)))
-            goal_node_ids.append(node_id)
+        scoped_goals = scope_relevance_window(
+            goals,
+            kind=None,
+            observed_at=lambda goal: goal.target_date,
+            as_of=read_date,
+        )
     return MemberGoalsResult(
-        goals=tuple(goals),
-        node_ids=_node_ids(member_node_id, goal_node_ids),
+        goals=scoped_goals,
+        node_ids=_node_ids(
+            member_node_id,
+            (goal.node_id for goal in scoped_goals),
+        ),
     )
 
 
 @tool
-def get_member_injuries(member_id: str) -> MemberInjuriesResult:
-    """Read `Member -[:has]-> MemberInjury -[:exactMatch]-> ClinicalFinding`, newest first."""
+def get_member_injuries(
+    member_id: str, as_of: date | None = None
+) -> MemberInjuriesResult:
+    """Read current `Member -[:has]-> MemberInjury -[:exactMatch]-> ClinicalFinding` records."""
+    read_date = _read_date(as_of)
     with neo4j_session() as session:
         records = session.run(
             "MATCH (member:Member {id: $member_id}) "
@@ -332,8 +360,6 @@ def get_member_injuries(member_id: str) -> MemberInjuriesResult:
         )
         member_node_id: str | None = None
         injuries: list[MemberInjuryData] = []
-        injury_node_ids: list[str] = []
-        finding_node_ids: list[str] = []
         for record in records:
             member_node_id = _optional_record_string(record, "member_node_id")
             node_id = _optional_record_string(record, "node_id")
@@ -349,21 +375,30 @@ def get_member_injuries(member_id: str) -> MemberInjuriesResult:
                     clinical_finding_ids,
                 )
             )
-            injury_node_ids.append(node_id)
-            finding_node_ids.extend(clinical_finding_ids)
+        scoped_injuries = scope_relevance_window(
+            injuries,
+            kind=None,
+            observed_at=lambda injury: injury.since,
+            as_of=read_date,
+        )
     return MemberInjuriesResult(
-        injuries=tuple(injuries),
+        injuries=scoped_injuries,
         node_ids=_node_ids(
             member_node_id,
-            injury_node_ids,
-            finding_node_ids,
+            (injury.node_id for injury in scoped_injuries),
+            (
+                finding_node_id
+                for injury in scoped_injuries
+                for finding_node_id in injury.clinical_finding_ids
+            ),
         ),
     )
 
 
 @tool
-def get_morning_brief(member_id: str) -> MorningBriefResult:
-    """Read the morning brief through `CoachTask -[:addresses]->` and `Barrier -[:evidencedBy]->`."""
+def get_morning_brief(member_id: str, as_of: date | None = None) -> MorningBriefResult:
+    """Read the current-adherence-window brief through `addresses` and `evidencedBy`."""
+    read_date = _read_date(as_of)
     with neo4j_session() as session:
         record = session.run(
             "MATCH (member:Member {id: $member_id}) "
@@ -387,14 +422,25 @@ def get_morning_brief(member_id: str) -> MorningBriefResult:
     properties = _record_properties(record)
     coach_tasks = _coach_tasks(_record_mappings(record, "task_rows"))
     barriers = _barriers(_record_mappings(record, "barrier_rows"))
-    return MorningBriefResult(
-        morning_brief=MorningBriefData(
-            generated_for=_string(properties, "brief_generated_for"),
-            churn_risk_level=_string(properties, "churn_risk_level"),
-            churn_risk_reasons=_strings(properties, "churn_risk_reasons"),
-            barriers=barriers,
-            coach_tasks=coach_tasks,
+    scoped_briefs = scope_relevance_window(
+        (
+            MorningBriefData(
+                generated_for=_string(properties, "brief_generated_for"),
+                churn_risk_level=_string(properties, "churn_risk_level"),
+                churn_risk_reasons=_strings(properties, "churn_risk_reasons"),
+                barriers=barriers,
+                coach_tasks=coach_tasks,
+            ),
         ),
+        kind="adherence-week",
+        observed_at=lambda brief: brief.generated_for,
+        as_of=read_date,
+    )
+    if not scoped_briefs:
+        return MorningBriefResult(morning_brief=None, node_ids=(member_node_id,))
+    morning_brief = scoped_briefs[0]
+    return MorningBriefResult(
+        morning_brief=morning_brief,
         node_ids=_node_ids(
             member_node_id,
             (task.node_id for task in coach_tasks),
@@ -414,8 +460,11 @@ def get_morning_brief(member_id: str) -> MorningBriefResult:
 
 
 @tool
-def get_member_profile(member_id: str) -> MemberProfileResult:
+def get_member_profile(
+    member_id: str, as_of: date | None = None
+) -> MemberProfileResult:
     """Read `Member -[:owns]-> Equipment` and `Member -[:dislikes]-> Exercise` with the Member profile."""
+    read_date = _read_date(as_of)
     with neo4j_session() as session:
         record = session.run(
             "MATCH (member:Member {id: $member_id}) "
@@ -433,8 +482,14 @@ def get_member_profile(member_id: str) -> MemberProfileResult:
     properties = _record_properties(record)
     equipment_node_ids = sorted(_record_strings(record, "equipment_node_ids"))
     exercise_node_ids = sorted(_record_strings(record, "exercise_node_ids"))
+    scoped_profiles = scope_relevance_window(
+        (_member_profile_data(member_node_id, properties),),
+        kind=None,
+        observed_at=lambda profile: profile.member_since,
+        as_of=read_date,
+    )
     return MemberProfileResult(
-        profile=_member_profile_data(member_node_id, properties),
+        profile=scoped_profiles[0],
         node_ids=_node_ids(
             member_node_id,
             equipment_node_ids,
@@ -459,7 +514,7 @@ def _observation_data(
 ) -> ObservationData:
     kind = as_observation_kind(_string(properties, "kind"))
     observed_at = _string(properties, "observed_at")
-    freshness = observation_freshness(kind, observed_at, as_of=as_of)
+    staleness = observation_staleness(kind, observed_at, as_of=as_of)
     excluded = {
         "id",
         "member_id",
@@ -480,8 +535,8 @@ def _observation_data(
         node_id=node_id,
         kind=kind,
         observed_at=observed_at,
-        age_days=freshness.age_days,
-        stale=freshness.stale,
+        age_days=staleness.age_days,
+        stale=staleness.stale,
         value=_optional_number(properties, "value"),
         unit=_optional_string(properties, "unit"),
         measurements=measurements,
@@ -748,3 +803,7 @@ def _observation_scalar(value: Any, name: str) -> ObservationScalar:
     if not isinstance(value, str | int | float | bool):
         raise TypeError(f"Expected Observation measurement {name} to be a scalar")
     return value
+
+
+def _read_date(as_of: date | None) -> date:
+    return as_of or datetime.now(UTC).date()

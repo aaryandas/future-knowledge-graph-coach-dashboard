@@ -5,11 +5,11 @@ from typing import Literal
 
 from app.graph import get_member_context
 
-type CopilotToneFactLabel = Literal["Journey stage", "Churn risk level"]
+type CopilotToneFactLabel = Literal["Journey stage", "Churn risk"]
 
 COPILOT_TONE_FACT_LABELS: tuple[CopilotToneFactLabel, ...] = (
     "Journey stage",
-    "Churn risk level",
+    "Churn risk",
 )
 
 
@@ -50,7 +50,7 @@ def get_copilot_tone_facts(
             evidence_node_ids=journey_node_ids,
         ),
         CopilotToneFact(
-            label="Churn risk level",
+            label="Churn risk",
             value=member_context.morning_brief.churn_risk_level,
             evidence_node_ids=churn_node_ids,
         ),

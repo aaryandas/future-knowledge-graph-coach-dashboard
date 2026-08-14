@@ -24,8 +24,14 @@ from app.copilot import (
     ObservationsResult,
     WorkoutSessionData,
     WorkoutSessionsResult,
+    get_chat_messages,
     get_copilot_tone_facts,
+    get_member_goals,
+    get_member_injuries,
+    get_member_profile,
+    get_morning_brief,
     get_observations,
+    get_workout_sessions,
 )
 from app.graph import ingest_kg2
 
@@ -117,12 +123,48 @@ def test_observation_tool_scopes_windows_and_returns_stale_labs_with_age() -> No
     )
 
 
+@pytest.mark.parametrize(
+    ("retrieval_tool", "result_field", "expected_count"),
+    [
+        (get_observations, "observations", 2),
+        (get_workout_sessions, "workout_sessions", 0),
+        (get_chat_messages, "chat_messages", 4),
+        (get_member_goals, "goals", 3),
+        (get_member_injuries, "injuries", 1),
+        (get_morning_brief, "morning_brief", 0),
+        (get_member_profile, "profile", 1),
+    ],
+)
+def test_each_retrieval_tool_applies_its_relevance_window(
+    retrieval_tool: Any,
+    result_field: str,
+    expected_count: int,
+) -> None:
+    ingest_kg2()
+
+    result = retrieval_tool.invoke(
+        {"member_id": MEMBER_ID, "as_of": date(2026, 12, 10)}
+    )
+
+    value = getattr(result, result_field)
+    actual_count = len(value) if isinstance(value, tuple) else int(value is not None)
+    assert actual_count == expected_count
+    assert result.node_ids[0] == MEMBER_ID
+
+
 def test_copilot_context_exposes_two_labeled_tone_facts() -> None:
     ingest_kg2()
 
     facts = get_copilot_tone_facts(MEMBER_ID, as_of=date(2026, 6, 4))
 
-    assert tuple(fact.label for fact in facts) == COPILOT_TONE_FACT_LABELS
+    assert (
+        tuple(fact.label for fact in facts)
+        == COPILOT_TONE_FACT_LABELS
+        == (
+            "Journey stage",
+            "Churn risk",
+        )
+    )
     assert tuple(fact.value for fact in facts) == ("recovering", "elevated")
     assert all(fact.evidence_node_ids for fact in facts)
 

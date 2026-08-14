@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Protocol, cast
@@ -10,7 +10,7 @@ from app.graph.constants import (
 
 
 @dataclass(frozen=True)
-class ObservationFreshness:
+class ObservationStaleness:
     age_days: int
     stale: bool
 
@@ -33,16 +33,16 @@ def as_observation_kind(value: str) -> ObservationKind:
     return cast(ObservationKind, value)
 
 
-def observation_freshness(
+def observation_staleness(
     kind: ObservationKind,
     observed_at: str,
     *,
     as_of: date,
-) -> ObservationFreshness:
+) -> ObservationStaleness:
     observed_on = _observed_date(observed_at)
     age_days = max(0, (as_of - observed_on).days)
     window = OBSERVATION_RELEVANCE_WINDOWS[kind]
-    return ObservationFreshness(
+    return ObservationStaleness(
         age_days=age_days,
         stale=age_days > window.stale_after_days,
     )
@@ -65,8 +65,33 @@ def scope_observations[T: RelevanceScopedObservation](
     return tuple(scoped)
 
 
+def scope_relevance_window[T](
+    values: Iterable[T],
+    *,
+    kind: ObservationKind | None,
+    observed_at: Callable[[T], str | None],
+    as_of: date,
+) -> tuple[T, ...]:
+    values = tuple(values)
+    if kind is None:
+        return values
+    window = OBSERVATION_RELEVANCE_WINDOWS[kind]
+    if window.latest_value:
+        return values[:1]
+    return tuple(
+        value
+        for value in values
+        if (value_observed_at := observed_at(value)) is not None
+        and _age_days(value_observed_at, as_of=as_of) <= window.stale_after_days
+    )
+
+
 def _observed_date(value: str) -> date:
     try:
         return date.fromisoformat(value)
     except ValueError:
         return datetime.fromisoformat(value).date()
+
+
+def _age_days(observed_at: str, *, as_of: date) -> int:
+    return max(0, (as_of - _observed_date(observed_at)).days)

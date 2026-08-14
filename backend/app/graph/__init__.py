@@ -10,7 +10,6 @@ from .journey import (
     JourneyStage,
     JourneyStageEvidence,
     JourneyStageName,
-    derive_journey_stage,
 )
 from .member_context import (
     BarrierView,
@@ -34,9 +33,11 @@ from .member_context import (
     get_workout_sessions,
 )
 from .relevance import (
-    ObservationFreshness,
-    observation_freshness,
+    ObservationStaleness,
+    as_observation_kind,
+    observation_staleness,
     scope_observations,
+    scope_relevance_window,
 )
 
 __all__ = [
@@ -54,13 +55,13 @@ __all__ = [
     "MemberInjuryView",
     "MemberProfile",
     "MorningBrief",
-    "ObservationFreshness",
     "ObservationKind",
+    "ObservationStaleness",
     "ObservationValue",
     "ObservationView",
     "RelevanceWindow",
     "WorkoutSessionView",
-    "derive_journey_stage",
+    "as_observation_kind",
     "get_chat_messages",
     "get_member_context",
     "get_member_goals",
@@ -71,6 +72,7 @@ __all__ = [
     "get_workout_sessions",
     "ingest_kg1",
     "ingest_kg2",
-    "observation_freshness",
+    "observation_staleness",
     "scope_observations",
+    "scope_relevance_window",
 ]
