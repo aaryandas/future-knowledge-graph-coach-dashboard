@@ -32,7 +32,7 @@ def seeded_graph() -> None:
             "exclude",
             "clinical directive",
             ("MemberInjury", "MovementPattern", "Exercise"),
-            ("performs",),
+            ("clinicalDirective", "performs"),
         ),
         (
             CYCLIST_SQUAT_ID,
@@ -87,6 +87,9 @@ def test_safety_layers_return_verdicts_with_walked_paths(
     assert verdict.decisions[0].layer == layer
     assert tuple(node.kind for node in verdict.walked_path.nodes) == node_kinds
     assert tuple(edge.kind for edge in verdict.walked_path.edges) == edge_kinds
+    assert len(verdict.walked_path.edges) == len(verdict.walked_path.nodes) - 1
+    if layer is not None:
+        assert verdict.walked_path.nodes[0].kind == "MemberInjury"
 
 
 @pytest.mark.parametrize(
@@ -209,6 +212,39 @@ def test_resolver_parsed_clinical_clearance_has_highest_precedence(
     decision = verdict.decisions[0]
     assert decision.kind == "graph"
     assert decision.layer == "clinical directive"
+
+
+def test_clinical_directive_walks_the_connected_joint_path(tmp_path: Path) -> None:
+    data_directory = tmp_path / "data"
+    shutil.copytree(DATA_DIRECTORY, data_directory)
+    member_path = data_directory / "member-context.json"
+    member = json.loads(member_path.read_text())
+    member_id = "mbr_joint_directive"
+    member["profile"]["id"] = member_id
+    member["injuries"][0]["notes"] = "Avoid knee."
+    member_path.write_text(json.dumps(member))
+
+    try:
+        ingest_kg2(data_directory)
+        (verdict,) = evaluate_safety(member_id, (CYCLIST_SQUAT_ID,))
+    finally:
+        ingest_kg2()
+
+    decision = verdict.decisions[0]
+    assert verdict.status == "exclude"
+    assert decision.kind == "graph"
+    assert decision.layer == "clinical directive"
+    assert decision.reason == "Clinical directive: exclude knee"
+    assert tuple(node.kind for node in verdict.walked_path.nodes) == (
+        "MemberInjury",
+        "Joint",
+        "Exercise",
+    )
+    assert tuple(edge.kind for edge in verdict.walked_path.edges) == (
+        "clinicalDirective",
+        "loads",
+    )
+    assert len(verdict.walked_path.edges) == len(verdict.walked_path.nodes) - 1
 
 
 def test_resolved_injury_stays_visible_without_softening_another_injury(

@@ -1,11 +1,12 @@
 import json
 import re
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, LiteralString, cast
+from typing import Any, Literal, LiteralString, cast
 
 from neo4j import ManagedTransaction, Session
 
@@ -21,12 +22,24 @@ from app.graph.schema import (
     NodeLabel,
 )
 from app.graph.store import neo4j_session
-from app.resolver import ArtifactVocabulary, Resolution, resolve
+from app.resolver import (
+    ArtifactVocabulary,
+    Resolution,
+    Vocabulary,
+    VocabularyConcept,
+    resolve,
+)
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_DATA_DIRECTORY = REPOSITORY_ROOT / "data"
 CATALOG_SOURCE = "data/exercises.json"
 MEMBER_CONTEXT_PATTERN = "member-context*.json"
+_CLINICAL_DIRECTIVE = re.compile(
+    r"\b(cleared for|clear for|allowed|allow|avoid|exclude|caution|modify|limit)"
+    r"\b([^.;]*)",
+    re.IGNORECASE,
+)
+_DIRECTIVE_SEPARATOR = re.compile(r"\s+and\s+|,")
 
 KG1_EDGE_SOURCE_LABELS: dict[EdgeType, tuple[NodeLabel, ...]] = {
     "targets": ("Exercise",),
@@ -49,11 +62,13 @@ KG2_EDGE_SOURCE_LABELS: dict[EdgeType, NodeLabel] = {
     "dislikes": "Member",
     "included": "WorkoutSession",
     "exactMatch": "MemberInjury",
+    "clinicalDirective": "MemberInjury",
     "evidencedBy": "Barrier",
     "addresses": "CoachTask",
 }
 
 type JsonObject = dict[str, Any]
+type DirectiveStatus = Literal["clear", "caution", "exclude"]
 
 
 @dataclass(frozen=True)
@@ -82,6 +97,23 @@ class EdgeBatch:
     edge_type: EdgeType
     target_label: NodeLabel
     rows: list[Edge]
+
+
+@dataclass(frozen=True)
+class _ClinicalDirective:
+    status: DirectiveStatus
+    raw_text: str
+
+
+@dataclass(frozen=True)
+class _MovementPatternVocabulary:
+    values: tuple[VocabularyConcept, ...]
+
+    def concepts(self) -> Iterable[VocabularyConcept]:
+        return self.values
+
+    def token_aliases(self) -> Iterable[tuple[tuple[str, ...], tuple[str, ...]]]:
+        return ()
 
 
 @dataclass(frozen=True)
@@ -182,6 +214,12 @@ def _load_kg2(data_directory: Path) -> KG2Payload:
         kind="ClinicalFinding",
         synonyms_path=synonyms_path,
     )
+    movement_pattern_vocab = _movement_pattern_vocabulary(exercise_path, synonyms_path)
+    joint_vocab = ArtifactVocabulary.from_file(
+        exercise_path,
+        kind="Joint",
+        synonyms_path=synonyms_path,
+    )
 
     node_rows: dict[NodeLabel, list[Node]] = defaultdict(list)
     edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Edge]] = defaultdict(
@@ -199,6 +237,8 @@ def _load_kg2(data_directory: Path) -> KG2Payload:
             equipment_vocab,
             exercise_vocab,
             finding_vocab,
+            movement_pattern_vocab,
+            joint_vocab,
             node_rows,
             edge_rows,
         )
@@ -222,6 +262,8 @@ def _append_member(
     equipment_vocab: ArtifactVocabulary,
     exercise_vocab: ArtifactVocabulary,
     finding_vocab: ArtifactVocabulary,
+    movement_pattern_vocab: _MovementPatternVocabulary,
+    joint_vocab: ArtifactVocabulary,
     node_rows: dict[NodeLabel, list[Node]],
     edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Edge]],
 ) -> None:
@@ -290,6 +332,8 @@ def _append_member(
         member,
         member_id,
         finding_vocab,
+        movement_pattern_vocab,
+        joint_vocab,
         stamp,
         node_rows,
         edge_rows,
@@ -360,6 +404,8 @@ def _append_injuries(
     member: JsonObject,
     member_id: str,
     finding_vocab: ArtifactVocabulary,
+    movement_pattern_vocab: _MovementPatternVocabulary,
+    joint_vocab: ArtifactVocabulary,
     stamp: JsonObject,
     node_rows: dict[NodeLabel, list[Node]],
     edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Edge]],
@@ -368,11 +414,15 @@ def _append_injuries(
         external_id = _required_string(value, "id")
         injury_id = f"{member_id}:injury:{external_id}"
         finding_mentions = _clinical_finding_mentions(value)
+        directives = _clinical_directives(value)
         properties = {key: item for key, item in value.items() if key != "id"}
         properties.update(
             external_id=external_id,
             member_id=member_id,
             clinical_finding_mentions=finding_mentions,
+            clinical_directive_mentions=[
+                directive.raw_text for directive in directives
+            ],
             **stamp,
         )
         node_rows["MemberInjury"].append(
@@ -398,6 +448,26 @@ def _append_injuries(
                 cast(str, resolution.concept_id),
                 "ClinicalFinding",
                 _bridge_properties(stamp, resolution),
+                edge_rows,
+            )
+        for directive in directives:
+            target_label: NodeLabel = "MovementPattern"
+            resolution = _exact_resolution(directive.raw_text, movement_pattern_vocab)
+            if resolution is None:
+                target_label = "Joint"
+                resolution = _exact_resolution(directive.raw_text, joint_vocab)
+            if resolution is None:
+                continue
+            _append_edge(
+                injury_id,
+                "MemberInjury",
+                "clinicalDirective",
+                cast(str, resolution.concept_id),
+                target_label,
+                {
+                    **_bridge_properties(stamp, resolution),
+                    "status": directive.status,
+                },
                 edge_rows,
             )
 
@@ -804,7 +874,7 @@ def _append_bridge_edges(
     edge_type: EdgeType,
     target_label: NodeLabel,
     mentions: list[str],
-    vocab: ArtifactVocabulary,
+    vocab: Vocabulary,
     stamp: JsonObject,
     edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Edge]],
 ) -> None:
@@ -838,7 +908,7 @@ def _append_edge(
     )
 
 
-def _exact_resolution(mention: str, vocab: ArtifactVocabulary) -> Resolution | None:
+def _exact_resolution(mention: str, vocab: Vocabulary) -> Resolution | None:
     resolution = resolve(mention, vocab)
     if resolution.pass_ != "exact" or resolution.concept_id is None:
         return None
@@ -866,6 +936,58 @@ def _clinical_finding_mentions(injury: JsonObject) -> list[str]:
         if query:
             mentions.append(query)
     return list(dict.fromkeys(mentions))
+
+
+def _clinical_directives(injury: JsonObject) -> list[_ClinicalDirective]:
+    notes = injury.get("notes")
+    if not isinstance(notes, str):
+        return []
+    directives: list[_ClinicalDirective] = []
+    for match in _CLINICAL_DIRECTIVE.finditer(notes):
+        status = _directive_status(match.group(1).lower())
+        directives.extend(
+            _ClinicalDirective(status, raw_text)
+            for value in _DIRECTIVE_SEPARATOR.split(match.group(2))
+            if (raw_text := value.strip())
+        )
+    return directives
+
+
+def _directive_status(marker: str) -> DirectiveStatus:
+    if marker in {"cleared for", "clear for", "allowed", "allow"}:
+        return "clear"
+    if marker in {"caution", "modify", "limit"}:
+        return "caution"
+    return "exclude"
+
+
+def _movement_pattern_vocabulary(
+    exercise_path: Path, synonyms_path: Path
+) -> _MovementPatternVocabulary:
+    vocabulary = ArtifactVocabulary.from_file(
+        exercise_path,
+        kind="MovementPattern",
+        synonyms_path=synonyms_path,
+    )
+    return _MovementPatternVocabulary(
+        tuple(
+            VocabularyConcept(
+                concept_id=concept.concept_id,
+                preferred_term=concept.preferred_term,
+                aliases=tuple(
+                    dict.fromkeys(
+                        (*concept.aliases, *_movement_aliases(concept.preferred_term))
+                    )
+                ),
+            )
+            for concept in vocabulary.concepts()
+        )
+    )
+
+
+def _movement_aliases(preferred_term: str) -> tuple[str, ...]:
+    leaf = preferred_term.rsplit(" - ", maxsplit=1)[-1]
+    return tuple(dict.fromkeys((leaf, f"{leaf}s")))
 
 
 def _neo4j_properties(properties: JsonObject, node_id: str) -> JsonObject:

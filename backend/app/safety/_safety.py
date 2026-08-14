@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import re
-from collections.abc import Iterable
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from typing import cast
 
 from neo4j import Record, Session
@@ -10,7 +8,6 @@ from neo4j.graph import Node, Path, Relationship
 
 from app.graph.schema import EdgeType, NodeLabel
 from app.graph.store import neo4j_session
-from app.resolver import Resolution, VocabularyConcept, resolve
 
 from ._model import (
     AgentDecision,
@@ -22,12 +19,6 @@ from ._model import (
     WalkedPath,
 )
 
-_CLINICAL_DIRECTIVE = re.compile(
-    r"\b(cleared for|clear for|allowed|allow|avoid|exclude|caution|modify|limit)"
-    r"\b([^.;]*)",
-    re.IGNORECASE,
-)
-_DIRECTIVE_SEPARATOR = re.compile(r"\s+and\s+|,")
 _STATUS_RANK = {"clear": 0, "caution": 1, "exclude": 2}
 _LAYER_RANK = {
     None: 0,
@@ -35,17 +26,6 @@ _LAYER_RANK = {
     "contraindication": 2,
     "clinical directive": 3,
 }
-
-
-@dataclass(frozen=True)
-class _MovementPatternVocabulary:
-    values: tuple[VocabularyConcept, ...]
-
-    def concepts(self) -> Iterable[VocabularyConcept]:
-        return self.values
-
-    def token_aliases(self) -> Iterable[tuple[tuple[str, ...], tuple[str, ...]]]:
-        return ()
 
 
 def evaluate_safety(
@@ -56,14 +36,11 @@ def evaluate_safety(
 ) -> tuple[Verdict, ...]:
     """Return deterministic verdicts in the same order as the exercise ids."""
     with neo4j_session() as session:
-        vocabulary = _movement_pattern_vocabulary(session)
         decisions = (
             *_clear_decisions(session, exercise_ids),
             *_snomed_fallback_decisions(session, member_id, exercise_ids),
             *_authored_contraindication_decisions(session, member_id, exercise_ids),
-            *_clinical_directive_decisions(
-                session, member_id, exercise_ids, vocabulary
-            ),
+            *_clinical_directive_decisions(session, member_id, exercise_ids),
         )
 
     verdicts = _graph_verdicts(exercise_ids, decisions)
@@ -140,30 +117,6 @@ def _apply_agent_decisions(
             status=decision.status,
             decisions=(*verdict.decisions, decision),
         )
-
-
-def _movement_pattern_vocabulary(session: Session) -> _MovementPatternVocabulary:
-    records = session.run(
-        "MATCH (pattern:MovementPattern) "
-        "RETURN pattern.id AS concept_id, pattern.name AS preferred_term "
-        "ORDER BY concept_id"
-    )
-    return _MovementPatternVocabulary(
-        tuple(
-            VocabularyConcept(
-                concept_id=cast(str, record["concept_id"]),
-                preferred_term=cast(str, record["preferred_term"]),
-                aliases=_movement_aliases(cast(str, record["preferred_term"])),
-            )
-            for record in records
-        )
-    )
-
-
-def _movement_aliases(preferred_term: str) -> tuple[str, ...]:
-    leaf = preferred_term.rsplit(" - ", maxsplit=1)[-1]
-    plural = f"{leaf}s"
-    return tuple(dict.fromkeys((leaf, plural)))
 
 
 def _clear_decisions(
@@ -302,70 +255,51 @@ def _clinical_directive_decisions(
     session: Session,
     member_id: str,
     exercise_ids: tuple[str, ...],
-    vocabulary: _MovementPatternVocabulary,
 ) -> tuple[GraphDecision, ...]:
-    decisions: list[GraphDecision] = []
-    injuries = session.run(
-        "MATCH (:Member {id: $member_id})-[:has]->(injury:MemberInjury) "
-        "RETURN injury AS member_injury, injury.id AS member_injury_id, "
-        "injury.notes AS notes, "
-        "injury.status AS injury_status, injury.severity AS injury_severity "
-        "ORDER BY member_injury_id",
+    records = session.run(
+        "MATCH (:Member {id: $member_id})-[:has]->(member_injury:MemberInjury) "
+        "MATCH path=(member_injury)-[directive:clinicalDirective]->(target)"
+        "<-[:performs|loads]-(exercise:Exercise) "
+        "WHERE exercise.id IN $exercise_ids "
+        "RETURN exercise.id AS exercise_id, "
+        "member_injury.id AS member_injury_id, "
+        "member_injury.status AS injury_status, "
+        "member_injury.severity AS injury_severity, "
+        "directive.status AS directive_status, "
+        "directive.raw_text AS raw_text, path "
+        "ORDER BY exercise_id, member_injury_id, directive.id",
         member_id=member_id,
+        exercise_ids=list(exercise_ids),
     )
-    for injury in injuries:
-        for base_status, mention, resolution in _directive_resolutions(
-            cast(str, injury["notes"]), vocabulary
-        ):
-            paths = session.run(
-                "MATCH path=(pattern:MovementPattern)<-[:performs]-"
-                "(exercise:Exercise) "
-                "WHERE pattern.id = $pattern_id AND exercise.id IN $exercise_ids "
-                "RETURN exercise.id AS exercise_id, path "
-                "ORDER BY exercise_id",
-                pattern_id=resolution.concept_id,
-                exercise_ids=list(exercise_ids),
+    decisions: list[GraphDecision] = []
+    for record in records:
+        injury_status = cast(str, record["injury_status"])
+        injury_severity = cast(str, record["injury_severity"])
+        directive_status = _stored_directive_status(record["directive_status"])
+        decisions.append(
+            GraphDecision(
+                exercise_id=cast(str, record["exercise_id"]),
+                status=_modulated_status(
+                    directive_status, injury_status, injury_severity
+                ),
+                layer="clinical directive",
+                member_injury_id=cast(str, record["member_injury_id"]),
+                injury_status=injury_status,
+                injury_severity=injury_severity,
+                reason=(
+                    "Clinical directive: "
+                    f"{directive_status} {cast(str, record['raw_text'])}"
+                ),
+                walked_path=_walked_path(record),
             )
-            injury_status = cast(str, injury["injury_status"])
-            injury_severity = cast(str, injury["injury_severity"])
-            decisions.extend(
-                GraphDecision(
-                    exercise_id=cast(str, record["exercise_id"]),
-                    status=_modulated_status(
-                        base_status, injury_status, injury_severity
-                    ),
-                    layer="clinical directive",
-                    member_injury_id=cast(str, injury["member_injury_id"]),
-                    injury_status=injury_status,
-                    injury_severity=injury_severity,
-                    reason=f"Clinical directive: {base_status} {mention}",
-                    walked_path=_directive_walked_path(injury, record),
-                )
-                for record in paths
-            )
+        )
     return tuple(decisions)
 
 
-def _directive_resolutions(
-    notes: str, vocabulary: _MovementPatternVocabulary
-) -> tuple[tuple[VerdictStatus, str, Resolution], ...]:
-    resolutions: list[tuple[VerdictStatus, str, Resolution]] = []
-    for match in _CLINICAL_DIRECTIVE.finditer(notes):
-        status = _directive_status(match.group(1).lower())
-        for value in _DIRECTIVE_SEPARATOR.split(match.group(2)):
-            mention = value.strip()
-            resolution = resolve(mention, vocabulary)
-            if resolution.concept_id is not None:
-                resolutions.append((status, mention, resolution))
-    return tuple(resolutions)
-
-
-def _directive_status(marker: str) -> VerdictStatus:
-    if marker in {"cleared for", "clear for", "allowed", "allow"}:
-        return "clear"
-    if marker in {"caution", "modify", "limit"}:
-        return "caution"
-    return "exclude"
+def _stored_directive_status(value: object) -> VerdictStatus:
+    if value not in {"clear", "caution", "exclude"}:
+        raise RuntimeError(f"Unknown clinical directive status: {value}")
+    return cast(VerdictStatus, value)
 
 
 def _walked_path(record: Record) -> WalkedPath:
@@ -373,15 +307,6 @@ def _walked_path(record: Record) -> WalkedPath:
     return WalkedPath(
         nodes=tuple(_walked_node(node) for node in path.nodes),
         edges=tuple(_walked_edge(edge) for edge in path.relationships),
-    )
-
-
-def _directive_walked_path(injury: Record, record: Record) -> WalkedPath:
-    path = _walked_path(record)
-    member_injury = cast(Node, injury["member_injury"])
-    return WalkedPath(
-        nodes=(_walked_node(member_injury), *path.nodes),
-        edges=path.edges,
     )
 
 
