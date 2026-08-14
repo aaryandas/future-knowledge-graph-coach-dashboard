@@ -1,7 +1,7 @@
 import json
 import re
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
@@ -22,13 +22,26 @@ DEFAULT_DATA_DIRECTORY = REPOSITORY_ROOT / "data"
 CATALOG_SOURCE = "data/exercises.json"
 
 type JsonObject = dict[str, Any]
-type Row = dict[str, Any]
+
+
+@dataclass(frozen=True)
+class Node:
+    id: str
+    properties: JsonObject
+
+
+@dataclass(frozen=True)
+class Edge:
+    id: str
+    source_id: str
+    target_id: str
+    properties: JsonObject
 
 
 @dataclass(frozen=True)
 class NodeBatch:
     label: NodeLabel
-    rows: list[Row]
+    rows: list[Node]
 
 
 @dataclass(frozen=True)
@@ -36,7 +49,7 @@ class EdgeBatch:
     source_label: NodeLabel
     edge_type: EdgeType
     target_label: NodeLabel
-    rows: list[Row]
+    rows: list[Edge]
 
 
 @dataclass(frozen=True)
@@ -95,9 +108,9 @@ def _read_object(path: Path) -> JsonObject:
 def _catalog_batches(
     exercises: list[JsonObject], version: str
 ) -> tuple[list[NodeBatch], list[EdgeBatch]]:
-    exercise_rows: list[Row] = []
-    taxonomy_rows: dict[NodeLabel, dict[str, Row]] = defaultdict(dict)
-    edge_rows: dict[tuple[NodeLabel, EdgeType], list[Row]] = defaultdict(list)
+    exercise_rows: list[Node] = []
+    taxonomy_rows: dict[NodeLabel, dict[str, Node]] = defaultdict(dict)
+    edge_rows: dict[tuple[NodeLabel, EdgeType], list[Edge]] = defaultdict(list)
     taxonomy_fields = {field for field, _, _, _ in EXERCISE_TAXONOMIES}
 
     for exercise in exercises:
@@ -108,7 +121,7 @@ def _catalog_batches(
             if key != "id" and key not in taxonomy_fields
         }
         properties.update(source=CATALOG_SOURCE, version=version)
-        exercise_rows.append({"id": exercise_id, "properties": properties})
+        exercise_rows.append(Node(id=exercise_id, properties=properties))
 
         for field, label, edge_type, id_prefix in EXERCISE_TAXONOMIES:
             terms = exercise.get(field)
@@ -119,25 +132,25 @@ def _catalog_batches(
 
             for term in terms:
                 target_id = f"fkg:{id_prefix}/{_slug(term)}"
-                taxonomy_rows[label][target_id] = {
-                    "id": target_id,
-                    "properties": {
+                taxonomy_rows[label][target_id] = Node(
+                    id=target_id,
+                    properties={
                         "name": term,
                         "source": CATALOG_SOURCE,
                         "version": version,
                     },
-                }
+                )
                 edge_id = f"{exercise_id}:{edge_type}:{target_id}"
                 edge_rows[(label, edge_type)].append(
-                    {
-                        "id": edge_id,
-                        "source_id": exercise_id,
-                        "target_id": target_id,
-                        "properties": {
+                    Edge(
+                        id=edge_id,
+                        source_id=exercise_id,
+                        target_id=target_id,
+                        properties={
                             "source": CATALOG_SOURCE,
                             "version": version,
                         },
-                    }
+                    )
                 )
 
     _require_unique_ids(exercise_rows, CATALOG_SOURCE)
@@ -161,7 +174,7 @@ def _snomed_batches(
     if not isinstance(concepts, list) or not isinstance(edges, list):
         raise TypeError("SNOMED artifact must contain concepts and edges")
 
-    node_rows: dict[NodeLabel, list[Row]] = defaultdict(list)
+    node_rows: dict[NodeLabel, list[Node]] = defaultdict(list)
     concept_labels: dict[str, NodeLabel] = {}
     for value in concepts:
         concept = _object(value, "SNOMED concept")
@@ -176,9 +189,9 @@ def _snomed_batches(
             key: item for key, item in concept.items() if key not in {"id", "kind"}
         }
         properties.update(source=source, version=version)
-        node_rows[label].append({"id": concept_id, "properties": properties})
+        node_rows[label].append(Node(id=concept_id, properties=properties))
 
-    edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Row]] = defaultdict(
+    edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Edge]] = defaultdict(
         list
     )
     for value in edges:
@@ -198,12 +211,12 @@ def _snomed_batches(
         }
         properties.update(source=source, version=version)
         edge_rows[key].append(
-            {
-                "id": _required_string(edge, "id"),
-                "source_id": source_id,
-                "target_id": target_id,
-                "properties": properties,
-            }
+            Edge(
+                id=_required_string(edge, "id"),
+                source_id=source_id,
+                target_id=target_id,
+                properties=properties,
+            )
         )
 
     nodes = [NodeBatch(label, rows) for label, rows in node_rows.items()]
@@ -222,7 +235,7 @@ def _mapping_batches(
     if not isinstance(mappings, list):
         raise TypeError("SKOS artifact must contain mappings")
 
-    rows_by_target: dict[NodeLabel, list[Row]] = defaultdict(list)
+    rows_by_target: dict[NodeLabel, list[Edge]] = defaultdict(list)
     for value in mappings:
         mapping = _object(value, "SKOS mapping")
         source_id = _required_string(mapping, "source_id")
@@ -242,12 +255,12 @@ def _mapping_batches(
         }
         properties.update(source=source, version=version)
         rows_by_target[target_label].append(
-            {
-                "id": _required_string(mapping, "id"),
-                "source_id": source_id,
-                "target_id": target_id,
-                "properties": properties,
-            }
+            Edge(
+                id=_required_string(mapping, "id"),
+                source_id=source_id,
+                target_id=target_id,
+                properties=properties,
+            )
         )
 
     return [
@@ -302,8 +315,8 @@ def _slug(value: str) -> str:
     return slug
 
 
-def _require_unique_ids(rows: list[Row], source: str) -> None:
-    ids = [row["id"] for row in rows]
+def _require_unique_ids(nodes: list[Node], source: str) -> None:
+    ids = [node.id for node in nodes]
     if len(ids) != len(set(ids)):
         raise ValueError(f"{source} contains duplicate ids")
 
@@ -334,7 +347,7 @@ def _merge_payload(
             SET node.ingested_at = coalesce(node.ingested_at, datetime($ingested_at))
             """
             ),
-            rows=batch.rows,
+            rows=[asdict(node) for node in batch.rows],
             ingested_at=ingested_at,
         ).consume()
 
@@ -350,7 +363,7 @@ def _merge_payload(
             SET edge.ingested_at = coalesce(edge.ingested_at, datetime($ingested_at))
             """
             ),
-            rows=batch.rows,
+            rows=[asdict(edge) for edge in batch.rows],
             ingested_at=ingested_at,
         ).consume()
 
