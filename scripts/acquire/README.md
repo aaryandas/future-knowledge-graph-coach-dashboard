@@ -26,3 +26,18 @@ concepts and their `findingSite` AnatomicalStructure concepts. The script verifi
 ClinicalFinding reaches a Joint through `findingSite` and `isA*`. It stops if EVS changes the
 subset far outside its expected size or returns mixed terminology versions, so a refresh
 receives human review instead of silently changing the graph.
+
+## Resolver embeddings
+
+Build the resolver's concept embeddings through OpenRouter from the repository root:
+
+```sh
+OPENROUTER_API_KEY=... uv run --project backend python scripts/acquire/build_embeddings.py
+```
+
+The script sends one string per concept through LangChain `Embeddings` to OpenRouter. Each
+string contains the concept name and its aliases, including SNOMED synonyms. It uses
+`qwen/qwen3-embedding-4b` in batches and writes one committed JSON file per vocabulary under
+`data/resolver-embeddings/`. Review and commit those artifacts after each intentional
+vocabulary or model update. Runtime queries must use the same model. Tests use the small
+committed fixtures under `backend/tests/fixtures/` and never call OpenRouter.
