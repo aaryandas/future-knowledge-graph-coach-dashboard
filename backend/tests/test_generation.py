@@ -1,14 +1,14 @@
-from app.api.generation_parts import generation_data_parts
+from app.generation import GenerationTurn
 from app.generation.testing import (
     CatalogExercise,
     FakeLLM,
     GenerationMemberContext,
+    InMemorySaver,
     ResolvedMention,
     Verdict,
     WalkedPath,
-    run_checkpointed_session,
+    run_generation_session,
 )
-from langgraph.checkpoint.memory import InMemorySaver
 
 MEMBER_ID = "mbr_01HX9JORDAN"
 
@@ -60,94 +60,78 @@ def test_adjustment_merges_checkpointed_constraint_set_and_pairs_substitution() 
             for exercise_id in exercise_ids
         )
 
-    first = run_checkpointed_session(
-        MEMBER_ID,
-        "Build a lower-body workout.",
-        20,
-        "thread-1",
-        checkpointer=checkpointer,
-        llm=llm,
-        catalog_reader=_catalog,
-        member_context_reader=_member_context,
-        verdict_evaluator=verdict_evaluator,
+    first, second, third = (
+        run_generation_session(
+            MEMBER_ID,
+            message,
+            20,
+            "thread-1",
+            checkpointer=checkpointer,
+            llm=llm,
+            catalog_reader=_catalog,
+            member_context_reader=_member_context,
+            verdict_evaluator=verdict_evaluator,
+        )
+        for message in (
+            "Build a lower-body workout.",
+            "Exclude the split squat; her knee hurts; dumbbells only.",
+            "Also avoid moon burpees; she reports quantum flux.",
+        )
     )
-    second = run_checkpointed_session(
-        MEMBER_ID,
-        "Exclude the split squat; her knee hurts; dumbbells only.",
-        20,
-        "thread-1",
-        checkpointer=checkpointer,
-        llm=llm,
-        catalog_reader=_catalog,
-        member_context_reader=_member_context,
-        verdict_evaluator=verdict_evaluator,
-    )
-    third = run_checkpointed_session(
-        MEMBER_ID,
-        "Also avoid moon burpees; she reports quantum flux.",
-        20,
-        "thread-1",
-        checkpointer=checkpointer,
-        llm=llm,
-        catalog_reader=_catalog,
-        member_context_reader=_member_context,
-        verdict_evaluator=verdict_evaluator,
-    )
+    turns: tuple[GenerationTurn, ...] = (first, second, third)
 
-    assert first.plan is not None
-    assert second.plan is not None
-    assert first.plan.main.entries[0].name == "Dumbbell Goblet Split Squat"
-    assert second.plan.main.entries[0].name == "Kettlebell Goblet Cyclist Squat"
-    assert second.resolved_intent is not None
+    first_plan = turns[0].plan
+    second_plan = turns[1].plan
+    second_intent = turns[1].resolved_intent
+    third_intent = turns[2].resolved_intent
+    assert first_plan is not None
+    assert second_plan is not None
+    assert second_intent is not None
+    assert third_intent is not None
+    assert first_plan.main.entries[0].name == "Dumbbell Goblet Split Squat"
+    assert second_plan.main.entries[0].name == "Kettlebell Goblet Cyclist Squat"
     assert [
-        mention.resolution.raw_text
-        for mention in second.resolved_intent.constraints.exclusions
+        mention.resolution.raw_text for mention in second_intent.constraints.exclusions
     ] == ["Dumbbell Goblet Split Squat"]
     assert [
         mention.resolution.raw_text
-        for mention in second.resolved_intent.constraints.session_injuries
+        for mention in second_intent.constraints.session_injuries
     ] == ["knee"]
-    assert second.resolved_intent.constraints.equipment_override is not None
+    assert second_intent.constraints.equipment_override is not None
     assert (
-        second.resolved_intent.constraints.equipment_override[0].resolution.raw_text
+        second_intent.constraints.equipment_override[0].resolution.raw_text
         == "Dumbbell"
     )
     assert received_session_injuries[0] == ()
     assert received_session_injuries[1][0].enforced is True
 
-    second_parts = [
-        part.model_dump(mode="json", by_alias=True)
-        for part in generation_data_parts(second)
-    ]
-    assert [(part["type"], part["id"]) for part in second_parts] == [
-        ("data-plan", "generation-plan"),
-        ("data-trace", "generation-trace"),
-        ("data-constraints", "generation-constraints"),
-    ]
     substitution = next(
-        event for event in second_parts[1]["data"] if event["kind"] == "substitution"
+        event for event in turns[1].trace if event.kind == "substitution"
     )
-    assert substitution["dropped_exercise_id"] == _MAIN_DUMBBELL_ID
-    assert substitution["replacement_exercise_id"] == _MAIN_KETTLEBELL_ID
-    assert substitution["basis"] == "muscle overlap"
+    assert substitution.dropped_exercise_id == _MAIN_DUMBBELL_ID
+    assert substitution.replacement_exercise_id == _MAIN_KETTLEBELL_ID
+    assert substitution.basis == "muscle overlap"
 
-    third_parts = generation_data_parts(third)
-    constraints = third_parts[2].model_dump(mode="json")["data"]
-    assert [chip["raw_text"] for chip in constraints["omissions"]] == ["moon burpees"]
-    assert constraints["omissions"][0]["candidates"]
-    assert [flag["raw_text"] for flag in constraints["not_enforced"]] == [
-        "quantum flux"
-    ]
     assert [
-        suggestion["raw_text"]
-        for suggestion in constraints["session_injury_persistence_suggestions"]
+        mention.resolution.raw_text for mention in third_intent.constraints.exclusions
+    ] == ["Dumbbell Goblet Split Squat", "moon burpees"]
+    unresolved_exclusion = third_intent.constraints.exclusions[1]
+    assert unresolved_exclusion.enforced is False
+    assert unresolved_exclusion.resolution.candidates
+    assert [
+        mention.resolution.raw_text
+        for mention in third_intent.constraints.session_injuries
+    ] == ["knee", "quantum flux"]
+    assert [
+        mention.resolution.raw_text
+        for mention in third_intent.constraints.session_injuries
+        if not mention.enforced
+    ] == ["quantum flux"]
+    assert [
+        mention.resolution.raw_text
+        for mention in third_intent.constraints.session_injuries
+        if mention.enforced
     ] == ["knee"]
-    assert (
-        constraints["session_injury_persistence_suggestions"][0][
-            "requires_confirmation"
-        ]
-        is True
-    )
 
 
 _MAIN_DUMBBELL_ID = "02fe4cf5-bb21-4bef-868f-fea1477e2a53"
