@@ -4,7 +4,7 @@ from datetime import date
 from typing import Any, get_args, get_origin, get_type_hints
 
 import pytest
-from app.copilot import (
+from app.copilot.testing import (
     COPILOT_TONE_FACT_LABELS,
     BarrierData,
     ChatMessageData,
