@@ -1,7 +1,9 @@
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from functools import cache
 
-from neo4j import Driver, GraphDatabase
+from neo4j import Driver, GraphDatabase, Session
 from neo4j.exceptions import DriverError, Neo4jError
 
 
@@ -15,6 +17,13 @@ def _driver() -> Driver:
         ),
         connection_timeout=3,
     )
+
+
+@contextmanager
+def neo4j_session() -> Iterator[Session]:
+    """Open a Neo4j session for graph store queries."""
+    with _driver().session(database=os.getenv("NEO4J_DATABASE", "neo4j")) as session:
+        yield session
 
 
 def graph_is_available() -> bool:
