@@ -1,0 +1,210 @@
+[
+  {
+    "name": "exercise exact case variant",
+    "text": "kettlebell GOBLET cyclist squat",
+    "vocabulary": "exercise",
+    "expected_id": "00036a08-7c22-42e4-8fe5-323b53e31667",
+    "expected_method": "exact",
+    "expected_modifiers": []
+  },
+  {
+    "name": "NFKC exact normalization",
+    "text": "Ｋｅｔｔｌｅｂｅｌｌ",
+    "vocabulary": "equipment",
+    "expected_id": "fkg:equipment/kettlebell",
+    "expected_method": "exact",
+    "expected_modifiers": []
+  },
+  {
+    "name": "DB token alias",
+    "text": "DB",
+    "vocabulary": "equipment",
+    "expected_id": "fkg:equipment/dumbbell",
+    "expected_method": "exact",
+    "expected_modifiers": []
+  },
+  {
+    "name": "KB token alias",
+    "text": "kb",
+    "vocabulary": "equipment",
+    "expected_id": "fkg:equipment/kettlebell",
+    "expected_method": "exact",
+    "expected_modifiers": []
+  },
+  {
+    "name": "lower back phrase alias",
+    "text": "bad lower back",
+    "vocabulary": "muscle_group",
+    "expected_id": "fkg:muscle-group/lower-back",
+    "expected_method": "exact",
+    "expected_modifiers": []
+  },
+  {
+    "name": "SNOMED synonym exact",
+    "text": "Patellofemoral pain syndrome",
+    "vocabulary": "snomed_finding",
+    "expected_id": "snomedct:430725003",
+    "expected_method": "exact",
+    "expected_modifiers": []
+  },
+  {
+    "name": "SNOMED punctuation normalization",
+    "text": "MM—Medial malleolus",
+    "vocabulary": "snomed_anatomy",
+    "expected_id": "snomedct:6417001",
+    "expected_method": "exact",
+    "expected_modifiers": []
+  },
+  {
+    "name": "matched exercise modifier extraction",
+    "text": "Kettlebell Goblet Cyclist Squat (box-supported)",
+    "vocabulary": "exercise",
+    "expected_id": "00036a08-7c22-42e4-8fe5-323b53e31667",
+    "expected_method": "exact",
+    "expected_modifiers": ["box-supported"]
+  },
+  {
+    "name": "member dislike Deadlift",
+    "source": "member-context",
+    "text": "Deadlift",
+    "vocabulary": "exercise",
+    "expected_id": null,
+    "expected_method": "none",
+    "expected_modifiers": []
+  },
+  {
+    "name": "member dislike Burpees",
+    "source": "member-context",
+    "text": "Burpees",
+    "vocabulary": "exercise",
+    "expected_id": null,
+    "expected_method": "none",
+    "expected_modifiers": []
+  },
+  {
+    "name": "member equipment Dumbbell",
+    "source": "member-context",
+    "text": "Dumbbell",
+    "vocabulary": "equipment",
+    "expected_id": "fkg:equipment/dumbbell",
+    "expected_method": "exact",
+    "expected_modifiers": []
+  },
+  {
+    "name": "member equipment Kettlebell",
+    "source": "member-context",
+    "text": "Kettlebell",
+    "vocabulary": "equipment",
+    "expected_id": "fkg:equipment/kettlebell",
+    "expected_method": "exact",
+    "expected_modifiers": []
+  },
+  {
+    "name": "member equipment Yoga Mat",
+    "source": "member-context",
+    "text": "Yoga Mat",
+    "vocabulary": "equipment",
+    "expected_id": "fkg:equipment/yoga-mat",
+    "expected_method": "exact",
+    "expected_modifiers": []
+  },
+  {
+    "name": "member equipment Resistance Band Loop",
+    "source": "member-context",
+    "text": "Resistance Band - Loop",
+    "vocabulary": "equipment",
+    "expected_id": "fkg:equipment/resistance-band-loop",
+    "expected_method": "exact",
+    "expected_modifiers": []
+  },
+  {
+    "name": "member equipment Flat Bench",
+    "source": "member-context",
+    "text": "Flat Bench",
+    "vocabulary": "equipment",
+    "expected_id": "fkg:equipment/flat-bench",
+    "expected_method": "exact",
+    "expected_modifiers": []
+  },
+  {
+    "name": "member exercise Goblet Squat modifier",
+    "source": "member-context",
+    "text": "Goblet Squat (box-supported)",
+    "vocabulary": "exercise",
+    "expected_id": null,
+    "expected_method": "none",
+    "expected_modifiers": ["box-supported"]
+  },
+  {
+    "name": "member exercise Hip Thrust",
+    "source": "member-context",
+    "text": "Hip Thrust",
+    "vocabulary": "exercise",
+    "expected_id": null,
+    "expected_method": "none",
+    "expected_modifiers": []
+  },
+  {
+    "name": "member exercise Banded Lateral Walk",
+    "source": "member-context",
+    "text": "Banded Lateral Walk",
+    "vocabulary": "exercise",
+    "expected_id": null,
+    "expected_method": "none",
+    "expected_modifiers": []
+  },
+  {
+    "name": "member exercise DB Floor Press",
+    "source": "member-context",
+    "text": "DB Floor Press",
+    "vocabulary": "exercise",
+    "expected_id": null,
+    "expected_method": "none",
+    "expected_modifiers": []
+  },
+  {
+    "name": "member exercise Half-Kneeling DB Press",
+    "source": "member-context",
+    "text": "Half-Kneeling DB Press",
+    "vocabulary": "exercise",
+    "expected_id": null,
+    "expected_method": "none",
+    "expected_modifiers": []
+  },
+  {
+    "name": "member exercise Band Pull-Apart",
+    "source": "member-context",
+    "text": "Band Pull-Apart",
+    "vocabulary": "exercise",
+    "expected_id": null,
+    "expected_method": "none",
+    "expected_modifiers": []
+  },
+  {
+    "name": "member exercise Step-Up",
+    "source": "member-context",
+    "text": "Step-Up",
+    "vocabulary": "exercise",
+    "expected_id": null,
+    "expected_method": "none",
+    "expected_modifiers": []
+  },
+  {
+    "name": "member exercise KB Romanian Deadlift",
+    "source": "member-context",
+    "text": "KB Romanian Deadlift",
+    "vocabulary": "exercise",
+    "expected_id": null,
+    "expected_method": "none",
+    "expected_modifiers": []
+  },
+  {
+    "name": "member exercise Wall Sit",
+    "source": "member-context",
+    "text": "Wall Sit",
+    "vocabulary": "exercise",
+    "expected_id": null,
+    "expected_method": "none",
+    "expected_modifiers": []
+  }
+]
