@@ -38,6 +38,9 @@ class _GenerationVocabulary:
     def token_aliases(self) -> Iterable[TokenAlias]:
         return self._token_aliases
 
+    def embeddings(self) -> None:
+        return None
+
     def kind_for(self, resolution: Resolution) -> ResolutionVocabulary:
         if resolution.concept_id is None:
             return self._unresolved_kind

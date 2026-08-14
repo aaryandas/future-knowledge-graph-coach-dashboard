@@ -6,6 +6,7 @@ from app.copilot.testing import (
     MAX_TOOL_ROUNDS,
     CopilotDataPart,
     CopilotToneFact,
+    CopilotTurn,
     FakeCopilotLLM,
     MemberGoalsResult,
     copilot_response,
@@ -52,6 +53,8 @@ def test_copilot_tool_loop_persists_follow_ups_and_replays_sources() -> None:
         tone_fact_reader=_no_tone_facts,
     )
 
+    assert isinstance(first_turn, CopilotTurn)
+    assert isinstance(second_turn, CopilotTurn)
     first_sources = _source_payload(first_turn.data_parts)
     second_sources = _source_payload(second_turn.data_parts)
     assert first_sources == [
@@ -91,6 +94,7 @@ def test_copilot_stops_after_five_retrieval_tool_rounds() -> None:
         tone_fact_reader=_no_tone_facts,
     )
 
+    assert isinstance(turn, CopilotTurn)
     assert len(llm.calls) == MAX_TOOL_ROUNDS + 1
     assert len(_source_payload(turn.data_parts)) == MAX_TOOL_ROUNDS
     assert "five retrieval tool rounds" in turn.text
@@ -109,6 +113,7 @@ def test_copilot_provider_and_response_errors_are_visible_answers() -> None:
             tone_fact_reader=_no_tone_facts,
         )
 
+        assert isinstance(turn, CopilotTurn)
         assert turn.text == "I could not answer that question. Please try again."
         assert _source_payload(turn.data_parts) == []
         assert replay_copilot_history(MEMBER_ID, checkpointer=checkpointer)[1].text == (
@@ -131,6 +136,7 @@ def test_copilot_provider_error_after_retrieval_keeps_sources() -> None:
         tone_fact_reader=_no_tone_facts,
     )
 
+    assert isinstance(turn, CopilotTurn)
     assert turn.text == "I could not answer that question. Please try again."
     assert _source_payload(turn.data_parts) == [
         {"tool": "get_member_goals", "node_ids": [MEMBER_ID, "goal:strength"]}
@@ -147,6 +153,7 @@ def test_copilot_rejects_member_answer_without_current_retrieval() -> None:
         tone_fact_reader=_no_tone_facts,
     )
 
+    assert isinstance(turn, CopilotTurn)
     assert turn.text == "I could not answer that question. Please try again."
     assert _source_payload(turn.data_parts) == []
 
