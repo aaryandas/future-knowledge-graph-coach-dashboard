@@ -1,0 +1,54 @@
+[
+  {
+    "id": "fkg:injury/lateral-ankle-sprain",
+    "name": "Lateral ankle sprain",
+    "clinical_finding_id": "snomedct:263133002",
+    "target_kind": "MovementPattern",
+    "target_id": "fkg:movement-pattern/cardio-plyometric",
+    "level": "avoid",
+    "note": "Avoid plyometric loading until ankle function and hop performance support a safe return.",
+    "citation": {
+      "reference": "Martin RL, Davenport TE, Fraser JJ, et al. Ankle Stability and Movement Coordination Impairments: Lateral Ankle Ligament Sprains Revision 2021. J Orthop Sports Phys Ther. 2021;51(4):CPG1-CPG80.",
+      "url": "https://doi.org/10.2519/jospt.2021.0302"
+    }
+  },
+  {
+    "id": "fkg:injury/nonspecific-low-back-pain",
+    "name": "Nonspecific low back pain",
+    "clinical_finding_id": "snomedct:279039007",
+    "target_kind": "Joint",
+    "target_id": "fkg:joint/lumbar-spine",
+    "level": "caution",
+    "note": "Use symptom-guided loading for exercises that load the lumbar spine.",
+    "citation": {
+      "reference": "George SZ, Fritz JM, Silfies SP, et al. Interventions for the Management of Acute and Chronic Low Back Pain: Revision 2021. J Orthop Sports Phys Ther. 2021;51(11):CPG1-CPG60.",
+      "url": "https://doi.org/10.2519/jospt.2021.0304"
+    }
+  },
+  {
+    "id": "fkg:injury/patellofemoral-pain-syndrome",
+    "name": "Patellofemoral pain syndrome",
+    "clinical_finding_id": "snomedct:430725003",
+    "target_kind": "MovementPattern",
+    "target_id": "fkg:movement-pattern/lower-push-squat",
+    "level": "caution",
+    "note": "Reduce squat depth or load when knee flexion provokes patellofemoral pain.",
+    "citation": {
+      "reference": "Willy RW, Hoglund LT, Barton CJ, et al. Patellofemoral Pain: Clinical Practice Guidelines. J Orthop Sports Phys Ther. 2019;49(9):CPG1-CPG95.",
+      "url": "https://doi.org/10.2519/jospt.2019.0302"
+    }
+  },
+  {
+    "id": "fkg:injury/shoulder-impingement",
+    "name": "Shoulder impingement",
+    "clinical_finding_id": "snomedct:239960007",
+    "target_kind": "MovementPattern",
+    "target_id": "fkg:movement-pattern/upper-push-vertical",
+    "level": "caution",
+    "note": "Modify overhead pressing to stay within tolerated load and range.",
+    "citation": {
+      "reference": "Desmeules F, Roy JS, Lafrance S, et al. Rotator Cuff Tendinopathy Diagnosis, Nonsurgical Medical Care, and Rehabilitation: A Clinical Practice Guideline. J Orthop Sports Phys Ther. 2025;55(4):235-274.",
+      "url": "https://doi.org/10.2519/jospt.2025.13182"
+    }
+  }
+]
