@@ -255,13 +255,15 @@ def _render(
 
 
 def _run_chart_turn(member_id: str, kind: str, window: str) -> CopilotTurn:
-    return run_copilot_turn(
+    turn = run_copilot_turn(
         member_id,
         "Draw a chart",
         checkpointer=InMemorySaver(),
         llm=_ChartLLM(kind, window),
         as_of=AS_OF,
     )
+    assert isinstance(turn, CopilotTurn)
+    return turn
 
 
 def _point_date(point: dict[str, object]) -> object:

@@ -1,5 +1,14 @@
 """Build and read the Movement/Clinical and Member Context Graphs."""
 
+from .coach_actions import (
+    CoachActionWrite,
+    CoachActionWriteResult,
+    CoachActionWriteStatus,
+    CoachTaskStatus,
+    SendMemberMessageWrite,
+    UpdateBriefTaskWrite,
+    confirm_coach_action,
+)
 from .constants import ObservationKind
 from .graph_neighborhood import (
     GraphEdge,
@@ -44,6 +53,10 @@ from .relevance import RelevanceWindowName, scope_relevance_window
 __all__ = [
     "BarrierView",
     "ChatMessageView",
+    "CoachActionWrite",
+    "CoachActionWriteResult",
+    "CoachActionWriteStatus",
+    "CoachTaskStatus",
     "CoachTaskView",
     "GoalView",
     "GraphEdge",
@@ -66,7 +79,10 @@ __all__ = [
     "ObservationValue",
     "ObservationView",
     "RelevanceWindowName",
+    "SendMemberMessageWrite",
+    "UpdateBriefTaskWrite",
     "WorkoutSessionView",
+    "confirm_coach_action",
     "get_chat_messages",
     "get_graph_neighborhood",
     "get_member_context",

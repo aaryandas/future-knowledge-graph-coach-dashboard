@@ -9,6 +9,7 @@ from ._model import (
     VocabularyConcept,
 )
 from ._resolver import resolve
+from ._store import StoreVocabulary
 
 __all__ = [
     "ArtifactVocabulary",
@@ -16,6 +17,7 @@ __all__ = [
     "KG1NodeKind",
     "Pass",
     "Resolution",
+    "StoreVocabulary",
     "Vocabulary",
     "VocabularyConcept",
     "resolve",

@@ -2,7 +2,7 @@ from dataclasses import FrozenInstanceError
 
 import httpx
 import pytest
-from app.generation import (
+from app.generation.testing import (
     FakeLLM,
     Intent,
     InterpretationFailure,

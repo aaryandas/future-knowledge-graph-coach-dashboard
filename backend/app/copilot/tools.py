@@ -318,7 +318,7 @@ def get_morning_brief(member_id: str, as_of: date | None = None) -> MorningBrief
     if morning_brief is None:
         return MorningBriefResult(morning_brief=None, node_ids=(member_node_id,))
     return MorningBriefResult(
-        morning_brief=_morning_brief_data(morning_brief),
+        morning_brief=morning_brief_data(morning_brief),
         node_ids=_node_ids(
             member_node_id,
             (task.node_id for task in morning_brief.coach_tasks),
@@ -458,7 +458,7 @@ def _member_profile_data(profile: MemberProfile) -> MemberProfileData:
     )
 
 
-def _morning_brief_data(morning_brief: MorningBrief) -> MorningBriefData:
+def morning_brief_data(morning_brief: MorningBrief) -> MorningBriefData:
     return MorningBriefData(
         generated_for=morning_brief.generated_for,
         churn_risk_level=morning_brief.churn_risk_level,

@@ -23,8 +23,8 @@ MEMBER_ID = "mbr_01HX9JORDAN"
 def test_copilot_stream_emits_data_parts_in_prescribed_order_before_text() -> None:
     sources_part = _sources_part()
     chart_part = _chart_part()
-    brief_part = CopilotDataPart(type="data-brief", data={"priority": "strength"})
-    action_part = CopilotDataPart(type="data-action", data={"kind": "send-message"})
+    brief_part = _brief_part()
+    action_part = _action_part()
 
     def run_turn(
         member_id: str,
@@ -245,6 +245,34 @@ def _chart_part() -> CopilotDataPart:
                 }
             ],
             "observation_node_ids": ["observation:sleep:2026-06-03"],
+        },
+    )
+
+
+def _brief_part() -> CopilotDataPart:
+    return CopilotDataPart(
+        type="data-brief",
+        data={
+            "generated_for": "2026-06-04",
+            "churn_risk_level": "elevated",
+            "churn_risk_reasons": [],
+            "barriers": [],
+            "coach_tasks": [],
+        },
+    )
+
+
+def _action_part() -> CopilotDataPart:
+    return CopilotDataPart(
+        type="data-action",
+        data={
+            "action_id": "action-1",
+            "status": "pending",
+            "action": {
+                "kind": "send-member-message",
+                "message": "Nice work!",
+                "coach_task_id": None,
+            },
         },
     )
 

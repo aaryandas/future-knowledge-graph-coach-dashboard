@@ -14,6 +14,7 @@ from ._model import (
     GraphDecision,
     Verdict,
     VerdictStatus,
+    VerdictTraceEvent,
     WalkedEdge,
     WalkedNode,
     WalkedPath,
@@ -87,6 +88,7 @@ def _graph_verdicts(
             status=ordered[0].status,
             walked_path=ordered[0].walked_path,
             decisions=ordered,
+            trace=tuple(_graph_trace_event(decision) for decision in ordered),
         )
     return verdicts
 
@@ -116,7 +118,30 @@ def _apply_agent_decisions(
             verdict,
             status=decision.status,
             decisions=(*verdict.decisions, decision),
+            trace=(
+                *verdict.trace,
+                VerdictTraceEvent(
+                    exercise_id=decision.exercise_id,
+                    status=decision.status,
+                    layer=None,
+                    reason=decision.reason,
+                    walked_path=verdict.walked_path,
+                    used=tuple(node.node_id for node in verdict.walked_path.nodes),
+                    was_attributed_to="agent",
+                ),
+            ),
         )
+
+
+def _graph_trace_event(decision: GraphDecision) -> VerdictTraceEvent:
+    return VerdictTraceEvent(
+        exercise_id=decision.exercise_id,
+        status=decision.status,
+        layer=decision.layer,
+        reason=decision.reason,
+        walked_path=decision.walked_path,
+        used=tuple(node.node_id for node in decision.walked_path.nodes),
+    )
 
 
 def _clear_decisions(

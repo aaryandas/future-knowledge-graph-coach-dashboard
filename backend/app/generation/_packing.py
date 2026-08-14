@@ -32,7 +32,7 @@ from app.generation._ranking import (
     hard_filter_reason,
     rank_candidates,
 )
-from app.generation._trace import TraceEvent
+from app.generation._trace import PackingTraceEvent, TraceEvent
 from app.generation.intent import Intent
 
 type PackingFailureReason = Literal[
@@ -151,7 +151,7 @@ def _hard_filter_events(candidates: tuple[Candidate, ...]) -> list[TraceEvent]:
         if reason is None:
             continue
         events.append(
-            TraceEvent(
+            PackingTraceEvent(
                 action="filtered",
                 section=None,
                 exercise_id=candidate.exercise_id,
@@ -209,8 +209,8 @@ def _select_section(
     return selected, events
 
 
-def _selection_event(ranking: RankedCandidate, section: Section) -> TraceEvent:
-    return TraceEvent(
+def _selection_event(ranking: RankedCandidate, section: Section) -> PackingTraceEvent:
+    return PackingTraceEvent(
         action="selected",
         section=section,
         exercise_id=ranking.candidate.exercise_id,
@@ -336,7 +336,7 @@ def _drop_entries_until_fit(
     ):
         dropped = entries.pop()
         events.append(
-            TraceEvent(
+            PackingTraceEvent(
                 action="cut",
                 section=section,
                 exercise_id=dropped.candidate.exercise_id,
@@ -368,7 +368,7 @@ def _reduce_main_sets_until_fit(
         )
         main_entries[index] = replace(packed_entry, entry=reduced_entry)
         events.append(
-            TraceEvent(
+            PackingTraceEvent(
                 action="cut",
                 section="main",
                 exercise_id=packed_entry.candidate.exercise_id,

@@ -106,6 +106,12 @@ skipped cleanly offline). Below-floor policy per caller: generator terms get a
 visible omission chip with did-you-mean candidates; safety terms warn loudly
 and are never guessed; ingest is exact-only.
 
+The two acceptance floors are calibration knobs in
+`backend/app/resolver/_resolver.py`: `FUZZY_THRESHOLD` is 85.0 and
+`VECTOR_THRESHOLD` is 0.65. To retune a floor, change its constant and update
+the matching below-floor case in `backend/tests/cases/resolver.json`. Then run
+the resolver seam against both vocabulary adapters.
+
 **Safety model** (ADR-0002). Verdicts exclude | caution | clear from a
 traversal over three layers, highest precedence first: member clinical
 directives (resolver-parsed), the authored condition file (four conditions;
@@ -245,8 +251,7 @@ above come from `docs/STANDARDS.md`.
 - All human-facing prose — README, ADRs, UI copy, this spec — follows
   ASD-STE100 Simplified Technical English. UI copy carries zero explainer
   text.
-- `OPENROUTER_API_KEY` is not yet set on Railway. Set it when the first LLM
-  feature deploys.
+- `OPENROUTER_API_KEY` is set for the Railway backend service.
 - The multi-agent build workflow is itself PRD-graded material; keep
   collecting evidence for the "how AI built this" README section as the build
   runs.

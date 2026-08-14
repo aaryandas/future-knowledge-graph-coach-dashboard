@@ -4,9 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { buttonVariants, cx } from "@/lib/theme";
+import type { DataPlanPart } from "@/lib/parts";
+import { CopilotSidebar } from "./copilot-sidebar";
 import { CopilotSidebarProvider } from "./copilot-sidebar-context";
-import { PanelIcon, SendIcon, SignOutIcon } from "./icons";
+import { PanelIcon, SignOutIcon } from "./icons";
 import { RidgelineMark } from "./ridgeline-mark";
+import { SessionPlan } from "./session-plan";
 
 type WorkspaceTab = "member" | "graph";
 
@@ -15,6 +18,12 @@ const tabs: ReadonlyArray<{ label: string; value: WorkspaceTab; href: string }> 
   { label: "Graph", value: "graph", href: "/graph" },
 ];
 
+const member = {
+  id: "mbr_01HX9JORDAN",
+  name: "Jordan Rivera",
+  initials: "JR",
+} as const;
+
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const activeTab: WorkspaceTab = pathname.startsWith("/graph")
@@ -22,6 +31,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     : "member";
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [composerValue, setComposerValue] = useState("");
+  const [planPart, setPlanPart] = useState<DataPlanPart | null>(null);
   const composerRef = useRef<HTMLInputElement>(null);
   const prefillMessage = useCallback((message: string) => {
     setSidebarOpen(true);
@@ -66,10 +76,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             aria-label="Select member"
           >
             <span className="grid size-[25px] place-items-center rounded-full bg-accent-muted text-[10.5px] font-semibold text-accent">
-              JR
+              {member.initials}
             </span>
             <span className="shell-member-name text-[13px] font-semibold">
-              Jordan Rivera <span className="text-foreground-subtle">⌄</span>
+              {member.name} <span className="text-foreground-subtle">⌄</span>
             </span>
           </button>
 
@@ -100,6 +110,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         >
           <main className="min-w-0 px-5 pt-[22px] pb-14 sm:px-[26px]">
             {children}
+            {planPart === null ? null : <SessionPlan part={planPart} />}
           </main>
           <aside
             id="copilot-sidebar"
@@ -108,54 +119,15 @@ export function AppShell({ children }: { children: ReactNode }) {
             inert={!sidebarOpen}
             className="copilot-slot"
           >
-            <div className="copilot-panel flex flex-col px-[18px] pt-[18px] pb-6">
-              <div className="mb-3 flex items-baseline gap-2">
-                <h2 className="text-[15px] font-semibold">Copilot</h2>
-                <span className="text-xs text-foreground-subtle">Jordan Rivera</span>
-              </div>
-              <div className="mb-4 flex flex-wrap gap-1.5" aria-label="Quick prompts">
-                {["Adherence", "Sleep", "Messages", "4 weeks"].map((prompt) => (
-                  <button
-                    key={prompt}
-                    type="button"
-                    className="press rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
-                  >
-                    {prompt}
-                  </button>
-                ))}
-              </div>
-              <div className="flex flex-1 items-center justify-center border-y border-border py-10 text-center">
-                <div className="max-w-[230px]">
-                  <p className="font-medium text-foreground">Ask about Jordan</p>
-                  <p className="mt-1 text-xs text-foreground-subtle">
-                    Member context, session planning, and coach actions appear here.
-                  </p>
-                </div>
-              </div>
-              <form
-                className="flex gap-2 pt-3"
-                onSubmit={(event) => event.preventDefault()}
-              >
-                <label htmlFor="copilot-composer" className="sr-only">
-                  Message copilot
-                </label>
-                <input
-                  ref={composerRef}
-                  id="copilot-composer"
-                  className="min-w-0 flex-1 rounded-[14px] border border-border-strong bg-surface-input px-3.5 py-2.5 text-foreground outline-none placeholder:text-foreground-subtle"
-                  placeholder="Plan a session · ask about Jordan"
-                  value={composerValue}
-                  onChange={(event) => setComposerValue(event.target.value)}
-                />
-                <button
-                  type="submit"
-                  className={buttonVariants({ size: "icon" })}
-                  aria-label="Send message"
-                >
-                  <SendIcon className="size-4" />
-                </button>
-              </form>
-            </div>
+            <CopilotSidebar
+              memberId={member.id}
+              memberName={member.name}
+              composerValue={composerValue}
+              composerRef={composerRef}
+              hasPlan={planPart !== null}
+              onComposerChange={setComposerValue}
+              onPlan={setPlanPart}
+            />
           </aside>
         </div>
       </div>
