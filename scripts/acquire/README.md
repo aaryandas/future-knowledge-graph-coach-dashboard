@@ -35,16 +35,9 @@ Build the resolver's concept embeddings through OpenRouter from the repository r
 OPENROUTER_API_KEY=... uv run --project backend python scripts/acquire/build_embeddings.py
 ```
 
-For a keyless reproducible build, use the deterministic SHA-256 projection:
-
-```bash
-uv run --project backend python scripts/acquire/build_embeddings.py --deterministic
-```
-
 The script sends one string per concept through LangChain `Embeddings` to OpenRouter. Each
 string contains the concept name and its aliases, including SNOMED synonyms. It uses
-`qwen/qwen3-embedding-0.6b` in batches and writes one committed JSON file per vocabulary under
+`qwen/qwen3-embedding-4b` in batches and writes one committed JSON file per vocabulary under
 `data/resolver-embeddings/`. Review and commit those artifacts after each intentional
 vocabulary or model update. Runtime queries must use the same model. Tests use the small
-committed fixtures under `backend/tests/fixtures/` and never call OpenRouter. Deterministic
-builds record their algorithm in each artifact's source metadata.
+committed fixtures under `backend/tests/fixtures/` and never call OpenRouter.

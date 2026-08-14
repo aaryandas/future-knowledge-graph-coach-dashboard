@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from app.resolver import ArtifactEmbeddings, ArtifactVocabulary, resolve
+from app.resolver import ArtifactVocabulary, resolve
+from app.resolver._embeddings import ArtifactEmbeddings
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CASES_PATH = Path(__file__).parent / "cases" / "resolver.json"

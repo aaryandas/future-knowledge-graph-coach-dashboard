@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import sys
-from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,26 +15,13 @@ from langchain_openai import OpenAIEmbeddings
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "backend"))
 
-from app.resolver import (
-    EMBEDDING_SCHEMA_VERSION,
-    ArtifactVocabulary,
-    KG1NodeKind,
-    VocabularyConcept,
-)
+from app.resolver import ArtifactVocabulary, KG1NodeKind, VocabularyConcept
+from app.resolver._embeddings import EMBEDDING_SCHEMA_VERSION
 
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "data" / "resolver-embeddings"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-OPENROUTER_MODEL = "qwen/qwen3-embedding-0.6b"
-DETERMINISTIC_MODEL = "deterministic/sha256-v1"
+OPENROUTER_MODEL = "qwen/qwen3-embedding-4b"
 SYNONYMS_PATH = REPO_ROOT / "data" / "synonyms.json"
-OPENROUTER_SOURCE = {
-    "provider": "OpenRouter",
-    "url": f"{OPENROUTER_BASE_URL}/embeddings",
-}
-DETERMINISTIC_SOURCE = {
-    "provider": "deterministic",
-    "algorithm": "sha256 byte projection",
-}
 
 
 @dataclass(frozen=True)
@@ -44,15 +29,6 @@ class VocabularySpec:
     filename: str
     path: Path
     kind: KG1NodeKind
-
-
-class DeterministicEmbeddings(Embeddings):
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        return [self.embed_query(text) for text in texts]
-
-    def embed_query(self, text: str) -> list[float]:
-        digest = hashlib.sha256(text.encode("utf-8")).digest()
-        return [(component - 127.5) / 127.5 for component in digest]
 
 
 VOCABULARIES = (
@@ -113,7 +89,6 @@ def build_artifact(
     provider: Embeddings,
     model: str,
     batch_size: int,
-    source: Mapping[str, str] = OPENROUTER_SOURCE,
 ) -> dict[str, object]:
     vocabulary_concepts = concepts(spec)
     concept_embeddings: dict[str, list[float]] = {}
@@ -142,7 +117,10 @@ def build_artifact(
         "vocabulary": spec.kind,
         "model": model,
         "dimensions": dimensions,
-        "source": dict(source),
+        "source": {
+            "provider": "OpenRouter",
+            "url": f"{OPENROUTER_BASE_URL}/embeddings",
+        },
         "embeddings": dict(sorted(concept_embeddings.items())),
     }
 
@@ -151,10 +129,9 @@ def build_artifacts(
     provider: Embeddings,
     model: str,
     batch_size: int,
-    source: Mapping[str, str] = OPENROUTER_SOURCE,
 ) -> dict[str, dict[str, object]]:
     return {
-        spec.filename: build_artifact(spec, provider, model, batch_size, source)
+        spec.filename: build_artifact(spec, provider, model, batch_size)
         for spec in VOCABULARIES
     }
 
@@ -190,24 +167,15 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--model", default=OPENROUTER_MODEL)
     parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument(
-        "--deterministic",
-        action="store_true",
-        help="build reproducible local vectors without a provider key",
-    )
     args = parser.parse_args()
     if args.batch_size < 1:
         parser.error("--batch-size must be positive")
 
-    if args.deterministic:
-        provider = DeterministicEmbeddings()
-        model = DETERMINISTIC_MODEL
-        source = DETERMINISTIC_SOURCE
-    else:
-        provider = openrouter_embeddings(args.model)
-        model = args.model
-        source = OPENROUTER_SOURCE
-    artifacts = build_artifacts(provider, model, args.batch_size, source)
+    artifacts = build_artifacts(
+        openrouter_embeddings(args.model),
+        args.model,
+        args.batch_size,
+    )
     write_artifacts(args.output_dir, artifacts)
     count = sum(len(artifact["embeddings"]) for artifact in artifacts.values())
     print(f"wrote {count} embeddings across {len(artifacts)} vocabularies")
