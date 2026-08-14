@@ -1,50 +1,26 @@
 import pickle
-from collections.abc import Iterable, Iterator, Sequence
 from inspect import signature
 from typing import Any, cast
 
 import pytest
-from app.generation import GenerationTurn, run_generation_session
-from app.generation._trace import TraceEvent
-from app.generation.graph import (
-    run_generation_session as run_test_generation_session,
-)
+from app.generation import run_generation_session
 from app.generation.testing import (
     CatalogExercise,
+    FakeAnnotationLLM,
     FakeLLM,
     GenerationMemberContext,
+    GenerationTurn,
     LLMProviderError,
     ResolvedMention,
+    TraceEvent,
+    Verdict,
+    WalkedPath,
+    run_checkpointed_session,
 )
-from app.safety import Verdict, WalkedPath
-from langchain_core.messages import BaseMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 MEMBER_ID = "mbr_01HX9JORDAN"
 THREAD_ID = "annotation-test-thread"
-
-
-class FakeStructuredAnnotationLLM:
-    def __init__(self, parts: Iterable[object | LLMProviderError]) -> None:
-        self._parts = tuple(parts)
-        self._calls: list[tuple[BaseMessage, ...]] = []
-        self._parts_requested = 0
-
-    @property
-    def calls(self) -> tuple[tuple[BaseMessage, ...], ...]:
-        return tuple(self._calls)
-
-    @property
-    def parts_requested(self) -> int:
-        return self._parts_requested
-
-    def stream(self, messages: Sequence[BaseMessage]) -> Iterator[object]:
-        self._calls.append(tuple(messages))
-        for part in self._parts:
-            self._parts_requested += 1
-            if isinstance(part, LLMProviderError):
-                raise part
-            yield part
 
 
 class _PickleSerializer:
@@ -60,23 +36,29 @@ def _in_memory_generation_checkpointer() -> InMemorySaver:
     return InMemorySaver(serde=_PickleSerializer())
 
 
-def test_generation_session_streams_structured_coaching_note_text_verbatim() -> None:
-    annotation_llm = FakeStructuredAnnotationLLM(
+def test_generation_session_streams_each_template_as_its_pair_validates() -> None:
+    annotation_llm = FakeAnnotationLLM(
         [
             {
                 "cautions": [
                     {
                         "plan_item_id": "ex-main",
                         "tightening_kind": "reduce-load",
-                        "caution_text": " Keep the load light. ",
+                    }
+                ]
+            },
+            {
+                "cautions": [
+                    {
+                        "plan_item_id": "ex-main",
+                        "tightening_kind": "reduce-load",
                     },
                     {
                         "plan_item_id": "ex-main",
                         "tightening_kind": "stop-on-pain",
-                        "caution_text": "Stop if knee pain increases.",
                     },
                 ]
-            }
+            },
         ]
     )
     checkpointer = _in_memory_generation_checkpointer()
@@ -84,69 +66,135 @@ def test_generation_session_streams_structured_coaching_note_text_verbatim() -> 
     parts = iter(turn.coaching_note_parts)
 
     assert not any(event.kind == "agent" for event in turn.trace)
-    assert next(parts) == " Keep the load light. "
+    assert next(parts) == "Reduce the load on Box Squat."
     assert annotation_llm.parts_requested == 1
-    assert tuple(parts) == ("Stop if knee pain increases.",)
+    assert tuple(parts) == ("Stop Box Squat if you feel pain.",)
     assert len(annotation_llm.calls) == 1
     system_prompt = str(annotation_llm.calls[0][0].content)
     plan_context = str(annotation_llm.calls[0][1].content)
     assert "structured caution form" in system_prompt
+    assert "caution_text" not in system_prompt
     assert "plan_item_id=ex-main" in plan_context
-    assert _checkpoint_trace(checkpointer)[-1].kind == "agent"
+    assert [event.kind for event in _checkpoint_trace(checkpointer)[-2:]] == [
+        "agent",
+        "agent",
+    ]
 
 
 @pytest.mark.parametrize(
-    "payload",
+    ("payload", "expected"),
     [
-        {
-            "cautions": [
-                {
-                    "plan_item_id": "not-in-plan",
-                    "tightening_kind": "reduce-load",
-                    "caution_text": "Keep the load light.",
-                }
-            ]
-        },
-        {
-            "cautions": [
-                {
-                    "plan_item_id": "ex-main",
-                    "tightening_kind": "substitute",
-                    "caution_text": "Use a different exercise.",
-                }
-            ]
-        },
-        {
-            "cautions": [
-                {
-                    "plan_item_id": "ex-main",
-                    "tightening_kind": "add-rest",
-                    "caution_text": "Take more rest.",
-                    "replacement_id": "ex-warm",
-                }
-            ]
-        },
-        {"cautions": [], "remove_plan_item_ids": ["ex-main"]},
-    ],
-)
-def test_generation_session_drops_invalid_structured_coaching_note(
-    payload: dict[str, object],
-) -> None:
-    turn = _run_turn(annotation_llm=FakeStructuredAnnotationLLM([payload]))
-
-    assert tuple(turn.coaching_note_parts) == ()
-    assert not any(event.kind == "agent" for event in turn.trace)
-
-
-def test_generation_session_drops_the_whole_note_on_mid_note_provider_error() -> None:
-    annotation_llm = FakeStructuredAnnotationLLM(
-        [
+        (
+            {
+                "cautions": [
+                    {
+                        "plan_item_id": "not-in-plan",
+                        "tightening_kind": "reduce-load",
+                    }
+                ]
+            },
+            (),
+        ),
+        (
+            {
+                "cautions": [
+                    {
+                        "plan_item_id": "ex-main",
+                        "tightening_kind": "substitute",
+                    }
+                ]
+            },
+            (),
+        ),
+        (
+            {
+                "cautions": [
+                    {
+                        "plan_item_id": "ex-main",
+                        "tightening_kind": "reduce-load",
+                        "caution_text": "Use deadlifts instead.",
+                    }
+                ]
+            },
+            (),
+        ),
+        (
             {
                 "cautions": [
                     {
                         "plan_item_id": "ex-main",
                         "tightening_kind": "reduce-range",
-                        "caution_text": "Use a smaller range.",
+                        "caution_text": "Avoid the pain-free range.",
+                    }
+                ]
+            },
+            (),
+        ),
+        (
+            {
+                "cautions": [
+                    {
+                        "plan_item_id": "not-in-plan",
+                        "tightening_kind": "reduce-load",
+                    },
+                    {
+                        "plan_item_id": "ex-main",
+                        "tightening_kind": "stop-on-pain",
+                    },
+                ]
+            },
+            ("Stop Box Squat if you feel pain.",),
+        ),
+        ({"cautions": [], "remove_plan_item_ids": ["ex-main"]}, ()),
+    ],
+)
+def test_generation_session_only_emits_closed_pair_templates(
+    payload: dict[str, object],
+    expected: tuple[str, ...],
+) -> None:
+    turn = _run_turn(annotation_llm=FakeAnnotationLLM([payload]))
+
+    assert tuple(turn.coaching_note_parts) == expected
+
+
+@pytest.mark.parametrize(
+    ("tightening_kind", "expected"),
+    [
+        ("reduce-load", "Reduce the load on Box Squat."),
+        ("reduce-range", "Reduce the range of motion for Box Squat."),
+        ("stop-on-pain", "Stop Box Squat if you feel pain."),
+        ("add-rest", "Add more rest after Box Squat."),
+    ],
+)
+def test_generation_session_renders_each_tightening_kind_from_a_fixed_template(
+    tightening_kind: str,
+    expected: str,
+) -> None:
+    annotation_llm = FakeAnnotationLLM(
+        [
+            {
+                "cautions": [
+                    {
+                        "plan_item_id": "ex-main",
+                        "tightening_kind": tightening_kind,
+                    }
+                ]
+            }
+        ]
+    )
+
+    turn = _run_turn(annotation_llm=annotation_llm)
+
+    assert tuple(turn.coaching_note_parts) == (expected,)
+
+
+def test_generation_session_drops_the_whole_note_on_mid_note_provider_error() -> None:
+    annotation_llm = FakeAnnotationLLM(
+        [
+            {
+                "cautions": [
+                    {
+                        "plan_item_id": "ex-main",
                     }
                 ]
             },
@@ -183,10 +231,10 @@ def test_generation_service_facade_exposes_only_session_inputs() -> None:
 
 def _run_turn(
     *,
-    annotation_llm: FakeStructuredAnnotationLLM | None = None,
+    annotation_llm: FakeAnnotationLLM | None = None,
     checkpointer: InMemorySaver | None = None,
 ) -> GenerationTurn:
-    return run_test_generation_session(
+    return run_checkpointed_session(
         MEMBER_ID,
         "Build a careful full-body workout.",
         20,

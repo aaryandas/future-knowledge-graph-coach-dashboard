@@ -12,7 +12,8 @@ from app.generation._model import (
     PlanSection,
     ResolvedMention,
 )
-from app.generation._trace import AgentTraceEvent
+from app.generation._trace import AgentTraceEvent, TraceEvent
+from app.generation.graph import GenerationTurn
 from app.generation.graph import run_generation_session as run_checkpointed_session
 from app.generation.intent import (
     Intent,
@@ -29,7 +30,7 @@ from app.safety import Verdict, WalkedPath
 
 
 class FakeAnnotationLLM:
-    def __init__(self, parts: Iterable[str | LLMProviderError]) -> None:
+    def __init__(self, parts: Iterable[object | LLMProviderError]) -> None:
         self._parts = tuple(parts)
         self._calls: list[tuple[BaseMessage, ...]] = []
         self._parts_requested = 0
@@ -42,7 +43,7 @@ class FakeAnnotationLLM:
     def parts_requested(self) -> int:
         return self._parts_requested
 
-    def stream(self, messages: Sequence[BaseMessage]) -> Iterator[str]:
+    def stream(self, messages: Sequence[BaseMessage]) -> Iterator[object]:
         self._calls.append(tuple(messages))
         for part in self._parts:
             self._parts_requested += 1
@@ -57,6 +58,7 @@ __all__ = [
     "FakeAnnotationLLM",
     "FakeLLM",
     "GenerationMemberContext",
+    "GenerationTurn",
     "Intent",
     "InterpretationFailure",
     "InterpretationFailureReason",
@@ -65,6 +67,7 @@ __all__ = [
     "PlanEntry",
     "PlanSection",
     "ResolvedMention",
+    "TraceEvent",
     "Verdict",
     "WalkedPath",
     "build_intent_llm",

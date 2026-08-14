@@ -116,12 +116,16 @@ def run_generation_session(
     failure = state.get("failure")
     plan = state.get("plan")
     trace = state.get("trace", ())
+    annotation_trace = trace
 
     def record_annotation_event(event: AgentTraceEvent) -> None:
+        nonlocal annotation_trace
+        previous_trace = annotation_trace
+        annotation_trace = (*previous_trace, event)
         if annotation_trace_recorder is None:
-            graph.update_state(config, {"trace": (*trace, event)})
+            graph.update_state(config, {"trace": annotation_trace})
             return
-        annotation_trace_recorder(trace, event)
+        annotation_trace_recorder(previous_trace, event)
 
     return GenerationTurn(
         message_id=f"{message_id or thread_id}-assistant",

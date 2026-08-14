@@ -81,17 +81,10 @@ _ANNOTATION_SCHEMA = {
                             "add-rest",
                         ],
                     },
-                    "caution_text": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 200,
-                        "description": "Short caution text displayed verbatim.",
-                    },
                 },
                 "required": [
                     "plan_item_id",
                     "tightening_kind",
-                    "caution_text",
                 ],
                 "additionalProperties": False,
             },
