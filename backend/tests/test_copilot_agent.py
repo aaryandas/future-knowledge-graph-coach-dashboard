@@ -2,19 +2,19 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Literal, cast
 
-from app.copilot.agent import (
-    _DATA_PARTS_KEY,
+from app.copilot.testing import (
     MAX_TOOL_ROUNDS,
     CopilotDataPart,
+    CopilotToneFact,
+    FakeCopilotLLM,
     JsonValue,
+    MemberGoalsResult,
+    copilot_response,
+    open_postgres_checkpointer,
     replay_copilot_history,
     run_copilot_turn,
     run_quick_prompt,
 )
-from app.copilot.context import CopilotToneFact
-from app.copilot.llm import FakeCopilotLLM
-from app.copilot.persistence import open_postgres_checkpointer
-from app.copilot.tools import MemberGoalsResult
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import StructuredTool
 from langgraph.checkpoint.memory import InMemorySaver
@@ -22,21 +22,6 @@ from langgraph.checkpoint.memory import InMemorySaver
 MEMBER_ID = "test-member-copilot"
 type _ChartKind = Literal["sleep_week"]
 type _ChartWindow = Literal["7-days"]
-
-
-def copilot_response(
-    text: str,
-    *,
-    data_parts: tuple[CopilotDataPart, ...] = (),
-) -> AIMessage:
-    return AIMessage(
-        content=text,
-        additional_kwargs={
-            _DATA_PARTS_KEY: [
-                {"type": part.type, "data": part.data} for part in data_parts
-            ]
-        },
-    )
 
 
 def test_copilot_tool_loop_persists_follow_ups_and_replays_sources() -> None:

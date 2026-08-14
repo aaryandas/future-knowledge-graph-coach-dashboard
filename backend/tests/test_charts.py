@@ -3,7 +3,7 @@ from datetime import date
 from typing import cast
 
 import pytest
-from app.copilot import CopilotTurn, run_copilot_turn
+from app.copilot.testing import CopilotTurn, run_copilot_turn
 from app.graph import ingest_kg2
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.tools import BaseTool
