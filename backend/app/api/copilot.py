@@ -9,10 +9,14 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, JsonValue
 
+from app.api.copilot_action_models import DataAction, DataActionPart
+from app.api.copilot_brief_models import DataBrief, DataBriefPart
 from app.copilot import (
+    CopilotConflict,
     CopilotDataPart,
     CopilotHistoryMessage,
     CopilotTurn,
+    CopilotTurnResult,
     replay_copilot_history,
     run_copilot_turn,
 )
@@ -72,7 +76,7 @@ class CopilotReplayMessage(BaseModel):
 
     id: str
     role: Literal["user", "assistant"]
-    parts: list[TextPart | DataSourcesPart | DataPart]
+    parts: list[TextPart | DataSourcesPart | DataBriefPart | DataActionPart | DataPart]
 
 
 class CopilotHistory(BaseModel):
@@ -82,7 +86,7 @@ class CopilotHistory(BaseModel):
     messages: list[CopilotReplayMessage]
 
 
-type TurnRunner = Callable[[str, str, str], CopilotTurn]
+type TurnRunner = Callable[[str, str, str], CopilotTurnResult]
 type HistoryReader = Callable[[str], tuple[CopilotHistoryMessage, ...]]
 
 _DATA_PART_ORDER = {
@@ -114,7 +118,7 @@ def create_copilot_router(
             )
         user_message = _latest_user_message(request.messages)
         try:
-            turn = run_turn(
+            result = run_turn(
                 member_id,
                 _message_text(user_message.parts),
                 user_message.id,
@@ -124,8 +128,10 @@ def create_copilot_router(
                 status_code=503,
                 detail="Copilot thread storage is unavailable.",
             ) from error
+        if isinstance(result, CopilotConflict):
+            raise HTTPException(status_code=409, detail=result.detail)
         return StreamingResponse(
-            _ui_message_stream(turn),
+            copilot_turn_stream(result),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -155,7 +161,7 @@ def _run_turn(
     member_id: str,
     message: str,
     message_id: str,
-) -> CopilotTurn:
+) -> CopilotTurnResult:
     return run_copilot_turn(
         member_id,
         message,
@@ -190,21 +196,29 @@ def _message_text(parts: list[dict[str, object]]) -> str:
     )
 
 
-def _data_part(part: CopilotDataPart) -> DataSourcesPart | DataPart:
+def _data_part(
+    part: CopilotDataPart,
+) -> DataSourcesPart | DataBriefPart | DataActionPart | DataPart:
     if part.type == "data-sources":
         return DataSourcesPart(data=DataSources.model_validate(part.data))
+    if part.type == "data-brief":
+        return DataBriefPart(data=DataBrief.model_validate(part.data))
+    if part.type == "data-action":
+        return DataActionPart(data=DataAction.model_validate(part.data))
     return DataPart(type=part.type, data=part.data)
 
 
 def _replay_message(message: CopilotHistoryMessage) -> CopilotReplayMessage:
-    parts: list[TextPart | DataSourcesPart | DataPart] = [
+    parts: list[
+        TextPart | DataSourcesPart | DataBriefPart | DataActionPart | DataPart
+    ] = [
         *(_data_part(part) for part in _ordered_data_parts(message.data_parts)),
         TextPart(text=message.text),
     ]
     return CopilotReplayMessage(id=message.id, role=message.role, parts=parts)
 
 
-def _ui_message_stream(turn: CopilotTurn) -> Iterator[str]:
+def copilot_turn_stream(turn: CopilotTurn) -> Iterator[str]:
     text_part_id = f"{turn.message_id}-text"
     yield _sse({"type": "start", "messageId": turn.message_id})
     yield _sse({"type": "start-step"})

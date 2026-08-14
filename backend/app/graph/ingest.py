@@ -10,6 +10,7 @@ from typing import Any, Literal, LiteralString, cast
 
 from neo4j import ManagedTransaction, Session
 
+from app.graph.coach_actions import COACH_ACTION_SOURCE
 from app.graph.conditions import CONDITIONS_SOURCE, AuthoredConditions, load_conditions
 from app.graph.schema import (
     EXERCISE_TAXONOMIES,
@@ -1357,12 +1358,16 @@ def _merge_payload(
                 f"""
             UNWIND $rows AS row
             MERGE (node:`{batch.label}` {{id: row.id}})
-            SET node += row.properties
+            SET node += CASE
+                WHEN node.source = $coach_action_source THEN {{}}
+                ELSE row.properties
+            END
             SET node.ingested_at = coalesce(node.ingested_at, datetime($ingested_at))
             """
             ),
             rows=[asdict(node) for node in batch.rows],
             ingested_at=ingested_at,
+            coach_action_source=COACH_ACTION_SOURCE,
         ).consume()
 
     for batch in payload.edges:

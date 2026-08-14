@@ -2,16 +2,27 @@
 
 from langchain_core.messages import AIMessage
 
+from app.copilot.actions import (
+    CoachAction,
+    CoachActionDecision,
+    CoachActionWriter,
+    SendMemberMessage,
+    UpdateBriefTask,
+)
 from app.copilot.agent import (
     _DATA_PARTS_KEY,
     MAX_TOOL_ROUNDS,
+    CopilotConflict,
+    CopilotConflictKind,
     CopilotDataPart,
     CopilotHistoryMessage,
     CopilotSource,
     CopilotTurn,
+    CopilotTurnResult,
     QuickPrompt,
     QuickPromptId,
     replay_copilot_history,
+    resume_copilot_action,
     run_copilot_turn,
     run_quick_prompt,
 )
@@ -71,12 +82,18 @@ __all__ = [
     "BarrierData",
     "ChatMessageData",
     "ChatMessagesResult",
+    "CoachAction",
+    "CoachActionDecision",
+    "CoachActionWriter",
     "CoachTaskData",
+    "CopilotConflict",
+    "CopilotConflictKind",
     "CopilotDataPart",
     "CopilotHistoryMessage",
     "CopilotSource",
     "CopilotToneFact",
     "CopilotTurn",
+    "CopilotTurnResult",
     "FakeCopilotLLM",
     "GoalData",
     "MemberGoalsResult",
@@ -91,6 +108,8 @@ __all__ = [
     "ObservationsResult",
     "QuickPrompt",
     "QuickPromptId",
+    "SendMemberMessage",
+    "UpdateBriefTask",
     "WorkoutSessionData",
     "WorkoutSessionsResult",
     "copilot_response",
@@ -104,6 +123,7 @@ __all__ = [
     "get_workout_sessions",
     "open_postgres_checkpointer",
     "replay_copilot_history",
+    "resume_copilot_action",
     "run_copilot_turn",
     "run_quick_prompt",
 ]

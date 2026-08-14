@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date
 from typing import Annotated, Any, Literal, Protocol, cast
 from uuid import uuid4
@@ -19,11 +19,25 @@ from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
+from langgraph.types import Command, interrupt
 from typing_extensions import TypedDict
 
+from app.copilot.actions import (
+    COACH_ACTION_TOOL_NAMES,
+    COACH_ACTION_TOOLS,
+    CoachAction,
+    CoachActionWriter,
+    SendMemberMessage,
+    coach_action_decision,
+    coach_action_from_payload,
+    coach_action_from_tool_call,
+    coach_action_payload,
+    write_coach_action,
+)
 from app.copilot.context import CopilotToneFact, get_copilot_tone_facts
 from app.copilot.llm import CopilotLLM, build_copilot_llm
-from app.copilot.tools import RETRIEVAL_TOOLS
+from app.copilot.tools import RETRIEVAL_TOOLS, morning_brief_data
+from app.graph import MorningBrief
 
 type QuickPromptId = Literal[
     "show-brief",
@@ -32,7 +46,7 @@ type QuickPromptId = Literal[
     "changes",
 ]
 type HistoryRole = Literal["user", "assistant"]
-type AgentRoute = Literal["tools", "limit", "__end__"]
+type AgentRoute = Literal["tools", "action", "limit", "__end__"]
 
 MAX_TOOL_ROUNDS = 5
 _DATA_PARTS_KEY = "copilot_data_parts"
@@ -51,12 +65,14 @@ _SYSTEM_PROMPT = """You are the coach copilot for one member.
 Answer only from retrieval tool results in this thread. Use a retrieval tool before
 making a member-specific claim. The tools are already scoped to the current member.
 Never invent a value or node id. Treat Journey stage and Churn risk as tone guidance,
-not answer evidence. After at most five retrieval tool rounds, answer concisely."""
+not answer evidence. A coach action is only a proposal until the coach confirms it.
+After at most five retrieval tool rounds, answer concisely."""
 
 
 class _CopilotState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
     tool_rounds: int
+    pending_action: dict[str, JsonValue] | None
 
 
 class CopilotToneFactReader(Protocol):
@@ -90,6 +106,23 @@ class CopilotTurn:
     message_id: str
     text: str
     data_parts: tuple[CopilotDataPart, ...]
+
+
+type CopilotConflictKind = Literal[
+    "pending-action",
+    "no-pending-action",
+    "action-id-mismatch",
+    "invalid-resolution",
+]
+
+
+@dataclass(frozen=True)
+class CopilotConflict:
+    kind: CopilotConflictKind
+    detail: str
+
+
+type CopilotTurnResult = CopilotTurn | CopilotConflict
 
 
 @dataclass(frozen=True)
@@ -133,7 +166,8 @@ def run_copilot_turn(
     as_of: date | None = None,
     retrieval_tools: Sequence[BaseTool] = RETRIEVAL_TOOLS,
     tone_fact_reader: CopilotToneFactReader = get_copilot_tone_facts,
-) -> CopilotTurn:
+    action_writer: CoachActionWriter = write_coach_action,
+) -> CopilotTurnResult:
     """Run one checkpointed copilot turn for the member's single thread."""
     user_text = message.strip()
     if not user_text:
@@ -149,13 +183,21 @@ def run_copilot_turn(
         tone_facts,
         assistant_message_id,
         checkpointer,
+        member_id,
+        action_writer,
     )
+    if graph.get_state(_thread_config(member_id)).interrupts:
+        return CopilotConflict(
+            kind="pending-action",
+            detail="Resolve the pending coach action before starting a new turn.",
+        )
     state = cast(
         "_CopilotState",
         graph.invoke(
             {
                 "messages": [HumanMessage(content=user_text, id=user_message_id)],
                 "tool_rounds": 0,
+                "pending_action": None,
             },
             _thread_config(member_id),
         ),
@@ -163,6 +205,73 @@ def run_copilot_turn(
     answer = _final_answer(state["messages"])
     return CopilotTurn(
         message_id=answer.id or assistant_message_id,
+        text=_message_text(answer),
+        data_parts=_data_parts(answer),
+    )
+
+
+def resume_copilot_action(
+    member_id: str,
+    action_id: str,
+    resolution: dict[str, object],
+    *,
+    checkpointer: BaseCheckpointSaver[Any],
+    retrieval_tools: Sequence[BaseTool] = RETRIEVAL_TOOLS,
+    action_writer: CoachActionWriter = write_coach_action,
+) -> CopilotTurnResult:
+    """Resume the member thread at its pending coach action interrupt."""
+    graph = _build_graph(
+        None,
+        _member_tools(retrieval_tools, member_id, None),
+        (),
+        f"action-{action_id}",
+        checkpointer,
+        member_id,
+        action_writer,
+    )
+    snapshot = graph.get_state(_thread_config(member_id))
+    if not snapshot.interrupts:
+        return CopilotConflict(
+            kind="no-pending-action",
+            detail="The member thread has no pending coach action.",
+        )
+    if len(snapshot.interrupts) != 1:
+        raise RuntimeError(
+            "A member thread cannot have multiple coach action interrupts."
+        )
+    interrupt_value = snapshot.interrupts[0].value
+    if (
+        not isinstance(interrupt_value, dict)
+        or interrupt_value.get("type") != "data-action"
+        or not isinstance((data := interrupt_value.get("data")), dict)
+    ):
+        raise RuntimeError(
+            "A coach action interrupt must contain a data-action payload."
+        )
+    if data.get("action_id") != action_id:
+        return CopilotConflict(
+            kind="action-id-mismatch",
+            detail="The pending coach action does not match this action id.",
+        )
+    pending_action = coach_action_from_payload(data)
+    if pending_action is None:
+        raise RuntimeError("A coach action interrupt requires a pending action.")
+    resume_value = {"action_id": action_id, **resolution}
+    if coach_action_decision(pending_action, resume_value) is None:
+        return CopilotConflict(
+            kind="invalid-resolution",
+            detail="The coach action resolution is invalid.",
+        )
+    state = cast(
+        "_CopilotState",
+        graph.invoke(
+            Command(resume=resume_value),
+            _thread_config(member_id),
+        ),
+    )
+    answer = _final_answer(state["messages"])
+    return CopilotTurn(
+        message_id=answer.id or f"action-{action_id}",
         text=_message_text(answer),
         data_parts=_data_parts(answer),
     )
@@ -178,7 +287,7 @@ def run_quick_prompt(
     as_of: date | None = None,
     retrieval_tools: Sequence[BaseTool] = RETRIEVAL_TOOLS,
     tone_fact_reader: CopilotToneFactReader = get_copilot_tone_facts,
-) -> CopilotTurn:
+) -> CopilotTurnResult:
     prompt = next(prompt for prompt in QUICK_PROMPTS if prompt.id == quick_prompt_id)
     return run_copilot_turn(
         member_id,
@@ -215,6 +324,8 @@ def _build_graph(
     tone_facts: tuple[CopilotToneFact, ...],
     assistant_message_id: str,
     checkpointer: BaseCheckpointSaver[Any],
+    member_id: str,
+    action_writer: CoachActionWriter,
 ) -> Any:
     tool_by_name = {tool.name: tool for tool in member_tools}
 
@@ -255,6 +366,21 @@ def _build_graph(
                     )
                 ]
             }
+        action_calls = [
+            tool_call
+            for tool_call in response.tool_calls
+            if tool_call["name"] in COACH_ACTION_TOOL_NAMES
+        ]
+        if action_calls and (
+            len(response.tool_calls) != 1
+            or coach_action_from_tool_call(
+                action_calls[0].get("id") or "",
+                action_calls[0]["name"],
+                action_calls[0].get("args", {}),
+            )
+            is None
+        ):
+            return fallback(state)
         response_id = response.id or f"tool-call-{uuid4()}"
         return {"messages": [response.model_copy(update={"id": response_id})]}
 
@@ -290,10 +416,86 @@ def _build_graph(
             "tool_rounds": state["tool_rounds"] + 1,
         }
 
+    def propose_action(state: _CopilotState) -> dict[str, object]:
+        response = cast("AIMessage", state["messages"][-1])
+        tool_call = response.tool_calls[0]
+        action = coach_action_from_tool_call(
+            tool_call.get("id") or "",
+            tool_call["name"],
+            tool_call.get("args", {}),
+        )
+        if action is None:
+            raise RuntimeError("A routed coach action must be valid.")
+        return {
+            "messages": [
+                ToolMessage(
+                    content="Awaiting coach confirmation.",
+                    name=tool_call["name"],
+                    tool_call_id=action.action_id,
+                    additional_kwargs={"coach_action": True},
+                ),
+                _coach_action_message(
+                    action,
+                    "pending",
+                    _sources(state["messages"]),
+                ),
+            ],
+            "pending_action": cast(
+                "dict[str, JsonValue]",
+                coach_action_payload(action, "pending"),
+            ),
+        }
+
+    def gate_action(state: _CopilotState) -> dict[str, object]:
+        pending_action_payload = state["pending_action"]
+        pending_action = coach_action_from_payload(pending_action_payload)
+        if pending_action is None:
+            raise RuntimeError("A coach action interrupt requires a pending action.")
+        resumed = interrupt(
+            {
+                "type": "data-action",
+                "data": pending_action_payload,
+            }
+        )
+        decision = coach_action_decision(pending_action, resumed)
+        if decision is None:
+            raise RuntimeError("A validated coach action resolution must be valid.")
+        sources = _sources(state["messages"])
+        if decision.decision == "discard":
+            return {
+                "messages": [
+                    _coach_action_message(
+                        decision.action,
+                        "discarded",
+                        sources,
+                    )
+                ],
+                "pending_action": None,
+            }
+        result = action_writer(member_id, decision.action)
+        if result.status == "target-not-found":
+            return {
+                "messages": [_coach_action_message(decision.action, "failed", sources)],
+                "pending_action": None,
+            }
+        return {
+            "messages": [
+                _coach_action_message(
+                    decision.action,
+                    "confirmed",
+                    sources,
+                    morning_brief=result.morning_brief,
+                )
+            ],
+            "pending_action": None,
+        }
+
     def route_after_model(state: _CopilotState) -> AgentRoute:
         response = state["messages"][-1]
         if not isinstance(response, AIMessage) or not response.tool_calls:
             return "__end__"
+        if response.tool_calls[0]["name"] in COACH_ACTION_TOOL_NAMES:
+            return "action"
         if state["tool_rounds"] >= MAX_TOOL_ROUNDS:
             return "limit"
         return "tools"
@@ -313,14 +515,23 @@ def _build_graph(
     builder = StateGraph(_CopilotState)  # ty: ignore[invalid-argument-type]
     builder.add_node("agent", call_model)
     builder.add_node("tools", call_tools)
+    builder.add_node("propose_action", propose_action)
+    builder.add_node("gate_action", gate_action)
     builder.add_node("limit", stop_at_limit)
     builder.add_edge(START, "agent")
     builder.add_conditional_edges(
         "agent",
         route_after_model,
-        {"tools": "tools", "limit": "limit", "__end__": END},
+        {
+            "tools": "tools",
+            "action": "propose_action",
+            "limit": "limit",
+            "__end__": END,
+        },
     )
     builder.add_edge("tools", "agent")
+    builder.add_edge("propose_action", "gate_action")
+    builder.add_edge("gate_action", END)
     builder.add_edge("limit", END)
     return builder.compile(checkpointer=checkpointer)
 
@@ -330,9 +541,12 @@ def _member_tools(
     member_id: str,
     as_of: date | None,
 ) -> tuple[BaseTool, ...]:
-    return tuple(
-        _member_tool(retrieval_tool, member_id, as_of)
-        for retrieval_tool in retrieval_tools
+    return (
+        *(
+            _member_tool(retrieval_tool, member_id, as_of)
+            for retrieval_tool in retrieval_tools
+        ),
+        *COACH_ACTION_TOOLS,
     )
 
 
@@ -384,10 +598,10 @@ def _sources(messages: Iterable[AnyMessage]) -> tuple[CopilotSource, ...]:
         ):
             continue
         raw_node_ids = message.additional_kwargs.get("node_ids")
-        node_ids = (
-            tuple(node_id for node_id in raw_node_ids if isinstance(node_id, str))
-            if isinstance(raw_node_ids, list)
-            else ()
+        if not isinstance(raw_node_ids, list):
+            continue
+        node_ids = tuple(
+            node_id for node_id in raw_node_ids if isinstance(node_id, str)
         )
         sources.append(CopilotSource(tool=message.name, node_ids=node_ids))
     return tuple(sources)
@@ -410,6 +624,47 @@ def _fallback_message(
         AIMessage(content=_FAILURE_MESSAGE),
         message_id,
         sources,
+    )
+
+
+def _coach_action_message(
+    action: CoachAction,
+    status: Literal["pending", "confirmed", "discarded", "failed"],
+    sources: tuple[CopilotSource, ...],
+    *,
+    morning_brief: MorningBrief | None = None,
+) -> AIMessage:
+    if status == "pending":
+        text = "Review this proposed coach action."
+    elif status == "discarded":
+        text = "Action discarded."
+    elif status == "failed":
+        text = "The action target no longer exists. Nothing was changed."
+    elif isinstance(action, SendMemberMessage):
+        text = "Message sent."
+    else:
+        text = "Morning brief updated."
+    parts = [_sources_part(sources)]
+    if morning_brief is not None:
+        parts.append(
+            CopilotDataPart(
+                type="data-brief",
+                data=_json_value(asdict(morning_brief_data(morning_brief))),
+            )
+        )
+    parts.append(
+        CopilotDataPart(
+            type="data-action",
+            data=cast("JsonValue", coach_action_payload(action, status)),
+        )
+    )
+    data_parts = _ordered_data_parts(tuple(parts))
+    return AIMessage(
+        content=text,
+        id=f"action-{action.action_id}",
+        additional_kwargs={
+            _DATA_PARTS_KEY: [_data_part_payload(part) for part in data_parts]
+        },
     )
 
 
@@ -486,6 +741,16 @@ def _is_json_value(value: object) -> bool:
             isinstance(key, str) and _is_json_value(item) for key, item in value.items()
         )
     return False
+
+
+def _json_value(value: object) -> JsonValue:
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, tuple | list):
+        return [_json_value(item) for item in value]
+    if isinstance(value, dict) and all(isinstance(key, str) for key in value):
+        return {str(key): _json_value(item) for key, item in value.items()}
+    raise TypeError("A copilot data part must contain JSON values.")
 
 
 def _history_messages(messages: Sequence[object]) -> tuple[CopilotHistoryMessage, ...]:
