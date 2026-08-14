@@ -12,6 +12,17 @@ SafetyLayer: TypeAlias = Literal[
     "contraindication",
     "SNOMED anatomical fallback",
 ]
+SessionInjuryKind: TypeAlias = Literal[
+    "Joint",
+    "AnatomicalStructure",
+    "ClinicalFinding",
+]
+
+
+@dataclass(frozen=True)
+class SessionInjury:
+    concept_id: str
+    kind: SessionInjuryKind
 
 
 @dataclass(frozen=True)
