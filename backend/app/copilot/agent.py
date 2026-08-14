@@ -349,7 +349,11 @@ def _build_graph(
             *state["messages"],
         )
         try:
-            response = llm.invoke(messages, member_tools)
+            response = llm.invoke(
+                messages,
+                member_tools,
+                require_tool_call=not _has_current_turn_retrieval(state["messages"]),
+            )
         except Exception:  # noqa: BLE001 - every LLM adapter failure degrades here.
             return fallback(state)
         if not isinstance(response, AIMessage) or response.invalid_tool_calls:

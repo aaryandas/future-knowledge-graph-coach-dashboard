@@ -184,6 +184,15 @@ class MorningBriefResult(_JsonToolResult):
     morning_brief: MorningBriefData | None
     node_ids: tuple[str, ...]
 
+    @property
+    def data_part(self) -> dict[str, object] | None:
+        if self.morning_brief is None:
+            return None
+        return {
+            "type": "data-brief",
+            "data": json.loads(json.dumps(asdict(self.morning_brief))),
+        }
+
 
 @dataclass(frozen=True)
 class MemberProfileData:
