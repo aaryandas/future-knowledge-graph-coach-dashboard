@@ -4,36 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.generation import (
-    ConstraintSet as GenerationConstraintSet,
-)
-from app.generation import (
-    GenerationFailure as GenerationFailureValue,
-)
-from app.generation import (
-    PackingTraceEvent as PackingTraceEventValue,
-)
-from app.generation import (
-    Plan as GenerationPlan,
-)
-from app.generation import (
-    PlanSection as GenerationPlanSection,
-)
-from app.generation import (
-    ResolutionTraceEvent as ResolutionTraceEventValue,
-)
-from app.generation import (
-    ResolvedIntent as ResolvedIntentValue,
-)
-from app.generation import (
-    ResolvedMention as ResolvedMentionValue,
-)
-from app.generation import (
-    TraceEvent as TraceEventValue,
-)
-from app.generation import (
-    VerdictTraceEvent as VerdictTraceEventValue,
-)
+from app.generation import GenerationTurn
 from app.graph import GraphEdgeKind, GraphNodeKind
 from app.resolver import Pass
 
@@ -256,7 +227,18 @@ class DataConstraintsPart(BaseModel):
     data: ConstraintsData
 
 
-def data_plan_part(plan: GenerationPlan) -> DataPlanPart:
+type GenerationDataPart = DataPlanPart | DataTracePart | DataConstraintsPart
+
+
+def generation_data_parts(turn: GenerationTurn) -> tuple[GenerationDataPart, ...]:
+    return (
+        *((_data_plan_part(turn.plan),) if turn.plan is not None else ()),
+        _data_trace_part(turn.trace),
+        _data_constraints_part(turn),
+    )
+
+
+def _data_plan_part(plan) -> DataPlanPart:
     return DataPlanPart(
         data=Plan(
             warm_up=_plan_section(plan.warm_up),
@@ -268,22 +250,15 @@ def data_plan_part(plan: GenerationPlan) -> DataPlanPart:
     )
 
 
-def data_trace_part(events: tuple[TraceEventValue, ...]) -> DataTracePart:
+def _data_trace_part(events) -> DataTracePart:
     return DataTracePart(data=[_trace_event(event) for event in events])
 
 
-def data_constraints_part(
-    resolved_intent: ResolvedIntentValue | None,
-    failure: GenerationFailureValue | None,
-) -> DataConstraintsPart:
+def _data_constraints_part(turn) -> DataConstraintsPart:
+    resolved_intent = turn.resolved_intent
+    failure = turn.failure
     constraint_set = (
-        resolved_intent.constraints
-        if resolved_intent is not None
-        else GenerationConstraintSet(
-            exclusions=(),
-            session_injuries=(),
-            equipment_override=None,
-        )
+        resolved_intent.constraints if resolved_intent is not None else None
     )
     return DataConstraintsPart(
         data=ConstraintsData(
@@ -293,19 +268,29 @@ def data_constraints_part(
                 else []
             ),
             constraints=ConstraintSet(
-                exclusions=[
-                    _resolved_mention(mention) for mention in constraint_set.exclusions
-                ],
-                session_injuries=[
-                    _resolved_mention(mention)
-                    for mention in constraint_set.session_injuries
-                ],
+                exclusions=(
+                    [
+                        _resolved_mention(mention)
+                        for mention in constraint_set.exclusions
+                    ]
+                    if constraint_set is not None
+                    else []
+                ),
+                session_injuries=(
+                    [
+                        _resolved_mention(mention)
+                        for mention in constraint_set.session_injuries
+                    ]
+                    if constraint_set is not None
+                    else []
+                ),
                 equipment_override=(
                     [
                         _resolved_mention(mention)
                         for mention in constraint_set.equipment_override
                     ]
-                    if constraint_set.equipment_override is not None
+                    if constraint_set is not None
+                    and constraint_set.equipment_override is not None
                     else None
                 ),
             ),
@@ -323,7 +308,7 @@ def data_constraints_part(
     )
 
 
-def _plan_section(section: GenerationPlanSection) -> PlanSection:
+def _plan_section(section) -> PlanSection:
     return PlanSection(
         section=section.section,
         entries=[
@@ -346,7 +331,7 @@ def _plan_section(section: GenerationPlanSection) -> PlanSection:
     )
 
 
-def _resolved_mention(mention: ResolvedMentionValue) -> ResolvedMention:
+def _resolved_mention(mention) -> ResolvedMention:
     resolution = mention.resolution
     return ResolvedMention(
         purpose=mention.purpose,
@@ -356,12 +341,7 @@ def _resolved_mention(mention: ResolvedMentionValue) -> ResolvedMention:
         confidence=resolution.confidence,
         pass_=resolution.pass_,
         candidates=[
-            ResolutionCandidate(
-                concept_id=candidate.concept_id,
-                preferred_term=candidate.preferred_term,
-                confidence=candidate.confidence,
-            )
-            for candidate in resolution.candidates
+            _resolution_candidate(candidate) for candidate in resolution.candidates
         ],
         modifiers=list(resolution.modifiers),
         enforced=mention.enforced,
@@ -369,8 +349,16 @@ def _resolved_mention(mention: ResolvedMentionValue) -> ResolvedMention:
     )
 
 
-def _trace_event(event: TraceEventValue) -> TraceEvent:
-    if isinstance(event, ResolutionTraceEventValue):
+def _resolution_candidate(candidate) -> ResolutionCandidate:
+    return ResolutionCandidate(
+        concept_id=candidate.concept_id,
+        preferred_term=candidate.preferred_term,
+        confidence=candidate.confidence,
+    )
+
+
+def _trace_event(event) -> TraceEvent:
+    if event.kind == "resolution":
         return ResolutionTraceEvent(
             purpose=event.purpose,
             vocabulary=event.vocabulary,
@@ -379,12 +367,7 @@ def _trace_event(event: TraceEventValue) -> TraceEvent:
             confidence=event.confidence,
             pass_=event.pass_,
             candidates=[
-                ResolutionCandidate(
-                    concept_id=candidate.concept_id,
-                    preferred_term=candidate.preferred_term,
-                    confidence=candidate.confidence,
-                )
-                for candidate in event.candidates
+                _resolution_candidate(candidate) for candidate in event.candidates
             ],
             modifiers=list(event.modifiers),
             enforced=event.enforced,
@@ -393,7 +376,7 @@ def _trace_event(event: TraceEventValue) -> TraceEvent:
             was_generated_by=event.was_generated_by,
             was_attributed_to=event.was_attributed_to,
         )
-    if isinstance(event, VerdictTraceEventValue):
+    if event.kind == "verdict":
         return VerdictTraceEvent(
             exercise_id=event.exercise_id,
             status=event.status,
@@ -422,7 +405,7 @@ def _trace_event(event: TraceEventValue) -> TraceEvent:
             was_generated_by=event.was_generated_by,
             was_attributed_to=event.was_attributed_to,
         )
-    if isinstance(event, PackingTraceEventValue):
+    if event.kind == "packing":
         return PackingTraceEvent(
             action=event.action,
             section=event.section,

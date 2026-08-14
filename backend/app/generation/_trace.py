@@ -4,7 +4,7 @@ from typing import Literal
 from app.generation._model import Section
 from app.resolver import Candidate as ResolutionCandidate
 from app.resolver import Pass
-from app.safety import WalkedPath
+from app.safety import VerdictTraceEvent
 
 type PackingAction = Literal["filtered", "selected", "cut"]
 
@@ -37,28 +37,6 @@ class ResolutionTraceEvent:
     kind: Literal["resolution"] = field(default="resolution", init=False)
     was_generated_by: Literal["resolve"] = field(default="resolve", init=False)
     was_attributed_to: Literal["graph"] = field(default="graph", init=False)
-
-
-@dataclass(frozen=True)
-class VerdictTraceEvent:
-    exercise_id: str
-    status: Literal["exclude", "caution", "clear"]
-    layer: (
-        Literal[
-            "clinical directive",
-            "contraindication",
-            "SNOMED anatomical fallback",
-        ]
-        | None
-    )
-    reason: str
-    walked_path: WalkedPath
-    used: tuple[str, ...]
-    kind: Literal["verdict"] = field(default="verdict", init=False)
-    was_generated_by: Literal["evaluate_safety"] = field(
-        default="evaluate_safety", init=False
-    )
-    was_attributed_to: Literal["graph", "agent"] = "graph"
 
 
 @dataclass(frozen=True)

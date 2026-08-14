@@ -23,10 +23,10 @@ from app.generation._model import (
 )
 from app.generation._packing import PackingFailure, pack
 from app.generation._resolution import resolve_intent
-from app.generation._trace import TraceEvent, VerdictTraceEvent
+from app.generation._trace import TraceEvent
 from app.generation.intent import Intent, InterpretationFailure, interpret
 from app.generation.llm import IntentLLM
-from app.safety import AgentDecision, GraphDecision, Verdict, evaluate_safety
+from app.safety import Verdict, evaluate_safety
 
 type CatalogReader = Callable[[], tuple[CatalogExercise, ...]]
 type MemberContextReader = Callable[[str], GenerationMemberContext | None]
@@ -154,7 +154,10 @@ def _build_graph(
         return {
             "catalog": catalog,
             "verdicts": verdicts,
-            "trace": (*state.get("trace", ()), *_verdict_events(verdicts)),
+            "trace": (
+                *state.get("trace", ()),
+                *(event for verdict in verdicts for event in verdict.trace),
+            ),
         }
 
     def rank_node(state: _GenerationState) -> dict[str, object]:
@@ -277,32 +280,6 @@ def _resolved_ids(mentions: tuple[ResolvedMention, ...]) -> frozenset[str]:
         for mention in mentions
         if mention.enforced and mention.resolution.concept_id is not None
     )
-
-
-def _verdict_events(verdicts: tuple[Verdict, ...]) -> tuple[VerdictTraceEvent, ...]:
-    events: list[VerdictTraceEvent] = []
-    for verdict in verdicts:
-        for decision in verdict.decisions:
-            if isinstance(decision, GraphDecision):
-                walked_path = decision.walked_path
-                layer = decision.layer
-            elif isinstance(decision, AgentDecision):
-                walked_path = verdict.walked_path
-                layer = None
-            else:
-                raise TypeError("Verdict contains an unknown decision")
-            events.append(
-                VerdictTraceEvent(
-                    exercise_id=verdict.exercise_id,
-                    status=decision.status,
-                    layer=layer,
-                    reason=decision.reason,
-                    walked_path=walked_path,
-                    used=tuple(node.node_id for node in walked_path.nodes),
-                    was_attributed_to=decision.kind,
-                )
-            )
-    return tuple(events)
 
 
 def _thread_config(thread_id: str) -> RunnableConfig:
