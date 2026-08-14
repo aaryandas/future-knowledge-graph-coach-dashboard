@@ -76,7 +76,7 @@ def resolve_intent(
         intent.injuries,
         purpose="session injury",
         vocabulary=generation_vocabularies.session_injuries,
-        enforce_matches=False,
+        enforce_matches=True,
     )
     equipment_override: tuple[ResolvedMention, ...] | None = None
     equipment_events: tuple[ResolutionTraceEvent, ...] = ()
@@ -109,6 +109,9 @@ def load_generation_vocabularies() -> GenerationVocabularies:
     exercise = _artifact_vocabulary(exercises_path, "Exercise", synonyms_path)
     muscle_group = _artifact_vocabulary(exercises_path, "MuscleGroup", synonyms_path)
     joint = _artifact_vocabulary(exercises_path, "Joint", synonyms_path)
+    movement_pattern = _artifact_vocabulary(
+        exercises_path, "MovementPattern", synonyms_path
+    )
     equipment = _artifact_vocabulary(exercises_path, "Equipment", synonyms_path)
     anatomical_structure = _artifact_vocabulary(
         snomed_path, "AnatomicalStructure", synonyms_path
@@ -118,7 +121,10 @@ def load_generation_vocabularies() -> GenerationVocabularies:
     )
     return GenerationVocabularies(
         targets=_combine((muscle_group, joint), unresolved_kind="MuscleGroup"),
-        exclusions=_combine((exercise,), unresolved_kind="Exercise"),
+        exclusions=_combine(
+            (exercise, movement_pattern),
+            unresolved_kind="Exercise",
+        ),
         session_injuries=_combine(
             (clinical_finding, joint, anatomical_structure),
             unresolved_kind="ClinicalFinding",
@@ -209,6 +215,9 @@ def _resolution_message(
     if resolution.concept_id is None:
         suffix = " Safety was not enforced." if purpose == "session injury" else ""
         return f"The {purpose} mention did not resolve.{suffix}"
-    if not enforced:
-        return "The session injury resolved but is not enforced in this turn."
+    if purpose == "session injury":
+        return (
+            "The session injury is enforced for this session. "
+            "Coach confirmation is required to add it to the member record."
+        )
     return f"The {purpose} mention resolved with the {resolution.pass_} pass."

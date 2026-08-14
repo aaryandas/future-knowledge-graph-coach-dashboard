@@ -7,6 +7,7 @@ from app.resolver import Pass
 from app.safety import VerdictTraceEvent
 
 type PackingAction = Literal["filtered", "selected", "cut"]
+type SubstitutionBasis = Literal["movement pattern", "muscle overlap"]
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,7 @@ class ResolutionTraceEvent:
         "Exercise",
         "MuscleGroup",
         "Joint",
+        "MovementPattern",
         "Equipment",
         "AnatomicalStructure",
         "ClinicalFinding",
@@ -52,4 +54,25 @@ class PackingTraceEvent:
     was_attributed_to: Literal["graph"] = field(default="graph", init=False)
 
 
-type TraceEvent = ResolutionTraceEvent | VerdictTraceEvent | PackingTraceEvent
+@dataclass(frozen=True)
+class SubstitutionTraceEvent:
+    dropped_exercise_id: str
+    replacement_exercise_id: str
+    basis: SubstitutionBasis
+    shared_movement_pattern_ids: tuple[str, ...]
+    shared_muscle_group_ids: tuple[str, ...]
+    reason: str
+    used: tuple[str, ...]
+    kind: Literal["substitution"] = field(default="substitution", init=False)
+    was_generated_by: Literal["pair_substitutions"] = field(
+        default="pair_substitutions", init=False
+    )
+    was_attributed_to: Literal["graph"] = field(default="graph", init=False)
+
+
+type TraceEvent = (
+    ResolutionTraceEvent
+    | VerdictTraceEvent
+    | PackingTraceEvent
+    | SubstitutionTraceEvent
+)
