@@ -9,9 +9,8 @@ from typing import Any, Protocol, Self
 
 from openai import OpenAIError
 
+from ..embedding_artifact import EMBEDDING_SCHEMA_VERSION
 from ._model import Embedding
-
-EMBEDDING_SCHEMA_VERSION = 1
 
 
 class EmbeddingProvider(Protocol):

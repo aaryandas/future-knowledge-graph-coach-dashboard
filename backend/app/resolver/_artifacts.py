@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Self, TypeAlias
 
+from ._embeddings import ArtifactEmbeddings, EmbeddingProvider
 from ._model import Embeddings, TokenAlias, VocabularyConcept
 
 KG1NodeKind: TypeAlias = Literal[
@@ -44,7 +45,13 @@ class ArtifactVocabulary:
         kind: KG1NodeKind,
         synonyms_path: str | Path,
         embeddings: Embeddings | None = None,
+        embeddings_path: str | Path | None = None,
+        embedding_provider: EmbeddingProvider | None = None,
     ) -> Self:
+        if embeddings is not None and embeddings_path is not None:
+            raise ValueError("provide embeddings or embeddings_path, not both")
+        if embedding_provider is not None and embeddings_path is None:
+            raise ValueError("embedding_provider requires embeddings_path")
         artifact = json.loads(Path(path).read_text())
         synonyms = json.loads(Path(synonyms_path).read_text())
         concepts = (
@@ -52,10 +59,18 @@ class ArtifactVocabulary:
             if isinstance(artifact, list)
             else _ontology_concepts(artifact, kind)
         )
+        loaded_embeddings = (
+            ArtifactEmbeddings.from_file(
+                embeddings_path,
+                provider=embedding_provider,
+            )
+            if embeddings_path is not None
+            else embeddings
+        )
         return cls(
             _concepts=tuple(concepts),
             _token_aliases=_token_aliases(synonyms),
-            _embeddings=embeddings,
+            _embeddings=loaded_embeddings,
         )
 
     def concepts(self) -> Iterable[VocabularyConcept]:

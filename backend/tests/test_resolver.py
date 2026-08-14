@@ -6,7 +6,6 @@ from typing import Any
 
 import pytest
 from app.resolver import ArtifactVocabulary, resolve
-from app.resolver._embeddings import ArtifactEmbeddings
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CASES_PATH = Path(__file__).parent / "cases" / "resolver.json"
@@ -43,15 +42,6 @@ class FailingEmbeddingProvider:
         raise ConnectionError("embedding provider is offline")
 
 
-EQUIPMENT_EMBEDDINGS = ArtifactEmbeddings.from_file(
-    EQUIPMENT_EMBEDDINGS_PATH,
-    provider=FixtureEmbeddingProvider(EQUIPMENT_EMBEDDINGS_PATH),
-)
-ANATOMY_EMBEDDINGS = ArtifactEmbeddings.from_file(
-    ANATOMY_EMBEDDINGS_PATH,
-    provider=FixtureEmbeddingProvider(ANATOMY_EMBEDDINGS_PATH),
-)
-
 CASES: list[dict[str, Any]] = json.loads(CASES_PATH.read_text())
 VOCABULARIES = {
     "exercise": ArtifactVocabulary.from_file(
@@ -63,7 +53,8 @@ VOCABULARIES = {
         EXERCISES_PATH,
         kind="Equipment",
         synonyms_path=SYNONYMS_PATH,
-        embeddings=EQUIPMENT_EMBEDDINGS,
+        embeddings_path=EQUIPMENT_EMBEDDINGS_PATH,
+        embedding_provider=FixtureEmbeddingProvider(EQUIPMENT_EMBEDDINGS_PATH),
     ),
     "muscle_group": ArtifactVocabulary.from_file(
         EXERCISES_PATH, kind="MuscleGroup", synonyms_path=SYNONYMS_PATH
@@ -72,7 +63,8 @@ VOCABULARIES = {
         SNOMED_PATH,
         kind="AnatomicalStructure",
         synonyms_path=SYNONYMS_PATH,
-        embeddings=ANATOMY_EMBEDDINGS,
+        embeddings_path=ANATOMY_EMBEDDINGS_PATH,
+        embedding_provider=FixtureEmbeddingProvider(ANATOMY_EMBEDDINGS_PATH),
     ),
     "snomed_finding": ArtifactVocabulary.from_file(
         SNOMED_PATH, kind="ClinicalFinding", synonyms_path=SYNONYMS_PATH
@@ -115,15 +107,12 @@ def test_resolver_cases(case: dict[str, Any]) -> None:
 def test_vector_pass_skips_cleanly_without_an_embedding(
     provider: OfflineEmbeddingProvider | None,
 ) -> None:
-    embeddings = ArtifactEmbeddings.from_file(
-        EQUIPMENT_EMBEDDINGS_PATH,
-        provider=provider,
-    )
     vocabulary = ArtifactVocabulary.from_file(
         EXERCISES_PATH,
         kind="Equipment",
         synonyms_path=SYNONYMS_PATH,
-        embeddings=embeddings,
+        embeddings_path=EQUIPMENT_EMBEDDINGS_PATH,
+        embedding_provider=provider,
     )
 
     resolution = resolve("portable hand weights", vocabulary)
@@ -133,15 +122,12 @@ def test_vector_pass_skips_cleanly_without_an_embedding(
 
 
 def test_vector_pass_degrades_when_embedding_provider_connection_fails() -> None:
-    embeddings = ArtifactEmbeddings.from_file(
-        EQUIPMENT_EMBEDDINGS_PATH,
-        provider=FailingEmbeddingProvider(),
-    )
     vocabulary = ArtifactVocabulary.from_file(
         EXERCISES_PATH,
         kind="Equipment",
         synonyms_path=SYNONYMS_PATH,
-        embeddings=embeddings,
+        embeddings_path=EQUIPMENT_EMBEDDINGS_PATH,
+        embedding_provider=FailingEmbeddingProvider(),
     )
 
     resolution = resolve("portable hand weights", vocabulary)

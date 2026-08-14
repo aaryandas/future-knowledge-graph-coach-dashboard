@@ -15,8 +15,8 @@ from langchain_openai import OpenAIEmbeddings
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "backend"))
 
+from app.embedding_artifact import EMBEDDING_SCHEMA_VERSION
 from app.resolver import ArtifactVocabulary, KG1NodeKind, VocabularyConcept
-from app.resolver._embeddings import EMBEDDING_SCHEMA_VERSION
 
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "data" / "resolver-embeddings"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
