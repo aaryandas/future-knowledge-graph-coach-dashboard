@@ -10,7 +10,7 @@ heartbeat_stale_minutes: 30
 # you want different models or effort levels for implementation and review.
 agents:
   plan:         codex
-  orchestrator: codex
+  orchestrator: claude
   impl:         codex
   gate:         codex
   merge:        codex
