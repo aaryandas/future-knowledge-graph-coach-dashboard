@@ -199,8 +199,19 @@ class PackingTraceEvent(BaseModel):
     was_attributed_to: Literal["graph"] = Field(alias="wasAttributedTo")
 
 
+class AgentTraceEvent(BaseModel):
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
+    kind: Literal["agent"] = "agent"
+    action: Literal["annotation"]
+    reason: str
+    used: list[str]
+    was_generated_by: Literal["annotate"] = Field(alias="wasGeneratedBy")
+    was_attributed_to: Literal["agent"] = Field(alias="wasAttributedTo")
+
+
 type TraceEvent = Annotated[
-    ResolutionTraceEvent | VerdictTraceEvent | PackingTraceEvent,
+    ResolutionTraceEvent | VerdictTraceEvent | PackingTraceEvent | AgentTraceEvent,
     Field(discriminator="kind"),
 ]
 
@@ -413,6 +424,14 @@ def _trace_event(event) -> TraceEvent:
             reason=event.reason,
             used=list(event.used),
             score=event.score,
+            was_generated_by=event.was_generated_by,
+            was_attributed_to=event.was_attributed_to,
+        )
+    if event.kind == "agent":
+        return AgentTraceEvent(
+            action=event.action,
+            reason=event.reason,
+            used=list(event.used),
             was_generated_by=event.was_generated_by,
             was_attributed_to=event.was_attributed_to,
         )

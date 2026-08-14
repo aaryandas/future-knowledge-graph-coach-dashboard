@@ -53,7 +53,7 @@ class _GenerationState(TypedDict, total=False):
 class GenerationTurn:
     message_id: str
     plan: Plan | None
-    trace: tuple[TraceEvent, ...]
+    trace: list[TraceEvent]
     resolved_intent: ResolvedIntent | None
     failure: GenerationFailure | None
     text: str
@@ -108,10 +108,11 @@ def run_generation_session(
     )
     failure = state.get("failure")
     plan = state.get("plan")
+    trace = list(state.get("trace", ()))
     return GenerationTurn(
         message_id=f"{message_id or thread_id}-assistant",
         plan=plan,
-        trace=state.get("trace", ()),
+        trace=trace,
         resolved_intent=state.get("resolved_intent"),
         failure=failure,
         text=failure.message if failure is not None else "Session ready.",
@@ -120,6 +121,7 @@ def run_generation_session(
                 plan,
                 coach_message.strip(),
                 llm=annotation_llm,
+                trace=trace,
             )
             if plan is not None
             else ()

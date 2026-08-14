@@ -2,7 +2,7 @@ import json
 
 from app.api.generate import TurnRunner, create_generate_router
 from app.generation import GenerationTurn
-from app.generation.testing import Plan, PlanEntry, PlanSection
+from app.generation.testing import AgentTraceEvent, Plan, PlanEntry, PlanSection
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -25,7 +25,7 @@ def test_generate_stream_calls_the_generation_session_seam() -> None:
         return GenerationTurn(
             message_id="user-1-assistant",
             plan=None,
-            trace=(),
+            trace=[],
             resolved_intent=None,
             failure=None,
             text="Session ready.",
@@ -66,6 +66,19 @@ def test_generate_stream_calls_the_generation_session_seam() -> None:
 
 
 def test_coaching_note_text_parts_stream_after_plan_and_trace() -> None:
+    trace = []
+
+    def coaching_note_parts():
+        trace.append(
+            AgentTraceEvent(
+                action="annotation",
+                reason="Added a verified tighten-only coaching note.",
+                used=("ex-1",),
+            )
+        )
+        yield "Keep the load light."
+        yield " Stop if knee pain increases."
+
     def run_turn(
         member_id: str,
         message: str,
@@ -76,14 +89,11 @@ def test_coaching_note_text_parts_stream_after_plan_and_trace() -> None:
         return GenerationTurn(
             message_id="user-1-assistant",
             plan=_plan(),
-            trace=(),
+            trace=trace,
             resolved_intent=None,
             failure=None,
             text="Session ready.",
-            coaching_note_parts=(
-                "Keep the load light.",
-                " Stop if knee pain increases.",
-            ),
+            coaching_note_parts=coaching_note_parts(),
         )
 
     response = _client(turn_runner=run_turn).post(
@@ -102,15 +112,31 @@ def test_coaching_note_text_parts_stream_after_plan_and_trace() -> None:
     )
 
     events = _events(response.text)
-    event_types = [event["type"] for event in events]
-    annotation_indexes = [
-        index
-        for index, event in enumerate(events)
-        if event.get("id") == "user-1-assistant-annotation"
-    ]
     assert response.status_code == 200
-    assert event_types.index("data-plan") < min(annotation_indexes)
-    assert event_types.index("data-trace") < min(annotation_indexes)
+    assert [event["type"] for event in events] == [
+        "start",
+        "start-step",
+        "data-plan",
+        "data-trace",
+        "data-constraints",
+        "text-start",
+        "text-delta",
+        "text-end",
+        "text-start",
+        "text-delta",
+        "text-delta",
+        "text-end",
+        "finish-step",
+        "finish",
+    ]
+    trace_data = next(event for event in events if event["type"] == "data-trace")[
+        "data"
+    ]
+    assert isinstance(trace_data, list)
+    trace_event = trace_data[-1]
+    assert isinstance(trace_event, dict)
+    assert trace_event["kind"] == "agent"
+    assert trace_event["wasAttributedTo"] == "agent"
     assert [
         event["delta"]
         for event in events

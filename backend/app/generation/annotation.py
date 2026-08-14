@@ -1,17 +1,30 @@
-import os
-from collections.abc import Iterable, Iterator, Sequence
-from typing import Protocol
+import re
+from collections.abc import Iterator, Sequence
 
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 
 from app.generation._model import Plan
-from app.generation.llm import LLMProviderError
+from app.generation._trace import AgentTraceEvent, TraceEvent
+from app.generation.llm import (
+    AnnotationLLM,
+    LLMProviderError,
+    build_annotation_llm,
+)
 
-_DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
-_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 _MAX_NOTE_CHARACTERS = 400
+_MAX_NOTE_SENTENCES = 2
+_CAUTION_START = re.compile(
+    r"(?:keep|use|stop|avoid|pause|monitor|stay)\b",
+    re.IGNORECASE,
+)
+_LOOSENING_DIRECTIVE = re.compile(
+    r"\b(?:"
+    r"add|change|disregard|dismiss|heavier|ignore|increase|override|remove|replace|"
+    r"resume|skip|swap|unsafe|extra|maximum|maximal|"
+    r"push\s+through|full\s+range|more\s+(?:load|reps|sets|time|weight)"
+    r")\b",
+    re.IGNORECASE,
+)
 _SYSTEM_PROMPT = """You write short coaching notes for a completed workout plan.
 The plan, doses, and safety verdicts are final. Your note is presentation-only.
 You may add caution or recommend a more conservative execution.
@@ -21,45 +34,12 @@ Write at most two short sentences. Return plain text only.
 If there is no useful note, return no text."""
 
 
-class AnnotationLLM(Protocol):
-    def stream(self, messages: Sequence[BaseMessage]) -> Iterator[str]: ...
-
-
-class _OpenRouterAnnotationLLM:
-    def __init__(self, chat_model: BaseChatModel) -> None:
-        self._chat_model = chat_model
-
-    def stream(self, messages: Sequence[BaseMessage]) -> Iterator[str]:
-        try:
-            for chunk in self._chat_model.stream(list(messages)):
-                if text := chunk.text:
-                    yield text
-        except Exception as error:
-            raise LLMProviderError from error
-
-
-class FakeAnnotationLLM:
-    def __init__(self, parts: Iterable[str | LLMProviderError]) -> None:
-        self._parts = tuple(parts)
-        self._calls: list[tuple[BaseMessage, ...]] = []
-
-    @property
-    def calls(self) -> tuple[tuple[BaseMessage, ...], ...]:
-        return tuple(self._calls)
-
-    def stream(self, messages: Sequence[BaseMessage]) -> Iterator[str]:
-        self._calls.append(tuple(messages))
-        for part in self._parts:
-            if isinstance(part, LLMProviderError):
-                raise part
-            yield part
-
-
 def annotate(
     plan: Plan,
     coach_message: str,
     *,
     llm: AnnotationLLM | None = None,
+    trace: list[TraceEvent],
 ) -> Iterator[str]:
     """Stream optional coaching note parts without exposing provider failures."""
     annotation_llm = llm or build_annotation_llm()
@@ -70,31 +50,30 @@ def annotate(
         SystemMessage(content=_SYSTEM_PROMPT),
         HumanMessage(content=_annotation_context(plan, coach_message)),
     )
-    buffered_parts: list[str] = []
     try:
-        buffered_parts.extend(annotation_llm.stream(messages))
+        parts = _validated_parts(annotation_llm.stream(messages))
+        first_part = next(parts, None)
     except LLMProviderError:
         return
+    if first_part is None:
+        return
 
-    yield from _bounded_parts(buffered_parts)
-
-
-def build_annotation_llm(
-    chat_model: BaseChatModel | None = None,
-) -> AnnotationLLM | None:
-    if chat_model is None:
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        if not api_key:
-            return None
-
-        chat_model = ChatOpenAI(
-            api_key=api_key,
-            base_url=_OPENROUTER_BASE_URL,
-            model=os.getenv("OPENROUTER_MODEL") or _DEFAULT_MODEL,
-            temperature=0,
-            max_retries=0,
+    trace.append(
+        AgentTraceEvent(
+            action="annotation",
+            reason="Added a verified tighten-only coaching note.",
+            used=tuple(
+                entry.exercise_id
+                for section in (plan.warm_up, plan.main, plan.cool_down)
+                for entry in section.entries
+            ),
         )
-    return _OpenRouterAnnotationLLM(chat_model)
+    )
+    yield first_part
+    try:
+        yield from parts
+    except LLMProviderError:
+        return
 
 
 def _annotation_context(plan: Plan, coach_message: str) -> str:
@@ -116,17 +95,38 @@ def _dose(entry) -> str:
     return f"{entry.sets} sets x {entry.hold_minutes} minutes"
 
 
-def _bounded_parts(parts: list[str]) -> Iterator[str]:
-    if not parts:
-        return
-
-    parts[0] = parts[0].lstrip()
-    parts[-1] = parts[-1].rstrip()
+def _validated_parts(parts: Iterator[str]) -> Iterator[str]:
     remaining = _MAX_NOTE_CHARACTERS
-    for part in parts:
-        bounded = part[:remaining]
-        if bounded:
-            yield bounded
-            remaining -= len(bounded)
-        if remaining == 0:
+    accepted = 0
+    for sentence in _sentences(parts):
+        note = sentence.strip()
+        if not _is_tightening(note):
+            continue
+        prefix = " " if accepted else ""
+        bounded = f"{prefix}{note}"[:remaining]
+        if not bounded:
             return
+        yield bounded
+        accepted += 1
+        remaining -= len(bounded)
+        if remaining == 0 or accepted == _MAX_NOTE_SENTENCES:
+            return
+
+
+def _sentences(parts: Iterator[str]) -> Iterator[str]:
+    buffered = ""
+    for part in parts:
+        buffered += part
+        while match := re.search(r"[.!?](?:\s|$)", buffered):
+            end = match.end()
+            yield buffered[:end]
+            buffered = buffered[end:]
+    if buffered.strip():
+        yield buffered
+
+
+def _is_tightening(note: str) -> bool:
+    first_word = note.split(maxsplit=1)[0] if note else ""
+    return bool(_CAUTION_START.fullmatch(first_word)) and not bool(
+        _LOOSENING_DIRECTIVE.search(note)
+    )

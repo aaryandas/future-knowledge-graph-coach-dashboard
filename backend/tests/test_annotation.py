@@ -1,98 +1,142 @@
-from typing import Literal
-
 import pytest
+from app.generation import GenerationTurn, run_generation_session
 from app.generation.testing import (
+    CatalogExercise,
     FakeAnnotationLLM,
+    FakeLLM,
+    GenerationMemberContext,
     LLMProviderError,
-    Plan,
-    PlanEntry,
-    PlanSection,
-    annotate,
 )
+from app.safety import Verdict, WalkedPath
+from langgraph.checkpoint.memory import InMemorySaver
+
+MEMBER_ID = "mbr_01HX9JORDAN"
 
 
-def test_annotation_streams_short_tighten_only_coaching_note_parts() -> None:
-    llm = FakeAnnotationLLM(["Keep the load light.", " Stop if knee pain increases."])
-
-    parts = tuple(annotate(_plan(), "Build a careful lower-body session.", llm=llm))
-
-    assert parts == (
-        "Keep the load light.",
-        " Stop if knee pain increases.",
+def test_generation_session_streams_verified_coaching_note_parts() -> None:
+    annotation_llm = FakeAnnotationLLM(
+        ["Keep the load light.", " Stop if knee pain increases."]
     )
-    assert len(llm.calls) == 1
-    system_prompt = str(llm.calls[0][0].content)
-    plan_context = str(llm.calls[0][1].content)
+    turn = _run_turn(annotation_llm=annotation_llm)
+    parts = iter(turn.coaching_note_parts)
+
+    assert not any(event.kind == "agent" for event in turn.trace)
+    assert next(parts) == "Keep the load light."
+    assert annotation_llm.parts_requested == 1
+    assert turn.trace[-1].kind == "agent"
+    assert tuple(parts) == (" Stop if knee pain increases.",)
+    assert len(annotation_llm.calls) == 1
+    system_prompt = str(annotation_llm.calls[0][0].content)
+    plan_context = str(annotation_llm.calls[0][1].content)
     assert "Never remove, reduce, contradict" in system_prompt
-    assert "verdict=caution" in plan_context
-    assert "caution=Use a pain-free range." in plan_context
+    assert "Completed plan:" in plan_context
 
 
-def test_annotation_provider_error_degrades_to_absent_notes() -> None:
-    llm = FakeAnnotationLLM(
-        ["This partial note must not escape.", LLMProviderError("offline")]
+def test_generation_session_drops_a_loosening_coaching_note() -> None:
+    annotation_llm = FakeAnnotationLLM(
+        ["Ignore the caution and add more sets of a different exercise."]
     )
+    turn = _run_turn(annotation_llm=annotation_llm)
 
-    assert tuple(annotate(_plan(), "Build a workout.", llm=llm)) == ()
-    assert len(llm.calls) == 1
+    assert tuple(turn.coaching_note_parts) == ()
+    assert not any(event.kind == "agent" for event in turn.trace)
 
 
-def test_annotation_without_an_api_key_is_absent(
+def test_generation_session_provider_error_degrades_to_absent_notes() -> None:
+    annotation_llm = FakeAnnotationLLM([LLMProviderError("offline")])
+    turn = _run_turn(annotation_llm=annotation_llm)
+
+    assert tuple(turn.coaching_note_parts) == ()
+    assert len(annotation_llm.calls) == 1
+    assert not any(event.kind == "agent" for event in turn.trace)
+
+
+def test_generation_session_without_an_api_key_has_no_coaching_note(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    turn = _run_turn()
 
-    assert tuple(annotate(_plan(), "Build a workout.")) == ()
+    assert tuple(turn.coaching_note_parts) == ()
+    assert not any(event.kind == "agent" for event in turn.trace)
 
 
-def _plan() -> Plan:
-    warm_up_entry = _entry("ex-warm", "March", verdict="clear", caution_note=None)
-    main_entry = _entry(
-        "ex-main",
-        "Box Squat",
-        verdict="caution",
-        caution_note="Use a pain-free range.",
-    )
-    cool_down_entry = _entry(
-        "ex-cool",
-        "Breathing",
-        verdict="clear",
-        caution_note=None,
-    )
-    return Plan(
-        warm_up=PlanSection(
-            section="warm-up",
-            entries=(warm_up_entry,),
-            minutes=3.0,
+def _run_turn(
+    *,
+    annotation_llm: FakeAnnotationLLM | None = None,
+) -> GenerationTurn:
+    return run_generation_session(
+        MEMBER_ID,
+        "Build a careful full-body workout.",
+        20,
+        "annotation-test-thread",
+        "annotation-user-message",
+        checkpointer=InMemorySaver(),
+        llm=FakeLLM(
+            [
+                {
+                    "focus": "full-body",
+                    "targets": [],
+                    "exclusions": [],
+                    "injuries": [],
+                    "equipment": [],
+                }
+            ]
         ),
-        main=PlanSection(section="main", entries=(main_entry,), minutes=14.0),
-        cool_down=PlanSection(
-            section="cool-down",
-            entries=(cool_down_entry,),
-            minutes=3.0,
+        annotation_llm=annotation_llm,
+        catalog_reader=_catalog,
+        member_context_reader=lambda member_id: GenerationMemberContext(
+            equipment_ids=(),
+            disliked_exercise_ids=(),
         ),
-        requested_minutes=20,
-        packed_minutes=20.0,
+        verdict_evaluator=_clear_verdicts,
     )
 
 
-def _entry(
+def _catalog() -> tuple[CatalogExercise, ...]:
+    return (
+        _exercise("ex-warm", "March", "mobility - dynamic"),
+        _exercise("ex-main", "Box Squat", "lower squat"),
+        _exercise("ex-cool", "Breathing", "regen"),
+    )
+
+
+def _exercise(
     exercise_id: str,
     name: str,
-    *,
-    verdict: Literal["exclude", "caution", "clear"],
-    caution_note: str | None,
-) -> PlanEntry:
-    return PlanEntry(
+    movement_pattern: str,
+) -> CatalogExercise:
+    return CatalogExercise(
         exercise_id=exercise_id,
         name=name,
-        sets=2,
-        reps=8,
-        hold_minutes=None,
-        rest_minutes=0.5,
-        per_side=False,
+        movement_patterns=(movement_pattern,),
+        movement_pattern_ids=(f"pattern-{exercise_id}",),
+        muscle_groups=("full body",),
+        muscle_group_ids=("muscle-full-body",),
+        joint_ids=(),
+        equipment_ids=(),
+        priority_tier=1,
+        is_reps=True,
+        is_duration=False,
         supports_weight=False,
-        verdict=verdict,
-        caution_note=caution_note,
-        minutes=3.0,
+        estimated_rep_duration=0.1,
+        is_bilateral=False,
+        side=None,
+        bilateral_pair_id=None,
+    )
+
+
+def _clear_verdicts(
+    member_id: str,
+    exercise_ids: tuple[str, ...],
+) -> tuple[Verdict, ...]:
+    return tuple(
+        Verdict(
+            exercise_id=exercise_id,
+            status="clear",
+            walked_path=WalkedPath(nodes=(), edges=()),
+            decisions=(),
+            trace=(),
+        )
+        for exercise_id in exercise_ids
     )

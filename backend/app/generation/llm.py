@@ -1,11 +1,12 @@
 import os
 from collections import deque
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import Protocol
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_openai import ChatOpenAI
+from openai import OpenAIError
 
 _DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -65,8 +66,13 @@ class IntentLLM(Protocol):
     def invoke(self, messages: Sequence[BaseMessage]) -> object: ...
 
 
-class _OpenRouterIntentLLM:
+class AnnotationLLM(Protocol):
+    def stream(self, messages: Sequence[BaseMessage]) -> Iterator[str]: ...
+
+
+class _OpenRouterLLM:
     def __init__(self, chat_model: BaseChatModel) -> None:
+        self._chat_model = chat_model
         self._structured_llm = chat_model.with_structured_output(
             _INTENT_SCHEMA,
             method="json_schema",
@@ -76,6 +82,14 @@ class _OpenRouterIntentLLM:
         try:
             return self._structured_llm.invoke(list(messages))
         except Exception as error:
+            raise LLMProviderError from error
+
+    def stream(self, messages: Sequence[BaseMessage]) -> Iterator[str]:
+        try:
+            for chunk in self._chat_model.stream(list(messages)):
+                if text := chunk.text:
+                    yield text
+        except (ConnectionError, OpenAIError, TimeoutError) as error:
             raise LLMProviderError from error
 
 
@@ -103,6 +117,16 @@ class FakeLLM:
 
 
 def build_intent_llm(chat_model: BaseChatModel | None = None) -> IntentLLM | None:
+    return _build_openrouter_llm(chat_model)
+
+
+def build_annotation_llm(
+    chat_model: BaseChatModel | None = None,
+) -> AnnotationLLM | None:
+    return _build_openrouter_llm(chat_model)
+
+
+def _build_openrouter_llm(chat_model: BaseChatModel | None) -> _OpenRouterLLM | None:
     if chat_model is None:
         api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
@@ -115,4 +139,4 @@ def build_intent_llm(chat_model: BaseChatModel | None = None) -> IntentLLM | Non
             temperature=0,
             max_retries=0,
         )
-    return _OpenRouterIntentLLM(chat_model)
+    return _OpenRouterLLM(chat_model)

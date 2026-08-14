@@ -21,6 +21,7 @@ from app.generation._model import (
     ResolvedMention,
 )
 from app.generation._trace import (
+    AgentTraceEvent,
     PackingTraceEvent,
     ResolutionTraceEvent,
     VerdictTraceEvent,
@@ -39,6 +40,7 @@ from app.safety import (
 
 _DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/coach"
 _CHECKPOINT_TYPES = (
+    AgentTraceEvent,
     AgentDecision,
     Candidate,
     CatalogExercise,

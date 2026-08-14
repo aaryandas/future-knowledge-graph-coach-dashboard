@@ -52,4 +52,16 @@ class PackingTraceEvent:
     was_attributed_to: Literal["graph"] = field(default="graph", init=False)
 
 
-type TraceEvent = ResolutionTraceEvent | VerdictTraceEvent | PackingTraceEvent
+@dataclass(frozen=True)
+class AgentTraceEvent:
+    action: Literal["annotation"]
+    reason: str
+    used: tuple[str, ...]
+    kind: Literal["agent"] = field(default="agent", init=False)
+    was_generated_by: Literal["annotate"] = field(default="annotate", init=False)
+    was_attributed_to: Literal["agent"] = field(default="agent", init=False)
+
+
+type TraceEvent = (
+    ResolutionTraceEvent | VerdictTraceEvent | PackingTraceEvent | AgentTraceEvent
+)
