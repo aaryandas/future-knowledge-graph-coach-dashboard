@@ -1,13 +1,16 @@
 import json
 from dataclasses import is_dataclass
+from datetime import date
 from typing import Any, get_args, get_origin, get_type_hints
 
 import pytest
 from app.copilot import (
+    COPILOT_TONE_FACT_LABELS,
     BarrierData,
     ChatMessageData,
     ChatMessagesResult,
     CoachTaskData,
+    CopilotToneFact,
     GoalData,
     MemberGoalsResult,
     MemberInjuriesResult,
@@ -21,7 +24,10 @@ from app.copilot import (
     ObservationsResult,
     WorkoutSessionData,
     WorkoutSessionsResult,
+    get_copilot_tone_facts,
+    get_observations,
 )
+from app.graph import ingest_kg2
 
 DOMAIN_VALUE_TYPES = (
     ObservationMeasurement,
@@ -41,7 +47,10 @@ DOMAIN_VALUE_TYPES = (
     MorningBriefResult,
     MemberProfileData,
     MemberProfileResult,
+    CopilotToneFact,
 )
+
+MEMBER_ID = "mbr_01HX9JORDAN"
 
 
 @pytest.mark.parametrize("domain_value_type", DOMAIN_VALUE_TYPES)
@@ -82,6 +91,40 @@ def test_retrieval_tool_result_serializes_as_typed_json() -> None:
         ],
         "node_ids": ["member:1", "goal:strength"],
     }
+
+
+def test_observation_tool_scopes_windows_and_returns_stale_labs_with_age() -> None:
+    ingest_kg2()
+
+    result = get_observations.invoke(
+        {"member_id": MEMBER_ID, "as_of": date(2026, 12, 10)}
+    )
+
+    assert isinstance(result, ObservationsResult)
+    assert tuple(observation.kind for observation in result.observations) == (
+        "blood-panel",
+        "dexa",
+    )
+    assert tuple(observation.age_days for observation in result.observations) == (
+        234,
+        255,
+    )
+    assert all(observation.stale for observation in result.observations)
+    assert result.node_ids == (
+        MEMBER_ID,
+        f"{MEMBER_ID}:observation:blood-panel:2026-04-20",
+        f"{MEMBER_ID}:observation:dexa:2026-03-30",
+    )
+
+
+def test_copilot_context_exposes_two_labeled_tone_facts() -> None:
+    ingest_kg2()
+
+    facts = get_copilot_tone_facts(MEMBER_ID, as_of=date(2026, 6, 4))
+
+    assert tuple(fact.label for fact in facts) == COPILOT_TONE_FACT_LABELS
+    assert tuple(fact.value for fact in facts) == ("recovering", "elevated")
+    assert all(fact.evidence_node_ids for fact in facts)
 
 
 def _contains_list(annotation: Any) -> bool:

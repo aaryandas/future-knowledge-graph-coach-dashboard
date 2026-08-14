@@ -1,5 +1,11 @@
 """Read the Member Context Graph through typed retrieval tools."""
 
+from app.copilot.context import (
+    COPILOT_TONE_FACT_LABELS,
+    CopilotToneFact,
+    CopilotToneFactLabel,
+    get_copilot_tone_facts,
+)
 from app.copilot.tools import (
     RETRIEVAL_TOOLS,
     BarrierData,
@@ -29,11 +35,14 @@ from app.copilot.tools import (
 )
 
 __all__ = [
+    "COPILOT_TONE_FACT_LABELS",
     "RETRIEVAL_TOOLS",
     "BarrierData",
     "ChatMessageData",
     "ChatMessagesResult",
     "CoachTaskData",
+    "CopilotToneFact",
+    "CopilotToneFactLabel",
     "GoalData",
     "MemberGoalsResult",
     "MemberInjuriesResult",
@@ -48,6 +57,7 @@ __all__ = [
     "WorkoutSessionData",
     "WorkoutSessionsResult",
     "get_chat_messages",
+    "get_copilot_tone_facts",
     "get_member_goals",
     "get_member_injuries",
     "get_member_profile",

@@ -3,11 +3,19 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
+from datetime import date
 from typing import Any, Literal
 
 from langchain_core.tools import BaseTool, tool
 from neo4j import Record
 
+from app.graph.constants import ObservationKind
+from app.graph.relevance import (
+    as_observation_kind,
+    current_date,
+    observation_freshness,
+    scope_observations,
+)
 from app.graph.store import neo4j_session
 
 type ObservationScalar = str | int | float | bool
@@ -29,8 +37,10 @@ class ObservationMeasurement:
 @dataclass(frozen=True)
 class ObservationData:
     node_id: str
-    kind: str
+    kind: ObservationKind
     observed_at: str
+    age_days: int
+    stale: bool
     value: int | float | None
     unit: str | None
     measurements: tuple[ObservationMeasurement, ...]
@@ -174,8 +184,9 @@ class MemberProfileResult(_JsonToolResult):
 
 
 @tool
-def get_observations(member_id: str) -> ObservationsResult:
-    """Read `Member -[:observed]-> Observation`, newest first."""
+def get_observations(member_id: str, as_of: date | None = None) -> ObservationsResult:
+    """Read current `Member -[:observed]-> Observation` values and latest labs, newest first."""
+    read_date = as_of or current_date()
     with neo4j_session() as session:
         records = session.run(
             "MATCH (member:Member {id: $member_id}) "
@@ -194,10 +205,13 @@ def get_observations(member_id: str) -> ObservationsResult:
             if node_id is None:
                 continue
             properties = _record_properties(record)
-            observations.append(_observation_data(node_id, properties))
-            observation_node_ids.append(node_id)
+            observations.append(_observation_data(node_id, properties, as_of=read_date))
+        scoped_observations = scope_observations(observations)
+        observation_node_ids.extend(
+            observation.node_id for observation in scoped_observations
+        )
     return ObservationsResult(
-        observations=tuple(observations),
+        observations=scoped_observations,
         node_ids=_node_ids(member_node_id, observation_node_ids),
     )
 
@@ -440,7 +454,12 @@ RETRIEVAL_TOOLS: tuple[BaseTool, ...] = (
 )
 
 
-def _observation_data(node_id: str, properties: dict[str, Any]) -> ObservationData:
+def _observation_data(
+    node_id: str, properties: dict[str, Any], *, as_of: date
+) -> ObservationData:
+    kind = as_observation_kind(_string(properties, "kind"))
+    observed_at = _string(properties, "observed_at")
+    freshness = observation_freshness(kind, observed_at, as_of=as_of)
     excluded = {
         "id",
         "member_id",
@@ -459,8 +478,10 @@ def _observation_data(node_id: str, properties: dict[str, Any]) -> ObservationDa
     )
     return ObservationData(
         node_id=node_id,
-        kind=_string(properties, "kind"),
-        observed_at=_string(properties, "observed_at"),
+        kind=kind,
+        observed_at=observed_at,
+        age_days=freshness.age_days,
+        stale=freshness.stale,
         value=_optional_number(properties, "value"),
         unit=_optional_string(properties, "unit"),
         measurements=measurements,
