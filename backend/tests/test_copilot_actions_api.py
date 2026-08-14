@@ -104,6 +104,15 @@ def test_data_action_part_is_a_frozen_discriminated_contract() -> None:
     assert set(action_schema["discriminator"]["mapping"]) == {
         "send-member-message",
         "update-brief-task",
+        "write-session-plan",
+    }
+    edit_schema = schema["$defs"]["SessionPlanEdit"]
+    assert edit_schema["discriminator"]["propertyName"] == "kind"
+    assert set(edit_schema["discriminator"]["mapping"]) == {
+        "add",
+        "edit",
+        "remove",
+        "reorder",
     }
 
 
