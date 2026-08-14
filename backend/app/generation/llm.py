@@ -3,11 +3,9 @@ from collections import deque
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Protocol
 
-from langchain_core.exceptions import OutputParserException
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_openai import ChatOpenAI
-from openai import OpenAIError
 
 _DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -77,13 +75,7 @@ class _OpenRouterIntentLLM:
     def invoke(self, messages: Sequence[BaseMessage]) -> object:
         try:
             return self._structured_llm.invoke(list(messages))
-        except (
-            OpenAIError,
-            OutputParserException,
-            ValueError,
-            KeyError,
-            TypeError,
-        ) as error:
+        except Exception as error:
             raise LLMProviderError from error
 
 
@@ -110,16 +102,17 @@ class FakeLLM:
         return response
 
 
-def build_intent_llm() -> IntentLLM | None:
-    api_key = os.getenv("OPENROUTER_API_KEY")
-    if not api_key:
-        return None
+def build_intent_llm(chat_model: BaseChatModel | None = None) -> IntentLLM | None:
+    if chat_model is None:
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            return None
 
-    chat_model = ChatOpenAI(
-        api_key=api_key,
-        base_url=_OPENROUTER_BASE_URL,
-        model=os.getenv("OPENROUTER_MODEL") or _DEFAULT_MODEL,
-        temperature=0,
-        max_retries=0,
-    )
+        chat_model = ChatOpenAI(
+            api_key=api_key,
+            base_url=_OPENROUTER_BASE_URL,
+            model=os.getenv("OPENROUTER_MODEL") or _DEFAULT_MODEL,
+            temperature=0,
+            max_retries=0,
+        )
     return _OpenRouterIntentLLM(chat_model)

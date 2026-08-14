@@ -1,6 +1,6 @@
 from dataclasses import FrozenInstanceError
-from typing import cast
 
+import httpx
 import pytest
 from app.generation import (
     FakeLLM,
@@ -8,29 +8,10 @@ from app.generation import (
     InterpretationFailure,
     InterpretationFailureReason,
     LLMProviderError,
+    build_intent_llm,
     interpret,
 )
-from app.generation.llm import _OpenRouterIntentLLM
-from langchain_core.language_models import BaseChatModel
-
-
-class _ProviderResponseShapeFake:
-    def __init__(self, error_type: type[Exception]) -> None:
-        self._error_type = error_type
-        self.calls = 0
-
-    def with_structured_output(
-        self,
-        _schema: object,
-        *,
-        method: str,
-    ) -> "_ProviderResponseShapeFake":
-        assert method == "json_schema"
-        return self
-
-    def invoke(self, _messages: list[object]) -> object:
-        self.calls += 1
-        raise self._error_type("invalid provider response shape")
+from langchain_openai import ChatOpenAI
 
 
 def test_interpret_returns_raw_mentions_without_concept_ids() -> None:
@@ -105,21 +86,31 @@ def test_interpret_retries_one_provider_error() -> None:
     assert len(llm.calls) == 2
 
 
-@pytest.mark.parametrize("error_type", [ValueError, KeyError, TypeError])
-def test_interpret_returns_visible_failure_for_provider_response_shape_error(
-    error_type: type[Exception],
-) -> None:
-    provider = _ProviderResponseShapeFake(error_type)
-    llm = _OpenRouterIntentLLM(cast("BaseChatModel", provider))
+def test_interpret_returns_visible_failure_for_empty_provider_choices() -> None:
+    requests: list[httpx.Request] = []
 
-    result = interpret("Build a workout", llm=llm)
+    def empty_choices(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"choices": []})
+
+    with httpx.Client(transport=httpx.MockTransport(empty_choices)) as http_client:
+        chat_model = ChatOpenAI(
+            api_key="test",
+            base_url="https://openrouter.test/api/v1",
+            model="test-model",
+            max_retries=0,
+            http_client=http_client,
+        )
+        llm = build_intent_llm(chat_model)
+        assert llm is not None
+        result = interpret("Build a workout", llm=llm)
 
     assert result == InterpretationFailure(
         reason="provider-error",
         message="I could not interpret that coach message. Please rephrase it.",
         attempts=2,
     )
-    assert provider.calls == 2
+    assert len(requests) == 2
 
 
 @pytest.mark.parametrize(

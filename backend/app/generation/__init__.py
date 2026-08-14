@@ -5,7 +5,7 @@ from app.generation.intent import (
     InterpretationFailureReason,
     interpret,
 )
-from app.generation.llm import FakeLLM, LLMProviderError
+from app.generation.llm import FakeLLM, LLMProviderError, build_intent_llm
 
 __all__ = [
     "FakeLLM",
@@ -14,5 +14,6 @@ __all__ = [
     "InterpretationFailure",
     "InterpretationFailureReason",
     "LLMProviderError",
+    "build_intent_llm",
     "interpret",
 ]
