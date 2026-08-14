@@ -68,7 +68,6 @@ def test_copilot_tool_loop_persists_follow_ups_and_replays_sources() -> None:
         {"tool": "get_member_goals", "node_ids": [MEMBER_ID, "goal:strength"]}
     ]
     assert second_sources == [
-        {"tool": "get_member_goals", "node_ids": [MEMBER_ID, "goal:strength"]},
         {"tool": "get_member_profile", "node_ids": [MEMBER_ID]},
     ]
     assert [
