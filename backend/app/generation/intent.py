@@ -36,7 +36,7 @@ Choose focus from the schema. Use null when the coach did not state a focus.
 Targets are requested muscles or body regions. Exclusions are exercises to omit.
 Injuries are current pain, injuries, or conditions. Equipment is explicitly available equipment.
 For an equipment override, include only the equipment the coach says is available.
-An adjustment is interpreted with the same fields as an initial request."""
+An adjustment is interpreted with the same fields as an initial coach message."""
 
 
 @dataclass(frozen=True)
@@ -65,7 +65,7 @@ def interpret(
     if intent_llm is None:
         return InterpretationFailure(
             reason="llm-unavailable",
-            message="Workout request interpretation is unavailable.",
+            message="Coach message interpretation is unavailable.",
             attempts=0,
         )
 
@@ -89,7 +89,7 @@ def interpret(
 
     return InterpretationFailure(
         reason=failure_reason,
-        message="I could not interpret that workout request. Please rephrase it.",
+        message="I could not interpret that coach message. Please rephrase it.",
         attempts=2,
     )
 

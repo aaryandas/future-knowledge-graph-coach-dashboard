@@ -1,4 +1,5 @@
 from dataclasses import FrozenInstanceError
+from typing import cast
 
 import pytest
 from app.generation import (
@@ -9,6 +10,27 @@ from app.generation import (
     LLMProviderError,
     interpret,
 )
+from app.generation.llm import _OpenRouterIntentLLM
+from langchain_core.language_models import BaseChatModel
+
+
+class _ProviderResponseShapeFake:
+    def __init__(self, error_type: type[Exception]) -> None:
+        self._error_type = error_type
+        self.calls = 0
+
+    def with_structured_output(
+        self,
+        _schema: object,
+        *,
+        method: str,
+    ) -> "_ProviderResponseShapeFake":
+        assert method == "json_schema"
+        return self
+
+    def invoke(self, _messages: list[object]) -> object:
+        self.calls += 1
+        raise self._error_type("invalid provider response shape")
 
 
 def test_interpret_returns_raw_mentions_without_concept_ids() -> None:
@@ -83,6 +105,23 @@ def test_interpret_retries_one_provider_error() -> None:
     assert len(llm.calls) == 2
 
 
+@pytest.mark.parametrize("error_type", [ValueError, KeyError, TypeError])
+def test_interpret_returns_visible_failure_for_provider_response_shape_error(
+    error_type: type[Exception],
+) -> None:
+    provider = _ProviderResponseShapeFake(error_type)
+    llm = _OpenRouterIntentLLM(cast("BaseChatModel", provider))
+
+    result = interpret("Build a workout", llm=llm)
+
+    assert result == InterpretationFailure(
+        reason="provider-error",
+        message="I could not interpret that coach message. Please rephrase it.",
+        attempts=2,
+    )
+    assert provider.calls == 2
+
+
 @pytest.mark.parametrize(
     ("responses", "reason"),
     [
@@ -109,7 +148,7 @@ def test_interpret_returns_visible_failure_after_one_retry(
 
     assert result == InterpretationFailure(
         reason=reason,
-        message="I could not interpret that workout request. Please rephrase it.",
+        message="I could not interpret that coach message. Please rephrase it.",
         attempts=2,
     )
     assert len(llm.calls) == 2
@@ -124,7 +163,7 @@ def test_interpret_returns_visible_failure_without_an_api_key(
 
     assert result == InterpretationFailure(
         reason="llm-unavailable",
-        message="Workout request interpretation is unavailable.",
+        message="Coach message interpretation is unavailable.",
         attempts=0,
     )
 

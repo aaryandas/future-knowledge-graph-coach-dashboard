@@ -77,7 +77,13 @@ class _OpenRouterIntentLLM:
     def invoke(self, messages: Sequence[BaseMessage]) -> object:
         try:
             return self._structured_llm.invoke(list(messages))
-        except (OpenAIError, OutputParserException) as error:
+        except (
+            OpenAIError,
+            OutputParserException,
+            ValueError,
+            KeyError,
+            TypeError,
+        ) as error:
             raise LLMProviderError from error
 
 
