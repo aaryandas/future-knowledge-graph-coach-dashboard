@@ -72,7 +72,7 @@ export interface GraphNeighborhoodPart {
   edges: GraphEdge[];
 }
 
-export type SnapshotTrend = "up" | "down" | "flat";
+export type SnapshotTrend = "up" | "down" | "flat" | "neutral";
 
 export interface SnapshotSource {
   observed_at: string;
@@ -118,7 +118,7 @@ export interface MemberSnapshotStats {
   churn_risk: MemberSnapshotStat;
 }
 
-export interface MorningBriefTask {
+export interface CoachTaskSnapshot {
   id: string;
   text: string;
   status: string;
@@ -127,7 +127,7 @@ export interface MorningBriefTask {
 export interface MorningBriefSnapshot {
   generated_for: string;
   source: SnapshotSource;
-  coach_tasks: MorningBriefTask[];
+  coach_tasks: CoachTaskSnapshot[];
 }
 
 export type JourneyStageName = "new" | "building" | "recovering";

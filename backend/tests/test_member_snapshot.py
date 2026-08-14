@@ -245,7 +245,7 @@ def test_member_snapshot_returns_identity_stats_brief_and_journey_stage() -> Non
         "churn_risk": {
             "value": "elevated",
             "suffix": None,
-            "trend": "up",
+            "trend": "neutral",
             "trend_text": "3 signals",
             "source": {
                 "observed_at": "2026-06-04",

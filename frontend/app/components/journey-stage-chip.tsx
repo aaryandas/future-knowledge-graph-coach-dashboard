@@ -36,7 +36,7 @@ export function JourneyStageChip({
                 </dd>
               </div>
               <div>
-                <dt>WorkoutSessions</dt>
+                <dt>WorkoutSession</dt>
                 <dd>
                   {evidence.completed_workout_count} / {evidence.workout_session_count}
                   {" completed"}

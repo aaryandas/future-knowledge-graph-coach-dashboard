@@ -5,7 +5,12 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from app.graph import MemberContext, ObservationView, get_member_context
+from app.graph import (
+    MemberContext,
+    ObservationKind,
+    ObservationView,
+    get_member_context,
+)
 
 
 class SnapshotSource(BaseModel):
@@ -21,7 +26,7 @@ class SnapshotStat(BaseModel):
 
     value: str | int | float | None
     suffix: str | None
-    trend: Literal["up", "down", "flat"]
+    trend: Literal["up", "down", "flat", "neutral"]
     trend_text: str
     source: SnapshotSource | None
 
@@ -64,7 +69,7 @@ class MemberSnapshotStats(BaseModel):
     churn_risk: SnapshotStat
 
 
-class MorningBriefTask(BaseModel):
+class CoachTaskSnapshot(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     id: str
@@ -77,7 +82,7 @@ class MorningBriefSnapshot(BaseModel):
 
     generated_for: str
     source: SnapshotSource
-    coach_tasks: list[MorningBriefTask]
+    coach_tasks: list[CoachTaskSnapshot]
 
 
 class JourneyStageEvidenceSnapshot(BaseModel):
@@ -188,11 +193,7 @@ def _member_snapshot_part(context: MemberContext, *, as_of: date) -> MemberSnaps
             churn_risk=SnapshotStat(
                 value=context.morning_brief.churn_risk_level,
                 suffix=None,
-                trend=(
-                    "flat"
-                    if context.morning_brief.churn_risk_level.casefold() == "low"
-                    else "up"
-                ),
+                trend="neutral",
                 trend_text=(f"{len(context.morning_brief.churn_risk_reasons)} signals"),
                 source=brief_source,
             ),
@@ -201,7 +202,7 @@ def _member_snapshot_part(context: MemberContext, *, as_of: date) -> MemberSnaps
             generated_for=context.morning_brief.generated_for,
             source=brief_source,
             coach_tasks=[
-                MorningBriefTask(id=task.node_id, text=task.text, status=task.status)
+                CoachTaskSnapshot(id=task.node_id, text=task.text, status=task.status)
                 for task in context.morning_brief.coach_tasks
             ],
         ),
@@ -295,7 +296,7 @@ def _sessions_stat(context: MemberContext, *, as_of: date) -> SnapshotStat:
 
 
 def _observations_of_kind(
-    observations: tuple[ObservationView, ...], kind: str
+    observations: tuple[ObservationView, ...], kind: ObservationKind
 ) -> tuple[ObservationView, ...]:
     return tuple(
         sorted(

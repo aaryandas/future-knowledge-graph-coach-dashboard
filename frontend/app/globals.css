@@ -464,6 +464,10 @@ input:focus-visible {
   letter-spacing: 0;
 }
 
+.member-stat-tile[data-status="elevated"] .member-stat-value {
+  color: var(--danger);
+}
+
 .member-stat-trend {
   display: flex;
   min-width: 0;

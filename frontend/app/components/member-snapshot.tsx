@@ -16,6 +16,7 @@ const trendMarkers: Record<SnapshotTrend, string> = {
   up: "↑",
   down: "↓",
   flat: "→",
+  neutral: "—",
 };
 
 export function MemberSnapshot({
@@ -64,7 +65,12 @@ export function MemberSnapshot({
 
       <section className="member-stat-grid" aria-label="Member stats">
         {statDefinitions.map(({ key, label }) => (
-          <StatTile key={key} label={label} stat={stats[key]} />
+          <StatTile
+            key={key}
+            label={label}
+            stat={stats[key]}
+            status={key === "churn_risk" ? stats[key].value : undefined}
+          />
         ))}
       </section>
 
@@ -99,14 +105,17 @@ function IdentityChip({ children }: { children: React.ReactNode }) {
 function StatTile({
   label,
   stat,
+  status,
 }: {
   label: string;
   stat: MemberSnapshotStat;
+  status?: MemberSnapshotStat["value"];
 }) {
   return (
     <article
       className="member-stat-tile glass"
       data-stale={stat.source?.stale || undefined}
+      data-status={status ?? undefined}
     >
       <div className="member-stat-label">
         <h2>{label}</h2>
