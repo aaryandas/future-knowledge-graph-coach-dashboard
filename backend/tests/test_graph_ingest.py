@@ -12,7 +12,7 @@ DATA_DIRECTORY = REPOSITORY_ROOT / "data"
 def test_ingest_kg1_rejects_uncited_condition_row(tmp_path: Path) -> None:
     data_directory = tmp_path / "data"
     shutil.copytree(DATA_DIRECTORY, data_directory)
-    conditions_path = data_directory / "conditions.json"
+    conditions_path = data_directory / "contraindications.json"
     conditions = json.loads(conditions_path.read_bytes())
     del conditions[0]["citation"]
     conditions_path.write_text(json.dumps(conditions))

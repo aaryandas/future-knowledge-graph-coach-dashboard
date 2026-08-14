@@ -4,11 +4,11 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Literal
 
-CONDITIONS_SOURCE = "data/conditions.json"
+CONDITIONS_SOURCE = "data/contraindications.json"
 
 type JsonObject = dict[str, Any]
 type ContraindicationTarget = Literal["MovementPattern", "Joint"]
-type AuthoredVerdict = Literal["exclude", "caution"]
+type AuthoredLevel = Literal["avoid", "caution"]
 
 
 @dataclass(frozen=True)
@@ -18,7 +18,7 @@ class ConditionRow:
     clinical_finding_id: str
     target_kind: ContraindicationTarget
     target_id: str
-    verdict: AuthoredVerdict
+    level: AuthoredLevel
     note: str
     citation: str
     citation_url: str
@@ -84,7 +84,7 @@ def _condition_row(value: Any, index: int) -> ConditionRow:
         clinical_finding_id=clinical_finding_id,
         target_kind=target_kind,
         target_id=target_id,
-        verdict=_verdict(_required_string(row, "verdict", index), index),
+        level=_level(_required_string(row, "level", index), index),
         note=_required_string(row, "note", index),
         citation=citation,
         citation_url=citation_url,
@@ -113,7 +113,7 @@ def _target_kind(value: str, index: int) -> ContraindicationTarget:
     return value
 
 
-def _verdict(value: str, index: int) -> AuthoredVerdict:
-    if value not in ("exclude", "caution"):
-        raise ValueError(f"Condition row {index} has unsupported verdict: {value}")
+def _level(value: str, index: int) -> AuthoredLevel:
+    if value not in ("avoid", "caution"):
+        raise ValueError(f"Condition row {index} has unsupported level: {value}")
     return value

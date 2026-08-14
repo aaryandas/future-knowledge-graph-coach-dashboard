@@ -84,7 +84,7 @@ def _load_kg1(data_directory: Path) -> KG1Payload:
     ontology_directory = data_directory / "ontology"
     snomed = _read_object(ontology_directory / "snomed-ct.json")
     mappings = _read_object(ontology_directory / "skos-mappings.json")
-    conditions = load_conditions(data_directory / "conditions.json")
+    conditions = load_conditions(data_directory / "contraindications.json")
 
     node_batches, exercise_edge_batches = _catalog_batches(exercises, catalog_version)
     snomed_node_batches, snomed_edge_batches, concept_labels = _snomed_batches(snomed)
@@ -343,7 +343,7 @@ def _condition_batches(
                 source_id=row.injury_id,
                 target_id=row.target_id,
                 properties={
-                    "verdict": row.verdict,
+                    "level": row.level,
                     "note": row.note,
                     "citation": row.citation,
                     "citation_url": row.citation_url,
@@ -444,6 +444,9 @@ def _merge_payload(
         ).consume()
 
     for batch in payload.edges:
+        legacy_property_cleanup = (
+            "REMOVE edge.verdict" if batch.edge_type == "contraindicates" else ""
+        )
         transaction.run(
             _cypher(
                 f"""
@@ -453,6 +456,7 @@ def _merge_payload(
             MERGE (source)-[edge:`{batch.edge_type}` {{id: row.id}}]->(target)
             SET edge += row.properties
             SET edge.ingested_at = coalesce(edge.ingested_at, datetime($ingested_at))
+            {legacy_property_cleanup}
             """
             ),
             rows=[asdict(edge) for edge in batch.rows],
