@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any, Literal, TypedDict, cast
 
@@ -24,6 +24,7 @@ from app.generation._model import (
 from app.generation._packing import PackingFailure, pack
 from app.generation._resolution import resolve_intent
 from app.generation._trace import TraceEvent
+from app.generation.annotation import AnnotationLLM, annotate
 from app.generation.intent import Intent, InterpretationFailure, interpret
 from app.generation.llm import IntentLLM
 from app.safety import Verdict, evaluate_safety
@@ -56,6 +57,7 @@ class GenerationTurn:
     resolved_intent: ResolvedIntent | None
     failure: GenerationFailure | None
     text: str
+    coaching_note_parts: Iterable[str] = ()
 
 
 def run_generation_session(
@@ -66,6 +68,7 @@ def run_generation_session(
     *,
     checkpointer: BaseCheckpointSaver[Any],
     llm: IntentLLM | None = None,
+    annotation_llm: AnnotationLLM | None = None,
     message_id: str | None = None,
     catalog_reader: CatalogReader = read_catalog_exercises,
     member_context_reader: MemberContextReader = read_generation_member_context,
@@ -104,13 +107,23 @@ def run_generation_session(
         ),
     )
     failure = state.get("failure")
+    plan = state.get("plan")
     return GenerationTurn(
         message_id=f"{message_id or thread_id}-assistant",
-        plan=state.get("plan"),
+        plan=plan,
         trace=state.get("trace", ()),
         resolved_intent=state.get("resolved_intent"),
         failure=failure,
         text=failure.message if failure is not None else "Session ready.",
+        coaching_note_parts=(
+            annotate(
+                plan,
+                coach_message.strip(),
+                llm=annotation_llm,
+            )
+            if plan is not None
+            else ()
+        ),
     )
 
 
