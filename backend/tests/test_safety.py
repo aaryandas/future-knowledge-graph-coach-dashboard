@@ -25,19 +25,41 @@ def seeded_graph() -> None:
 
 
 @pytest.mark.parametrize(
-    ("exercise_id", "status", "layer", "edge_kinds"),
+    ("exercise_id", "status", "layer", "node_kinds", "edge_kinds"),
     (
-        (STATIC_JUMP_ID, "exclude", "clinical directive", ("performs",)),
+        (
+            STATIC_JUMP_ID,
+            "exclude",
+            "clinical directive",
+            ("MemberInjury", "MovementPattern", "Exercise"),
+            ("performs",),
+        ),
         (
             CYCLIST_SQUAT_ID,
             "caution",
             "contraindication",
+            (
+                "MemberInjury",
+                "ClinicalFinding",
+                "Injury",
+                "MovementPattern",
+                "Exercise",
+            ),
             ("exactMatch", "exactMatch", "contraindicates", "performs"),
         ),
         (
             RNT_SPLIT_SQUAT_ID,
             "caution",
             "SNOMED anatomical fallback",
+            (
+                "MemberInjury",
+                "ClinicalFinding",
+                "AnatomicalStructure",
+                "AnatomicalStructure",
+                "AnatomicalStructure",
+                "Joint",
+                "Exercise",
+            ),
             (
                 "exactMatch",
                 "findingSite",
@@ -47,13 +69,14 @@ def seeded_graph() -> None:
                 "loads",
             ),
         ),
-        (PREACHER_CURL_ID, "clear", None, ()),
+        (PREACHER_CURL_ID, "clear", None, ("Exercise",), ()),
     ),
 )
 def test_safety_layers_return_verdicts_with_walked_paths(
     exercise_id: str,
     status: str,
     layer: str | None,
+    node_kinds: tuple[str, ...],
     edge_kinds: tuple[str, ...],
 ) -> None:
     (verdict,) = evaluate_safety(MEMBER_ID, (exercise_id,))
@@ -62,8 +85,8 @@ def test_safety_layers_return_verdicts_with_walked_paths(
     assert verdict.status == status
     assert verdict.decisions[0].kind == "graph"
     assert verdict.decisions[0].layer == layer
+    assert tuple(node.kind for node in verdict.walked_path.nodes) == node_kinds
     assert tuple(edge.kind for edge in verdict.walked_path.edges) == edge_kinds
-    assert verdict.walked_path.nodes
 
 
 @pytest.mark.parametrize(
@@ -97,6 +120,47 @@ def test_status_and_severity_only_escalate_verdicts(
         ingest_kg2()
 
     assert verdict.status == expected
+
+
+@pytest.mark.parametrize(
+    ("status", "severity"),
+    (
+        ("recovering", "mild"),
+        ("active", "mild"),
+        ("recovering", "moderate"),
+        ("recovering", "severe"),
+    ),
+)
+def test_authored_avoid_remains_excluded_across_escalation_matrix(
+    tmp_path: Path,
+    status: str,
+    severity: str,
+) -> None:
+    data_directory = tmp_path / "data"
+    shutil.copytree(DATA_DIRECTORY, data_directory)
+    member_path = data_directory / "member-context.json"
+    member = json.loads(member_path.read_text())
+    member_id = f"mbr_authored_avoid_{status}_{severity}"
+    member["profile"]["id"] = member_id
+    member["injuries"][0].update(
+        status=status,
+        severity=severity,
+        notes="No clinical directive.",
+        finding="Sprain of lateral ligament of ankle joint",
+        snomedct_hint="",
+    )
+    member_path.write_text(json.dumps(member))
+
+    try:
+        ingest_kg2(data_directory)
+        (verdict,) = evaluate_safety(member_id, (STATIC_JUMP_ID,))
+    finally:
+        ingest_kg2()
+
+    assert verdict.status == "exclude"
+    decision = verdict.decisions[0]
+    assert decision.kind == "graph"
+    assert decision.layer == "contraindication"
 
 
 @pytest.mark.parametrize(

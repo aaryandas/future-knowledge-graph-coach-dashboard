@@ -307,7 +307,8 @@ def _clinical_directive_decisions(
     decisions: list[GraphDecision] = []
     injuries = session.run(
         "MATCH (:Member {id: $member_id})-[:has]->(injury:MemberInjury) "
-        "RETURN injury.id AS member_injury_id, injury.notes AS notes, "
+        "RETURN injury AS member_injury, injury.id AS member_injury_id, "
+        "injury.notes AS notes, "
         "injury.status AS injury_status, injury.severity AS injury_severity "
         "ORDER BY member_injury_id",
         member_id=member_id,
@@ -338,7 +339,7 @@ def _clinical_directive_decisions(
                     injury_status=injury_status,
                     injury_severity=injury_severity,
                     reason=f"Clinical directive: {base_status} {mention}",
-                    walked_path=_walked_path(record),
+                    walked_path=_directive_walked_path(injury, record),
                 )
                 for record in paths
             )
@@ -372,6 +373,15 @@ def _walked_path(record: Record) -> WalkedPath:
     return WalkedPath(
         nodes=tuple(_walked_node(node) for node in path.nodes),
         edges=tuple(_walked_edge(edge) for edge in path.relationships),
+    )
+
+
+def _directive_walked_path(injury: Record, record: Record) -> WalkedPath:
+    path = _walked_path(record)
+    member_injury = cast(Node, injury["member_injury"])
+    return WalkedPath(
+        nodes=(_walked_node(member_injury), *path.nodes),
+        edges=path.edges,
     )
 
 
