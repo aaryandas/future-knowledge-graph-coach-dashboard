@@ -223,8 +223,8 @@ def test_member_snapshot_returns_identity_stats_brief_and_journey_stage() -> Non
         "sleep": {
             "value": 6.3,
             "suffix": "/ 7 h",
-            "trend": "down",
-            "trend_text": "under goal",
+            "trend": "neutral",
+            "trend_text": "No prior period",
             "source": {
                 "observed_at": "2026-06-03",
                 "age_days": 71,
@@ -234,8 +234,8 @@ def test_member_snapshot_returns_identity_stats_brief_and_journey_stage() -> Non
         "sessions": {
             "value": 2,
             "suffix": "/ 4",
-            "trend": "down",
-            "trend_text": "2 skipped",
+            "trend": "up",
+            "trend_text": "from 1 last wk",
             "source": {
                 "observed_at": "2026-06-03",
                 "age_days": 71,

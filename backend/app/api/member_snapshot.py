@@ -226,17 +226,33 @@ def _adherence_stat(observations: tuple[ObservationView, ...]) -> SnapshotStat:
     if not values:
         return _unavailable_stat()
     latest = values[0]
-    oldest = values[-1]
     latest_value = latest.value
-    oldest_value = oldest.value
-    if latest_value is None or oldest_value is None:
+    if latest_value is None:
         return _unavailable_stat()
+    if len(values) == 1:
+        return SnapshotStat(
+            value=latest_value,
+            suffix="%",
+            trend="neutral",
+            trend_text="No prior period",
+            source=_observation_source(latest),
+        )
+    prior = values[-1]
+    prior_value = prior.value
+    if prior_value is None:
+        return SnapshotStat(
+            value=latest_value,
+            suffix="%",
+            trend="neutral",
+            trend_text="No prior period",
+            source=_observation_source(latest),
+        )
     weeks = max(
         1,
         round(
             (
                 date.fromisoformat(latest.observed_at)
-                - date.fromisoformat(oldest.observed_at)
+                - date.fromisoformat(prior.observed_at)
             ).days
             / 7
         ),
@@ -244,28 +260,42 @@ def _adherence_stat(observations: tuple[ObservationView, ...]) -> SnapshotStat:
     return SnapshotStat(
         value=latest_value,
         suffix="%",
-        trend=_trend(latest_value - oldest_value),
-        trend_text=f"from {_compact_number(oldest_value)}% · {weeks} wks",
+        trend=_trend(latest_value - prior_value),
+        trend_text=f"from {_compact_number(prior_value)}% · {weeks} wks",
         source=_observation_source(latest),
     )
 
 
 def _sleep_stat(observations: tuple[ObservationView, ...]) -> SnapshotStat:
     values = _observations_of_kind(observations, "sleep-night")
-    measured = [
-        value for observation in values if (value := observation.value) is not None
-    ]
-    if not measured:
+    if not values:
         return _unavailable_stat()
-    average = round(sum(measured) / len(measured), 1)
-    goal = 7
-    trend = _trend(average - goal)
-    trend_text = {"up": "above goal", "down": "under goal", "flat": "at goal"}[trend]
+    anchor = date.fromisoformat(values[0].observed_at)
+    current_start = anchor - timedelta(days=6)
+    prior_start = current_start - timedelta(days=7)
+    current = tuple(
+        observation
+        for observation in values
+        if current_start <= date.fromisoformat(observation.observed_at) <= anchor
+    )
+    prior = tuple(
+        observation
+        for observation in values
+        if prior_start <= date.fromisoformat(observation.observed_at) < current_start
+    )
+    average = _observation_average(current)
+    if average is None:
+        return _unavailable_stat()
+    prior_average = _observation_average(prior)
     return SnapshotStat(
         value=average,
         suffix="/ 7 h",
-        trend=trend,
-        trend_text=trend_text,
+        trend=("neutral" if prior_average is None else _trend(average - prior_average)),
+        trend_text=(
+            "No prior period"
+            if prior_average is None
+            else f"from {_compact_number(prior_average)} h · prior 7d"
+        ),
         source=_observation_source(values[0]),
     )
 
@@ -273,20 +303,32 @@ def _sleep_stat(observations: tuple[ObservationView, ...]) -> SnapshotStat:
 def _sessions_stat(context: MemberContext, *, as_of: date) -> SnapshotStat:
     anchor = date.fromisoformat(context.morning_brief.generated_for)
     week_start = anchor - timedelta(days=6)
+    prior_week_start = week_start - timedelta(days=7)
     sessions = tuple(
         workout
         for workout in context.workout_sessions
         if week_start <= date.fromisoformat(workout.date) <= anchor
     )
+    prior_sessions = tuple(
+        workout
+        for workout in context.workout_sessions
+        if prior_week_start <= date.fromisoformat(workout.date) < week_start
+    )
     completed = sum(workout.completed for workout in sessions)
+    prior_completed = sum(workout.completed for workout in prior_sessions)
     target = context.profile.training_days_per_week
-    missed = max(0, target - completed)
     latest = max(sessions, key=lambda workout: workout.date, default=None)
     return SnapshotStat(
         value=completed,
         suffix=f"/ {target}",
-        trend=_trend(completed - target),
-        trend_text="on target" if missed == 0 else f"{missed} skipped",
+        trend=(
+            "neutral" if not prior_sessions else _trend(completed - prior_completed)
+        ),
+        trend_text=(
+            "No prior period"
+            if not prior_sessions
+            else f"from {prior_completed} last wk"
+        ),
         source=(
             None
             if latest is None
@@ -315,6 +357,15 @@ def _observation_source(observation: ObservationView) -> SnapshotSource:
     )
 
 
+def _observation_average(observations: tuple[ObservationView, ...]) -> float | None:
+    measured = [
+        value
+        for observation in observations
+        if (value := observation.value) is not None
+    ]
+    return None if not measured else round(sum(measured) / len(measured), 1)
+
+
 def _dated_source(
     observed_at: str, *, as_of: date, stale_after_days: int
 ) -> SnapshotSource:
@@ -330,7 +381,7 @@ def _unavailable_stat() -> SnapshotStat:
     return SnapshotStat(
         value=None,
         suffix=None,
-        trend="flat",
+        trend="neutral",
         trend_text="Unavailable",
         source=None,
     )
