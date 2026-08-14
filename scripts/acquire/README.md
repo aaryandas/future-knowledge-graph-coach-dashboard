@@ -35,8 +35,9 @@ Build the resolver's concept embeddings through OpenRouter from the repository r
 OPENROUTER_API_KEY=... uv run --project backend python scripts/acquire/build_embeddings.py
 ```
 
-The script sends each vocabulary concept's preferred term to
-`qwen/qwen3-embedding-0.6b` in batches. It writes `data/resolver-embeddings.json`; review and
-commit that artifact after each intentional vocabulary or model update. Runtime queries must
-use the same model. Tests use the small committed fixture under `backend/tests/fixtures/` and
-never call OpenRouter.
+The script sends one string per concept through LangChain `Embeddings` to OpenRouter. Each
+string contains the concept name and its aliases, including SNOMED synonyms. It uses
+`qwen/qwen3-embedding-0.6b` in batches and writes one committed JSON file per vocabulary under
+`data/resolver-embeddings/`. Review and commit those artifacts after each intentional
+vocabulary or model update. Runtime queries must use the same model. Tests use the small
+committed fixtures under `backend/tests/fixtures/` and never call OpenRouter.

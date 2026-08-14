@@ -5,14 +5,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from app.resolver import (
-    ArtifactEmbeddings,
-    ArtifactVocabulary,
-    Embedding,
-    EmbeddingProvider,
-    OpenRouterEmbeddingProvider,
-    resolve,
-)
+from app.resolver import ArtifactVocabulary, resolve
+from app.resolver._embeddings import ArtifactEmbeddings
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CASES_PATH = Path(__file__).parent / "cases" / "resolver.json"
@@ -20,9 +14,9 @@ EXERCISES_PATH = REPO_ROOT / "data" / "exercises.json"
 MEMBER_CONTEXT_PATH = REPO_ROOT / "data" / "member-context.json"
 SNOMED_PATH = REPO_ROOT / "data" / "ontology" / "snomed-ct.json"
 SYNONYMS_PATH = REPO_ROOT / "data" / "synonyms.json"
-EMBEDDINGS_FIXTURE_PATH = (
-    Path(__file__).parent / "fixtures" / "resolver-embeddings.json"
-)
+EMBEDDINGS_FIXTURE_DIR = Path(__file__).parent / "fixtures" / "resolver-embeddings"
+EQUIPMENT_EMBEDDINGS_PATH = EMBEDDINGS_FIXTURE_DIR / "equipment.json"
+ANATOMY_EMBEDDINGS_PATH = EMBEDDINGS_FIXTURE_DIR / "anatomical-structure.json"
 VOCABULARY_FIXTURE_PATH = (
     Path(__file__).parent / "fixtures" / "resolver-vocabulary.json"
 )
@@ -31,31 +25,26 @@ VOCABULARY_FIXTURE_PATH = (
 class FixtureEmbeddingProvider:
     def __init__(self, path: Path) -> None:
         artifact = json.loads(path.read_text(encoding="utf-8"))
-        self.model: str = artifact["model"]
-        self.queries: dict[str, Embedding] = {
+        self.queries: dict[str, tuple[float, ...]] = {
             text: tuple(vector) for text, vector in artifact["queries"].items()
         }
 
-    def embed(
-        self, texts: tuple[str, ...], *, model: str
-    ) -> tuple[Embedding, ...] | None:
-        assert model == self.model
-        if not all(text in self.queries for text in texts):
-            return None
-        return tuple(self.queries[text] for text in texts)
+    def embed_query(self, text: str) -> tuple[float, ...] | None:
+        return self.queries.get(text)
 
 
 class OfflineEmbeddingProvider:
-    def embed(
-        self, texts: tuple[str, ...], *, model: str
-    ) -> tuple[Embedding, ...] | None:
+    def embed_query(self, text: str) -> None:
         return None
 
 
-FIXTURE_PROVIDER = FixtureEmbeddingProvider(EMBEDDINGS_FIXTURE_PATH)
-FIXTURE_EMBEDDINGS = ArtifactEmbeddings.from_file(
-    EMBEDDINGS_FIXTURE_PATH,
-    provider=FIXTURE_PROVIDER,
+EQUIPMENT_EMBEDDINGS = ArtifactEmbeddings.from_file(
+    EQUIPMENT_EMBEDDINGS_PATH,
+    provider=FixtureEmbeddingProvider(EQUIPMENT_EMBEDDINGS_PATH),
+)
+ANATOMY_EMBEDDINGS = ArtifactEmbeddings.from_file(
+    ANATOMY_EMBEDDINGS_PATH,
+    provider=FixtureEmbeddingProvider(ANATOMY_EMBEDDINGS_PATH),
 )
 
 CASES: list[dict[str, Any]] = json.loads(CASES_PATH.read_text())
@@ -64,13 +53,12 @@ VOCABULARIES = {
         EXERCISES_PATH,
         kind="Exercise",
         synonyms_path=SYNONYMS_PATH,
-        embeddings=FIXTURE_EMBEDDINGS,
     ),
     "equipment": ArtifactVocabulary.from_file(
         EXERCISES_PATH,
         kind="Equipment",
         synonyms_path=SYNONYMS_PATH,
-        embeddings=FIXTURE_EMBEDDINGS,
+        embeddings=EQUIPMENT_EMBEDDINGS,
     ),
     "muscle_group": ArtifactVocabulary.from_file(
         EXERCISES_PATH, kind="MuscleGroup", synonyms_path=SYNONYMS_PATH
@@ -79,7 +67,7 @@ VOCABULARIES = {
         SNOMED_PATH,
         kind="AnatomicalStructure",
         synonyms_path=SYNONYMS_PATH,
-        embeddings=FIXTURE_EMBEDDINGS,
+        embeddings=ANATOMY_EMBEDDINGS,
     ),
     "snomed_finding": ArtifactVocabulary.from_file(
         SNOMED_PATH, kind="ClinicalFinding", synonyms_path=SYNONYMS_PATH
@@ -116,14 +104,14 @@ def test_resolver_cases(case: dict[str, Any]) -> None:
 
 @pytest.mark.parametrize(
     "provider",
-    [OpenRouterEmbeddingProvider(api_key=None), OfflineEmbeddingProvider()],
-    ids=["keyless", "offline"],
+    [None, OfflineEmbeddingProvider()],
+    ids=["unconfigured", "offline"],
 )
 def test_vector_pass_skips_cleanly_without_an_embedding(
-    provider: EmbeddingProvider,
+    provider: OfflineEmbeddingProvider | None,
 ) -> None:
     embeddings = ArtifactEmbeddings.from_file(
-        EMBEDDINGS_FIXTURE_PATH,
+        EQUIPMENT_EMBEDDINGS_PATH,
         provider=provider,
     )
     vocabulary = ArtifactVocabulary.from_file(

@@ -6,119 +6,179 @@ import argparse
 import json
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+
+from langchain_core.embeddings import Embeddings
+from langchain_openai import OpenAIEmbeddings
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "backend"))
 
-from app.resolver import (
-    EMBEDDING_SCHEMA_VERSION,
-    OPENROUTER_MODEL,
-    ArtifactVocabulary,
-    KG1NodeKind,
-    OpenRouterEmbeddingProvider,
-    VocabularyConcept,
-)
+from app.resolver import ArtifactVocabulary, KG1NodeKind, VocabularyConcept
+from app.resolver._embeddings import EMBEDDING_SCHEMA_VERSION
 
-DEFAULT_OUTPUT = REPO_ROOT / "data" / "resolver-embeddings.json"
+DEFAULT_OUTPUT_DIR = REPO_ROOT / "data" / "resolver-embeddings"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+OPENROUTER_MODEL = "qwen/qwen3-embedding-0.6b"
 SYNONYMS_PATH = REPO_ROOT / "data" / "synonyms.json"
-VOCABULARIES: tuple[tuple[Path, KG1NodeKind], ...] = (
-    (REPO_ROOT / "data" / "exercises.json", "Exercise"),
-    (REPO_ROOT / "data" / "exercises.json", "MuscleGroup"),
-    (REPO_ROOT / "data" / "exercises.json", "Joint"),
-    (REPO_ROOT / "data" / "exercises.json", "MovementPattern"),
-    (REPO_ROOT / "data" / "exercises.json", "Equipment"),
-    (REPO_ROOT / "data" / "ontology" / "snomed-ct.json", "AnatomicalStructure"),
-    (REPO_ROOT / "data" / "ontology" / "snomed-ct.json", "ClinicalFinding"),
+
+
+@dataclass(frozen=True)
+class VocabularySpec:
+    filename: str
+    path: Path
+    kind: KG1NodeKind
+
+
+VOCABULARIES = (
+    VocabularySpec("exercise.json", REPO_ROOT / "data" / "exercises.json", "Exercise"),
+    VocabularySpec(
+        "muscle-group.json",
+        REPO_ROOT / "data" / "exercises.json",
+        "MuscleGroup",
+    ),
+    VocabularySpec("joint.json", REPO_ROOT / "data" / "exercises.json", "Joint"),
+    VocabularySpec(
+        "movement-pattern.json",
+        REPO_ROOT / "data" / "exercises.json",
+        "MovementPattern",
+    ),
+    VocabularySpec(
+        "equipment.json", REPO_ROOT / "data" / "exercises.json", "Equipment"
+    ),
+    VocabularySpec(
+        "anatomical-structure.json",
+        REPO_ROOT / "data" / "ontology" / "snomed-ct.json",
+        "AnatomicalStructure",
+    ),
+    VocabularySpec(
+        "clinical-finding.json",
+        REPO_ROOT / "data" / "ontology" / "snomed-ct.json",
+        "ClinicalFinding",
+    ),
 )
 
 
-def concepts() -> tuple[VocabularyConcept, ...]:
-    by_id: dict[str, VocabularyConcept] = {}
-    for path, kind in VOCABULARIES:
-        vocabulary = ArtifactVocabulary.from_file(
-            path,
-            kind=kind,
-            synonyms_path=SYNONYMS_PATH,
-        )
-        for concept in vocabulary.concepts():
-            previous = by_id.get(concept.concept_id)
-            if (
-                previous is not None
-                and previous.preferred_term != concept.preferred_term
-            ):
-                raise ValueError(
-                    f"concept {concept.concept_id} has conflicting preferred terms"
-                )
-            by_id[concept.concept_id] = concept
+def concepts(spec: VocabularySpec) -> tuple[VocabularyConcept, ...]:
+    vocabulary = ArtifactVocabulary.from_file(
+        spec.path,
+        kind=spec.kind,
+        synonyms_path=SYNONYMS_PATH,
+    )
     return tuple(
         sorted(
-            by_id.values(),
+            vocabulary.concepts(),
             key=lambda concept: (concept.preferred_term.casefold(), concept.concept_id),
         )
     )
 
 
-def build_artifact(model: str, batch_size: int) -> dict[str, object]:
-    if not os.environ.get("OPENROUTER_API_KEY"):
-        raise RuntimeError("OPENROUTER_API_KEY is required to build embeddings")
-    provider = OpenRouterEmbeddingProvider.from_env()
-    vocabulary_concepts = concepts()
-    embeddings: dict[str, list[float]] = {}
+def embedding_text(concept: VocabularyConcept) -> str:
+    terms = dict.fromkeys((concept.preferred_term, *concept.aliases))
+    return "\n".join(
+        (
+            f"Name: {concept.preferred_term}",
+            *(f"Alias: {term}" for term in terms if term != concept.preferred_term),
+        )
+    )
+
+
+def build_artifact(
+    spec: VocabularySpec,
+    provider: Embeddings,
+    model: str,
+    batch_size: int,
+) -> dict[str, object]:
+    vocabulary_concepts = concepts(spec)
+    concept_embeddings: dict[str, list[float]] = {}
     dimensions: int | None = None
 
     for start in range(0, len(vocabulary_concepts), batch_size):
         batch = vocabulary_concepts[start : start + batch_size]
-        vectors = provider.embed(
-            tuple(concept.preferred_term for concept in batch),
-            model=model,
+        vectors = provider.embed_documents(
+            [embedding_text(concept) for concept in batch]
         )
-        if vectors is None or len(vectors) != len(batch):
+        if len(vectors) != len(batch):
             raise RuntimeError("OpenRouter did not return the requested embeddings")
         for concept, vector in zip(batch, vectors, strict=True):
             if dimensions is None:
                 dimensions = len(vector)
             if len(vector) != dimensions:
                 raise RuntimeError("OpenRouter returned mixed embedding dimensions")
-            embeddings[concept.concept_id] = list(vector)
+            concept_embeddings[concept.concept_id] = vector
 
     if dimensions is None:
-        raise RuntimeError("no resolver concepts were found")
+        raise RuntimeError(f"no resolver concepts were found for {spec.kind}")
+    vocabulary_id = spec.filename.removesuffix(".json")
     return {
-        "artifact_id": "resolver:concept-embeddings",
+        "artifact_id": f"resolver:{vocabulary_id}-embeddings",
         "schema_version": EMBEDDING_SCHEMA_VERSION,
+        "vocabulary": spec.kind,
         "model": model,
         "dimensions": dimensions,
         "source": {
             "provider": "OpenRouter",
-            "url": "https://openrouter.ai/api/v1/embeddings",
+            "url": f"{OPENROUTER_BASE_URL}/embeddings",
         },
-        "embeddings": dict(sorted(embeddings.items())),
+        "embeddings": dict(sorted(concept_embeddings.items())),
     }
 
 
-def write_artifact(path: Path, artifact: dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(artifact, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+def build_artifacts(
+    provider: Embeddings,
+    model: str,
+    batch_size: int,
+) -> dict[str, dict[str, object]]:
+    return {
+        spec.filename: build_artifact(spec, provider, model, batch_size)
+        for spec in VOCABULARIES
+    }
+
+
+def write_artifacts(
+    output_dir: Path,
+    artifacts: dict[str, dict[str, object]],
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for filename, artifact in artifacts.items():
+        (output_dir / filename).write_text(
+            json.dumps(artifact, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+
+def openrouter_embeddings(model: str) -> Embeddings:
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is required to build embeddings")
+    return OpenAIEmbeddings(
+        model=model,
+        api_key=api_key,
+        base_url=OPENROUTER_BASE_URL,
+        check_embedding_ctx_length=False,
     )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Build the committed resolver concept embedding artifact."
+        description="Build the committed resolver embedding artifacts."
     )
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--model", default=OPENROUTER_MODEL)
     parser.add_argument("--batch-size", type=int, default=64)
     args = parser.parse_args()
     if args.batch_size < 1:
         parser.error("--batch-size must be positive")
 
-    artifact = build_artifact(args.model, args.batch_size)
-    write_artifact(args.output, artifact)
-    print(f"wrote {len(artifact['embeddings'])} embeddings to {args.output}")
+    artifacts = build_artifacts(
+        openrouter_embeddings(args.model),
+        args.model,
+        args.batch_size,
+    )
+    write_artifacts(args.output_dir, artifacts)
+    count = sum(len(artifact["embeddings"]) for artifact in artifacts.values())
+    print(f"wrote {count} embeddings across {len(artifacts)} vocabularies")
 
 
 if __name__ == "__main__":

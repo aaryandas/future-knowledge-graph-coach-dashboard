@@ -1,0 +1,13 @@
+{
+  "artifact_id": "resolver:test-anatomical-structure-embeddings",
+  "schema_version": 1,
+  "vocabulary": "AnatomicalStructure",
+  "model": "fixture/qwen3-embedding",
+  "dimensions": 5,
+  "embeddings": {
+    "snomedct:129160003": [0.0, 0.0, 0.0, 1.0, 0.0]
+  },
+  "queries": {
+    "kneecap discomfort": [0.0, 0.0, 0.0, 0.8, 0.6]
+  }
+}
