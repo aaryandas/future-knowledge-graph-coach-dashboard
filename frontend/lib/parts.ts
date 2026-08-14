@@ -71,3 +71,87 @@ export interface GraphNeighborhoodPart {
   nodes: GraphNode[];
   edges: GraphEdge[];
 }
+
+export type SnapshotTrend = "up" | "down" | "flat" | "neutral";
+
+export interface SnapshotSource {
+  observed_at: string;
+  age_days: number;
+  stale: boolean;
+}
+
+export interface MemberSnapshotStat {
+  value: string | number | null;
+  suffix: string | null;
+  trend: SnapshotTrend;
+  trend_text: string;
+  source: SnapshotSource | null;
+}
+
+export interface MemberIdentityGoal {
+  id: string;
+  text: string;
+}
+
+export interface MemberIdentityInjury {
+  id: string;
+  region: string;
+  finding: string | null;
+  status: string;
+}
+
+export interface MemberIdentity {
+  name: string;
+  tier: string;
+  age: number;
+  sex: string;
+  member_since: string;
+  tenure_days: number;
+  injury: MemberIdentityInjury | null;
+  goals: MemberIdentityGoal[];
+}
+
+export interface MemberSnapshotStats {
+  adherence: MemberSnapshotStat;
+  sleep: MemberSnapshotStat;
+  sessions: MemberSnapshotStat;
+  churn_risk: MemberSnapshotStat;
+}
+
+export interface CoachTaskSnapshot {
+  id: string;
+  text: string;
+  status: string;
+}
+
+export interface MorningBriefSnapshot {
+  generated_for: string;
+  source: SnapshotSource;
+  coach_tasks: CoachTaskSnapshot[];
+}
+
+export type JourneyStageName = "new" | "building" | "recovering";
+
+export interface JourneyStageEvidence {
+  member_since: string;
+  tenure_days: number;
+  injury_node_ids: string[];
+  injury_statuses: string[];
+  workout_session_node_ids: string[];
+  workout_session_count: number;
+  completed_workout_count: number;
+}
+
+export interface JourneyStageSnapshot {
+  stage: JourneyStageName;
+  evidence: JourneyStageEvidence;
+}
+
+export interface MemberSnapshotPart {
+  type: "data-member-snapshot";
+  member_id: string;
+  identity: MemberIdentity;
+  stats: MemberSnapshotStats;
+  morning_brief: MorningBriefSnapshot;
+  journey_stage: JourneyStageSnapshot;
+}
