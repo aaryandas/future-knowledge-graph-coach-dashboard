@@ -14,11 +14,11 @@ docs use these words and no synonyms.
 
 ## KG1 node types
 
-- **Exercise** — one of the 50 catalog entries; carries its packing scalars (rep duration,
+- **Exercise** — one of the 53 catalog entries; carries its packing scalars (rep duration,
   priority tier, bilateral pairing) as properties.
 - **MuscleGroup** — a muscle group an Exercise targets (19).
 - **Joint** — a joint or spine region an Exercise loads (9).
-- **MovementPattern** — a named pattern an Exercise performs (36).
+- **MovementPattern** — a named pattern an Exercise performs (37).
 - **Equipment** — an equipment type an Exercise requires (32).
 - **Injury** — an *authored contraindication anchor* (e.g. patellofemoral pain syndrome):
   the domain-side handle that safety edges hang off. Not a member's injury — see
