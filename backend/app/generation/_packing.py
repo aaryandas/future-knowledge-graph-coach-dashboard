@@ -1,4 +1,5 @@
 from dataclasses import dataclass, replace
+from typing import Literal
 
 from app.generation._constants import (
     COOL_DOWN_HOLD_MINUTES,
@@ -34,6 +35,19 @@ from app.generation._ranking import (
 from app.generation._trace import TraceEvent
 from app.generation.intent import Intent
 
+type PackingFailureReason = Literal[
+    "empty-section",
+    "minimum-plan-exceeds-window",
+]
+
+
+@dataclass(frozen=True)
+class PackingFailure:
+    reason: PackingFailureReason
+    message: str
+    section: Section | None
+    events: tuple[TraceEvent, ...]
+
 
 @dataclass(frozen=True)
 class _PackedEntry:
@@ -44,7 +58,7 @@ class _PackedEntry:
 
 def pack(
     candidates: tuple[Candidate, ...], intent: Intent, window: int
-) -> tuple[Plan, tuple[TraceEvent, ...]]:
+) -> tuple[Plan, tuple[TraceEvent, ...]] | PackingFailure:
     """Pack one deterministic three-section plan into the supported window."""
     _validate_inputs(candidates, window)
     events = _hard_filter_events(candidates)
@@ -64,7 +78,12 @@ def pack(
             window * split_by_section[section],
         )
         if len(packed_entries) < MINIMUM_SECTION_ENTRIES:
-            raise RuntimeError(f"No eligible exercise for the {section} section")
+            return PackingFailure(
+                reason="empty-section",
+                message=f"No eligible exercise is available for the {section} section.",
+                section=section,
+                events=tuple(events),
+            )
         packed_by_section[section] = packed_entries
         used_exercise_ids.update(
             packed_entry.candidate.exercise_id for packed_entry in packed_entries
@@ -81,8 +100,11 @@ def pack(
         sum(plan_section.minutes for plan_section in sections.values())
     )
     if packed_minutes > window + TIME_COMPARISON_TOLERANCE:
-        raise RuntimeError(
-            "Minimum three-section plan does not fit the requested window"
+        return PackingFailure(
+            reason="minimum-plan-exceeds-window",
+            message="The minimum three-section plan does not fit the requested window.",
+            section=None,
+            events=tuple(events),
         )
 
     return (
@@ -147,16 +169,16 @@ def _select_section(
     selected: list[_PackedEntry] = []
     events: list[TraceEvent] = []
     covered_muscle_groups: frozenset[str] = frozenset()
-    packed_minutes = ZERO_MINUTES
+    remaining_minutes = target_minutes
 
-    while remaining and packed_minutes < target_minutes - TIME_COMPARISON_TOLERANCE:
+    while remaining and remaining_minutes > TIME_COMPARISON_TOLERANCE:
         ranked = rank_candidates(remaining, covered_muscle_groups)
         fitting = next(
             (
                 ranked_candidate
                 for ranked_candidate in ranked
                 if _entry(ranked_candidate.candidate, section).minutes
-                <= target_minutes + TIME_COMPARISON_TOLERANCE
+                <= remaining_minutes + TIME_COMPARISON_TOLERANCE
             ),
             None,
         )
@@ -174,7 +196,7 @@ def _select_section(
             )
         )
         events.append(_selection_event(fitting, section))
-        packed_minutes = _round_minutes(packed_minutes + plan_entry.minutes)
+        remaining_minutes = _round_minutes(remaining_minutes - plan_entry.minutes)
         covered_muscle_groups = covered_muscle_groups.union(
             fitting.candidate.muscle_groups
         )

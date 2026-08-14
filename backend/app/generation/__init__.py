@@ -1,5 +1,5 @@
 from app.generation._model import Candidate, Plan, PlanEntry, PlanSection
-from app.generation._packing import pack
+from app.generation._packing import PackingFailure, PackingFailureReason, pack
 from app.generation._trace import TraceEvent
 from app.generation.intent import (
     Focus,
@@ -18,6 +18,8 @@ __all__ = [
     "InterpretationFailure",
     "InterpretationFailureReason",
     "LLMProviderError",
+    "PackingFailure",
+    "PackingFailureReason",
     "Plan",
     "PlanEntry",
     "PlanSection",
