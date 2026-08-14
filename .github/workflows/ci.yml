@@ -48,4 +48,9 @@ jobs:
           node-version: 22
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir frontend install --frozen-lockfile
+      - name: Verify idempotent seed
+        run: |
+          pnpm seed > "$RUNNER_TEMP/seed-first.json"
+          pnpm seed > "$RUNNER_TEMP/seed-second.json"
+          diff --unified "$RUNNER_TEMP/seed-first.json" "$RUNNER_TEMP/seed-second.json"
       - run: ./scripts/gate.sh api

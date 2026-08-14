@@ -79,6 +79,9 @@ docs use these words and no synonyms.
 - **dislikes** — Member → Exercise (KG1 bridge), when the stated dislike resolves; raw
   string retained otherwise.
 - **included** — WorkoutSession → Exercise (KG1 bridge), when the history name resolves.
+- **clinicalDirective** — MemberInjury → MovementPattern | Joint, when the raw Clinical
+  directive resolves exactly. Carries the directive status and raw text; unresolved raw
+  text stays on the MemberInjury.
 - **evidencedBy** — Barrier → Observation | ChatMessage | WorkoutSession. The edge that
   makes churn reasoning auditable.
 - **addresses** — CoachTask → Barrier | Goal | WorkoutSession.
