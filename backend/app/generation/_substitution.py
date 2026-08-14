@@ -1,4 +1,4 @@
-from app.generation._model import CatalogExercise, Plan, PlanEntry, Section
+from app.generation._model import CatalogExercise, Plan, PlanEntry
 from app.generation._trace import SubstitutionTraceEvent
 
 
@@ -12,39 +12,34 @@ def pair_substitutions(
         return ()
 
     catalog_by_id = {exercise.exercise_id: exercise for exercise in catalog}
-    before_entries = _section_entries(before)
-    after_entries = _section_entries(after)
-    before_ids = frozenset(entry.exercise_id for _, entry in before_entries)
-    after_ids = frozenset(entry.exercise_id for _, entry in after_entries)
+    before_entries = _entries(before)
+    after_entries = _entries(after)
+    before_ids = frozenset(entry.exercise_id for entry in before_entries)
+    after_ids = frozenset(entry.exercise_id for entry in after_entries)
     dropped = tuple(
-        (section, entry)
-        for section, entry in before_entries
-        if entry.exercise_id not in after_ids
+        entry for entry in before_entries if entry.exercise_id not in after_ids
     )
     replacements = [
-        (section, entry)
-        for section, entry in after_entries
-        if entry.exercise_id not in before_ids
+        entry for entry in after_entries if entry.exercise_id not in before_ids
     ]
     events: list[SubstitutionTraceEvent] = []
 
-    for dropped_section, dropped_entry in dropped:
-        same_section = tuple(
-            replacement
-            for replacement in replacements
-            if replacement[0] == dropped_section
-        )
-        available = same_section or tuple(replacements)
-        if not available:
+    for dropped_entry in dropped:
+        if not replacements:
             break
-        replacement_section, replacement_entry = min(
-            available,
+        replacement_entry = min(
+            replacements,
             key=lambda replacement: _pairing_key(
                 catalog_by_id[dropped_entry.exercise_id],
-                catalog_by_id[replacement[1].exercise_id],
+                catalog_by_id[replacement.exercise_id],
             ),
         )
-        replacements.remove((replacement_section, replacement_entry))
+        if not _has_graph_overlap(
+            catalog_by_id[dropped_entry.exercise_id],
+            catalog_by_id[replacement_entry.exercise_id],
+        ):
+            continue
+        replacements.remove(replacement_entry)
         events.append(
             _substitution_event(
                 catalog_by_id[dropped_entry.exercise_id],
@@ -54,9 +49,9 @@ def pair_substitutions(
     return tuple(events)
 
 
-def _section_entries(plan: Plan) -> tuple[tuple[Section, PlanEntry], ...]:
+def _entries(plan: Plan) -> tuple[PlanEntry, ...]:
     return tuple(
-        (section.section, entry)
+        entry
         for section in (plan.warm_up, plan.main, plan.cool_down)
         for entry in section.entries
     )
@@ -109,6 +104,16 @@ def _substitution_event(
         shared_muscle_group_ids=shared_muscles,
         reason=reason,
         used=(dropped.exercise_id, replacement.exercise_id, *shared),
+    )
+
+
+def _has_graph_overlap(
+    dropped: CatalogExercise,
+    replacement: CatalogExercise,
+) -> bool:
+    return bool(
+        _shared(dropped.movement_pattern_ids, replacement.movement_pattern_ids)
+        or _shared(dropped.muscle_group_ids, replacement.muscle_group_ids)
     )
 
 

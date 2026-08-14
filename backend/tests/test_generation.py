@@ -34,7 +34,7 @@ def test_adjustment_merges_checkpointed_constraint_set_and_pairs_substitution() 
                 "focus": None,
                 "targets": [],
                 "exclusions": ["moon burpees"],
-                "injuries": ["quantum knee"],
+                "injuries": ["quantum flux"],
                 "equipment": [],
             },
         ]
@@ -84,7 +84,7 @@ def test_adjustment_merges_checkpointed_constraint_set_and_pairs_substitution() 
     )
     third = run_checkpointed_session(
         MEMBER_ID,
-        "Also avoid moon burpees; her quantum knee hurts.",
+        "Also avoid moon burpees; she reports quantum flux.",
         20,
         "thread-1",
         checkpointer=checkpointer,
@@ -134,8 +134,9 @@ def test_adjustment_merges_checkpointed_constraint_set_and_pairs_substitution() 
     third_parts = generation_data_parts(third)
     constraints = third_parts[2].model_dump(mode="json")["data"]
     assert [chip["raw_text"] for chip in constraints["omissions"]] == ["moon burpees"]
+    assert constraints["omissions"][0]["candidates"]
     assert [flag["raw_text"] for flag in constraints["not_enforced"]] == [
-        "quantum knee"
+        "quantum flux"
     ]
     assert [
         suggestion["raw_text"]

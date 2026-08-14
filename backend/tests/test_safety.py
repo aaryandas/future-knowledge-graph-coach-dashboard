@@ -7,7 +7,7 @@ from typing import Literal
 
 import pytest
 from app.graph import ingest_kg1, ingest_kg2
-from app.safety import AgentDecision, evaluate_safety
+from app.safety import AgentDecision, SessionInjury, evaluate_safety
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIRECTORY = REPOSITORY_ROOT / "data"
@@ -93,6 +93,57 @@ def test_safety_layers_return_verdicts_with_walked_paths(
     assert verdict.trace[0].was_attributed_to == "graph"
     if layer is not None:
         assert verdict.walked_path.nodes[0].kind == "MemberInjury"
+
+
+@pytest.mark.parametrize(
+    ("session_injury", "exercise_id", "layer", "node_kinds"),
+    (
+        (
+            SessionInjury(
+                concept_id="snomedct:263133002",
+                kind="ClinicalFinding",
+            ),
+            STATIC_JUMP_ID,
+            "contraindication",
+            ("ClinicalFinding", "Injury", "MovementPattern", "Exercise"),
+        ),
+        (
+            SessionInjury(
+                concept_id="snomedct:49076000",
+                kind="AnatomicalStructure",
+            ),
+            CYCLIST_SQUAT_ID,
+            "SNOMED anatomical fallback",
+            ("AnatomicalStructure", "Joint", "Exercise"),
+        ),
+        (
+            SessionInjury(concept_id="fkg:joint/knee", kind="Joint"),
+            CYCLIST_SQUAT_ID,
+            "SNOMED anatomical fallback",
+            ("Joint", "Exercise"),
+        ),
+    ),
+)
+def test_session_injury_uses_the_safety_traversal(
+    session_injury: SessionInjury,
+    exercise_id: str,
+    layer: str,
+    node_kinds: tuple[str, ...],
+) -> None:
+    (verdict,) = evaluate_safety(
+        "mbr_session_only",
+        (exercise_id,),
+        session_injuries=(session_injury,),
+    )
+
+    decision = verdict.decisions[0]
+    assert verdict.status == "exclude"
+    assert decision.kind == "graph"
+    assert decision.layer == layer
+    assert decision.member_injury_id == f"session:{session_injury.concept_id}"
+    assert decision.injury_status == "active"
+    assert tuple(node.kind for node in verdict.walked_path.nodes) == node_kinds
+    assert verdict.trace[0].walked_path == verdict.walked_path
 
 
 @pytest.mark.parametrize(

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import cast
+from typing import LiteralString, cast
 
-from neo4j import Record, Session
+from neo4j import Query, Record, Session
 from neo4j.graph import Node, Path, Relationship
 
 from app.graph.schema import EdgeType, NodeLabel
@@ -12,6 +12,8 @@ from app.graph.store import neo4j_session
 from ._model import (
     AgentDecision,
     GraphDecision,
+    SafetyLayer,
+    SessionInjury,
     Verdict,
     VerdictStatus,
     VerdictTraceEvent,
@@ -33,6 +35,7 @@ def evaluate_safety(
     member_id: str,
     exercise_ids: tuple[str, ...],
     *,
+    session_injuries: tuple[SessionInjury, ...] = (),
     agent_decisions: tuple[AgentDecision, ...] = (),
 ) -> tuple[Verdict, ...]:
     """Return deterministic verdicts in the same order as the exercise ids."""
@@ -40,7 +43,13 @@ def evaluate_safety(
         decisions = (
             *_clear_decisions(session, exercise_ids),
             *_snomed_fallback_decisions(session, member_id, exercise_ids),
+            *_session_snomed_fallback_decisions(
+                session, exercise_ids, session_injuries
+            ),
             *_authored_contraindication_decisions(session, member_id, exercise_ids),
+            *_session_authored_contraindication_decisions(
+                session, exercise_ids, session_injuries
+            ),
             *_clinical_directive_decisions(session, member_id, exercise_ids),
         )
 
@@ -214,6 +223,71 @@ def _snomed_fallback_decisions(
     return tuple(decisions)
 
 
+def _session_snomed_fallback_decisions(
+    session: Session,
+    exercise_ids: tuple[str, ...],
+    session_injuries: tuple[SessionInjury, ...],
+) -> tuple[GraphDecision, ...]:
+    decisions: list[GraphDecision] = []
+    for session_injury in session_injuries:
+        if session_injury.kind == "ClinicalFinding":
+            match = (
+                "MATCH path=(finding:ClinicalFinding {id: $concept_id})-"
+                "[:findingSite]->(:AnatomicalStructure)-[:isA*0..]->(anatomy)"
+                "<-[:exactMatch]-(joint:Joint)<-[:loads]-(exercise:Exercise) "
+            )
+        elif session_injury.kind == "AnatomicalStructure":
+            match = (
+                "MATCH path=(source:AnatomicalStructure {id: $concept_id})-"
+                "[:isA*0..]->(anatomy)<-[:exactMatch]-(joint:Joint)"
+                "<-[:loads]-(exercise:Exercise) "
+            )
+        else:
+            match = (
+                "MATCH path=(joint:Joint {id: $concept_id})"
+                "<-[:loads]-(exercise:Exercise) "
+            )
+        decisions.extend(
+            _session_fallback_decisions(
+                session,
+                exercise_ids,
+                session_injury,
+                match,
+            )
+        )
+    return tuple(decisions)
+
+
+def _session_fallback_decisions(
+    session: Session,
+    exercise_ids: tuple[str, ...],
+    session_injury: SessionInjury,
+    match: LiteralString,
+) -> tuple[GraphDecision, ...]:
+    records = session.run(
+        Query(
+            match + "WHERE exercise.id IN $exercise_ids "
+            "RETURN exercise.id AS exercise_id, joint.name AS joint_name, path "
+            "ORDER BY exercise_id, length(path), joint.id"
+        ),
+        concept_id=session_injury.concept_id,
+        exercise_ids=list(exercise_ids),
+    )
+    return tuple(
+        _session_decision(
+            record,
+            session_injury,
+            status="caution",
+            layer="SNOMED anatomical fallback",
+            reason=(
+                "Session injury used the SNOMED anatomical fallback through "
+                f"{cast(str, record['joint_name'])}."
+            ),
+        )
+        for record in records
+    )
+
+
 def _authored_contraindication_decisions(
     session: Session, member_id: str, exercise_ids: tuple[str, ...]
 ) -> tuple[GraphDecision, ...]:
@@ -254,6 +328,60 @@ def _authored_contraindication_decisions(
             )
         )
     return tuple(decisions)
+
+
+def _session_authored_contraindication_decisions(
+    session: Session,
+    exercise_ids: tuple[str, ...],
+    session_injuries: tuple[SessionInjury, ...],
+) -> tuple[GraphDecision, ...]:
+    decisions: list[GraphDecision] = []
+    for session_injury in session_injuries:
+        if session_injury.kind != "ClinicalFinding":
+            continue
+        records = session.run(
+            "MATCH path=(finding:ClinicalFinding {id: $concept_id})"
+            "<-[:exactMatch]-(injury:Injury)-"
+            "[contraindication:contraindicates]->(target)"
+            "<-[:performs|loads]-(exercise:Exercise) "
+            "WHERE exercise.id IN $exercise_ids "
+            "RETURN exercise.id AS exercise_id, "
+            "contraindication.level AS level, contraindication.note AS note, path "
+            "ORDER BY exercise_id, injury.id, target.id",
+            concept_id=session_injury.concept_id,
+            exercise_ids=list(exercise_ids),
+        )
+        decisions.extend(
+            _session_decision(
+                record,
+                session_injury,
+                status=_authored_status(cast(str, record["level"])),
+                layer="contraindication",
+                reason=f"Session injury: {cast(str, record['note'])}",
+            )
+            for record in records
+        )
+    return tuple(decisions)
+
+
+def _session_decision(
+    record: Record,
+    session_injury: SessionInjury,
+    *,
+    status: VerdictStatus,
+    layer: SafetyLayer,
+    reason: str,
+) -> GraphDecision:
+    return GraphDecision(
+        exercise_id=cast(str, record["exercise_id"]),
+        status=_modulated_status(status, "active", ""),
+        layer=layer,
+        member_injury_id=f"session:{session_injury.concept_id}",
+        injury_status="active",
+        injury_severity=None,
+        reason=reason,
+        walked_path=_walked_path(record),
+    )
 
 
 def _authored_status(level: str) -> VerdictStatus:
