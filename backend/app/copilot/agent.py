@@ -35,6 +35,7 @@ type HistoryRole = Literal["user", "assistant"]
 type AgentRoute = Literal["tools", "limit", "__end__"]
 
 MAX_TOOL_ROUNDS = 5
+_DATA_PARTS_KEY = "copilot_data_parts"
 _FAILURE_MESSAGE = "I could not answer that question. Please try again."
 _ROUND_LIMIT_MESSAGE = (
     "I could not complete that answer within five retrieval tool rounds. "
@@ -67,11 +68,22 @@ class CopilotSource:
     node_ids: tuple[str, ...]
 
 
+type JsonValue = (
+    None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
+)
+
+
+@dataclass(frozen=True)
+class CopilotDataPart:
+    type: str
+    data: JsonValue
+
+
 @dataclass(frozen=True)
 class CopilotTurn:
     message_id: str
     text: str
-    sources: tuple[CopilotSource, ...]
+    data_parts: tuple[CopilotDataPart, ...]
 
 
 @dataclass(frozen=True)
@@ -79,7 +91,7 @@ class CopilotHistoryMessage:
     id: str
     role: HistoryRole
     text: str
-    sources: tuple[CopilotSource, ...]
+    data_parts: tuple[CopilotDataPart, ...]
 
 
 @dataclass(frozen=True)
@@ -142,12 +154,11 @@ def run_copilot_turn(
             _thread_config(member_id),
         ),
     )
-    turn_messages = _current_turn_messages(state["messages"])
-    answer = _final_answer(turn_messages)
+    answer = _final_answer(state["messages"])
     return CopilotTurn(
         message_id=answer.id or assistant_message_id,
         text=_message_text(answer),
-        sources=_sources(turn_messages),
+        data_parts=_data_parts(answer),
     )
 
 
@@ -203,11 +214,7 @@ def _build_graph(
 
     def call_model(state: _CopilotState) -> dict[str, list[AIMessage]]:
         if llm is None:
-            return {
-                "messages": [
-                    AIMessage(content=_FAILURE_MESSAGE, id=assistant_message_id)
-                ]
-            }
+            return {"messages": [_fallback_message(assistant_message_id)]}
         messages: tuple[BaseMessage, ...] = (
             SystemMessage(content=_system_prompt(tone_facts)),
             *state["messages"],
@@ -215,26 +222,24 @@ def _build_graph(
         try:
             response = llm.invoke(messages, member_tools)
         except Exception:  # noqa: BLE001 - every LLM adapter failure degrades here.
-            return {
-                "messages": [
-                    AIMessage(content=_FAILURE_MESSAGE, id=assistant_message_id)
-                ]
-            }
+            return {"messages": [_fallback_message(assistant_message_id)]}
         if not isinstance(response, AIMessage) or response.invalid_tool_calls:
-            return {
-                "messages": [
-                    AIMessage(content=_FAILURE_MESSAGE, id=assistant_message_id)
-                ]
-            }
+            return {"messages": [_fallback_message(assistant_message_id)]}
         if not response.tool_calls and not _message_text(response):
+            return {"messages": [_fallback_message(assistant_message_id)]}
+        if not response.tool_calls:
+            if not _has_current_turn_retrieval(state["messages"]):
+                return {"messages": [_fallback_message(assistant_message_id)]}
             return {
                 "messages": [
-                    AIMessage(content=_FAILURE_MESSAGE, id=assistant_message_id)
+                    _answer_message(
+                        response,
+                        assistant_message_id,
+                        _sources(state["messages"]),
+                    )
                 ]
             }
-        response_id = response.id or (
-            f"tool-call-{uuid4()}" if response.tool_calls else assistant_message_id
-        )
+        response_id = response.id or f"tool-call-{uuid4()}"
         return {"messages": [response.model_copy(update={"id": response_id})]}
 
     def call_tools(state: _CopilotState) -> dict[str, object]:
@@ -278,10 +283,13 @@ def _build_graph(
         return "tools"
 
     def stop_at_limit(state: _CopilotState) -> dict[str, list[AIMessage]]:
-        del state
         return {
             "messages": [
-                AIMessage(content=_ROUND_LIMIT_MESSAGE, id=assistant_message_id)
+                _answer_message(
+                    AIMessage(content=_ROUND_LIMIT_MESSAGE),
+                    assistant_message_id,
+                    _sources(state["messages"]),
+                )
             ]
         }
 
@@ -343,13 +351,6 @@ def _thread_config(member_id: str) -> RunnableConfig:
     return {"configurable": {"thread_id": member_id}}
 
 
-def _current_turn_messages(messages: Sequence[AnyMessage]) -> tuple[AnyMessage, ...]:
-    for index in range(len(messages) - 1, -1, -1):
-        if isinstance(messages[index], HumanMessage):
-            return tuple(messages[index:])
-    raise RuntimeError("The copilot turn has no user message.")
-
-
 def _final_answer(messages: Sequence[AnyMessage]) -> AIMessage:
     for message in reversed(messages):
         if isinstance(message, AIMessage) and not message.tool_calls:
@@ -360,7 +361,11 @@ def _final_answer(messages: Sequence[AnyMessage]) -> AIMessage:
 def _sources(messages: Iterable[AnyMessage]) -> tuple[CopilotSource, ...]:
     sources: list[CopilotSource] = []
     for message in messages:
-        if not isinstance(message, ToolMessage) or message.name is None:
+        if (
+            not isinstance(message, ToolMessage)
+            or message.name is None
+            or message.status == "error"
+        ):
             continue
         raw_node_ids = message.additional_kwargs.get("node_ids")
         node_ids = (
@@ -372,38 +377,124 @@ def _sources(messages: Iterable[AnyMessage]) -> tuple[CopilotSource, ...]:
     return tuple(sources)
 
 
+def _has_current_turn_retrieval(messages: Sequence[AnyMessage]) -> bool:
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage):
+            return False
+        if isinstance(message, ToolMessage) and message.status != "error":
+            return True
+    raise RuntimeError("The copilot turn has no user message.")
+
+
+def _fallback_message(message_id: str) -> AIMessage:
+    return _answer_message(
+        AIMessage(content=_FAILURE_MESSAGE),
+        message_id,
+        (),
+    )
+
+
+def _answer_message(
+    response: AIMessage,
+    message_id: str,
+    sources: tuple[CopilotSource, ...],
+) -> AIMessage:
+    data_parts = (
+        _sources_part(sources),
+        *(part for part in _data_parts(response) if part.type != "data-sources"),
+    )
+    additional_kwargs = {
+        **response.additional_kwargs,
+        _DATA_PARTS_KEY: [_data_part_payload(part) for part in data_parts],
+    }
+    return response.model_copy(
+        update={
+            "id": response.id or message_id,
+            "additional_kwargs": additional_kwargs,
+        }
+    )
+
+
+def _sources_part(sources: tuple[CopilotSource, ...]) -> CopilotDataPart:
+    data: JsonValue = {
+        "sources": [
+            {"tool": source.tool, "node_ids": list(source.node_ids)}
+            for source in sources
+        ]
+    }
+    return CopilotDataPart(type="data-sources", data=data)
+
+
+def _data_part_payload(part: CopilotDataPart) -> dict[str, JsonValue]:
+    return {"type": part.type, "data": part.data}
+
+
+def _data_parts(message: BaseMessage) -> tuple[CopilotDataPart, ...]:
+    raw_parts = message.additional_kwargs.get(_DATA_PARTS_KEY)
+    if not isinstance(raw_parts, list):
+        return ()
+    data_parts: list[CopilotDataPart] = []
+    for raw_part in raw_parts:
+        if not isinstance(raw_part, dict):
+            continue
+        part_type = raw_part.get("type")
+        data = raw_part.get("data")
+        if (
+            not isinstance(part_type, str)
+            or not part_type.startswith("data-")
+            or not _is_json_value(data)
+        ):
+            continue
+        data_parts.append(CopilotDataPart(type=part_type, data=cast("JsonValue", data)))
+    return tuple(data_parts)
+
+
+def _is_json_value(value: object) -> bool:
+    if value is None or isinstance(value, str | int | float | bool):
+        return True
+    if isinstance(value, list):
+        return all(_is_json_value(item) for item in value)
+    if isinstance(value, dict):
+        return all(
+            isinstance(key, str) and _is_json_value(item) for key, item in value.items()
+        )
+    return False
+
+
 def _history_messages(messages: Sequence[object]) -> tuple[CopilotHistoryMessage, ...]:
     history: list[CopilotHistoryMessage] = []
     user_message: HumanMessage | None = None
-    turn_messages: list[AnyMessage] = []
+    persisted_messages: list[AnyMessage] = []
     for message in messages:
+        if isinstance(message, BaseMessage):
+            persisted_messages.append(cast("AnyMessage", message))
         if isinstance(message, HumanMessage):
             user_message = message
-            turn_messages = [message]
             continue
         if user_message is None or not isinstance(message, BaseMessage):
             continue
-        turn_messages.append(cast("AnyMessage", message))
         if not isinstance(message, AIMessage) or message.tool_calls:
             continue
+        data_parts = _data_parts(message)
+        if not data_parts:
+            data_parts = (_sources_part(_sources(persisted_messages)),)
         history.extend(
             (
                 CopilotHistoryMessage(
                     id=user_message.id or f"user-{uuid4()}",
                     role="user",
                     text=_message_text(user_message),
-                    sources=(),
+                    data_parts=(),
                 ),
                 CopilotHistoryMessage(
                     id=message.id or f"assistant-{uuid4()}",
                     role="assistant",
                     text=_message_text(message),
-                    sources=_sources(turn_messages),
+                    data_parts=data_parts,
                 ),
             )
         )
         user_message = None
-        turn_messages = []
     return tuple(history)
 
 

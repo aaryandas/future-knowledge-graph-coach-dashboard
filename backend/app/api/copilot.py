@@ -2,45 +2,27 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Iterator
-from contextlib import AbstractContextManager
-from typing import Any, Literal
+from typing import Literal
 
 import psycopg
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from langgraph.checkpoint.base import BaseCheckpointSaver
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, JsonValue
 
 from app.copilot import (
+    CopilotDataPart,
     CopilotHistoryMessage,
-    CopilotLLM,
-    CopilotSource,
     CopilotTurn,
-    build_copilot_llm,
-    open_postgres_checkpointer,
     replay_copilot_history,
     run_copilot_turn,
 )
 
 
-class Source(BaseModel):
+class DataPart(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    tool: str
-    node_ids: list[str]
-
-
-class DataSources(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    sources: list[Source]
-
-
-class DataSourcesPart(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    type: Literal["data-sources"] = "data-sources"
-    data: DataSources
+    type: str
+    data: JsonValue
 
 
 class TextPart(BaseModel):
@@ -70,7 +52,7 @@ class CopilotReplayMessage(BaseModel):
 
     id: str
     role: Literal["user", "assistant"]
-    parts: list[TextPart | DataSourcesPart]
+    parts: list[TextPart | DataPart]
 
 
 class CopilotHistory(BaseModel):
@@ -80,22 +62,12 @@ class CopilotHistory(BaseModel):
     messages: list[CopilotReplayMessage]
 
 
-type LLMFactory = Callable[[], CopilotLLM | None]
-type CheckpointerFactory = Callable[
-    [], AbstractContextManager[BaseCheckpointSaver[Any]]
-]
-type TurnRunner = Callable[
-    [str, str, BaseCheckpointSaver[Any], CopilotLLM | None, str], CopilotTurn
-]
-type HistoryReader = Callable[
-    [str, BaseCheckpointSaver[Any]], tuple[CopilotHistoryMessage, ...]
-]
+type TurnRunner = Callable[[str, str, str], CopilotTurn]
+type HistoryReader = Callable[[str], tuple[CopilotHistoryMessage, ...]]
 
 
 def create_copilot_router(
     *,
-    llm_factory: LLMFactory = build_copilot_llm,
-    checkpointer_factory: CheckpointerFactory = open_postgres_checkpointer,
     turn_runner: TurnRunner | None = None,
     history_reader: HistoryReader | None = None,
 ) -> APIRouter:
@@ -115,14 +87,11 @@ def create_copilot_router(
             )
         user_message = _latest_user_message(request.messages)
         try:
-            with checkpointer_factory() as checkpointer:
-                turn = run_turn(
-                    member_id,
-                    _message_text(user_message.parts),
-                    checkpointer,
-                    llm_factory(),
-                    user_message.id,
-                )
+            turn = run_turn(
+                member_id,
+                _message_text(user_message.parts),
+                user_message.id,
+            )
         except psycopg.Error as error:
             raise HTTPException(
                 status_code=503,
@@ -141,8 +110,7 @@ def create_copilot_router(
     @router.get("/history", response_model=CopilotHistory)
     def copilot_history(member_id: str) -> CopilotHistory:
         try:
-            with checkpointer_factory() as checkpointer:
-                messages = read_history(member_id, checkpointer)
+            messages = read_history(member_id)
         except psycopg.Error as error:
             raise HTTPException(
                 status_code=503,
@@ -159,24 +127,19 @@ def create_copilot_router(
 def _run_turn(
     member_id: str,
     message: str,
-    checkpointer: BaseCheckpointSaver[Any],
-    llm: CopilotLLM | None,
     message_id: str,
 ) -> CopilotTurn:
     return run_copilot_turn(
         member_id,
         message,
-        checkpointer=checkpointer,
-        llm=llm,
         message_id=message_id,
     )
 
 
 def _read_history(
     member_id: str,
-    checkpointer: BaseCheckpointSaver[Any],
 ) -> tuple[CopilotHistoryMessage, ...]:
-    return replay_copilot_history(member_id, checkpointer=checkpointer)
+    return replay_copilot_history(member_id)
 
 
 def _latest_user_message(
@@ -200,25 +163,15 @@ def _message_text(parts: list[dict[str, object]]) -> str:
     )
 
 
-def _source(source: CopilotSource) -> Source:
-    return Source(tool=source.tool, node_ids=list(source.node_ids))
-
-
-def _data_sources_part(sources: tuple[CopilotSource, ...]) -> DataSourcesPart:
-    return DataSourcesPart(
-        data=DataSources(sources=[_source(source) for source in sources])
-    )
+def _data_part(part: CopilotDataPart) -> DataPart:
+    return DataPart(type=part.type, data=part.data)
 
 
 def _replay_message(message: CopilotHistoryMessage) -> CopilotReplayMessage:
-    parts: list[TextPart | DataSourcesPart]
-    if message.role == "assistant":
-        parts = [
-            _data_sources_part(message.sources),
-            TextPart(text=message.text),
-        ]
-    else:
-        parts = [TextPart(text=message.text)]
+    parts: list[TextPart | DataPart] = [
+        *(_data_part(part) for part in message.data_parts),
+        TextPart(text=message.text),
+    ]
     return CopilotReplayMessage(id=message.id, role=message.role, parts=parts)
 
 
@@ -226,7 +179,8 @@ def _ui_message_stream(turn: CopilotTurn) -> Iterator[str]:
     text_part_id = f"{turn.message_id}-text"
     yield _sse({"type": "start", "messageId": turn.message_id})
     yield _sse({"type": "start-step"})
-    yield _sse(_data_sources_part(turn.sources).model_dump(mode="json"))
+    for part in turn.data_parts:
+        yield _sse(_data_part(part).model_dump(mode="json"))
     yield _sse({"type": "text-start", "id": text_part_id})
     yield _sse({"type": "text-delta", "id": text_part_id, "delta": turn.text})
     yield _sse({"type": "text-end", "id": text_part_id})
