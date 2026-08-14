@@ -7,7 +7,6 @@ from app.generation._model import (
     GenerationMemberContext,
     ResolvedMention,
 )
-from app.generation.graph import run_generation_session
 from app.generation.intent import (
     Intent,
     InterpretationFailure,
@@ -35,5 +34,4 @@ __all__ = [
     "WalkedPath",
     "build_intent_llm",
     "interpret",
-    "run_generation_session",
 ]

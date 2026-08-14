@@ -1,4 +1,5 @@
-from app.generation import GenerationTurn
+from app.api.generation_parts import generation_data_parts
+from app.generation import GenerationTurn, run_generation_session
 from app.generation.testing import (
     CatalogExercise,
     FakeLLM,
@@ -7,7 +8,6 @@ from app.generation.testing import (
     ResolvedMention,
     Verdict,
     WalkedPath,
-    run_generation_session,
 )
 
 MEMBER_ID = "mbr_01HX9JORDAN"
@@ -105,6 +105,12 @@ def test_adjustment_merges_checkpointed_constraint_set_and_pairs_substitution() 
     assert received_session_injuries[0] == ()
     assert received_session_injuries[1][0].enforced is True
 
+    second_parts = generation_data_parts(turns[1])
+    assert [(part.type, part.id) for part in second_parts] == [
+        ("data-plan", "generation-plan"),
+        ("data-trace", "generation-trace"),
+        ("data-constraints", "generation-constraints"),
+    ]
     substitution = next(
         event for event in turns[1].trace if event.kind == "substitution"
     )
@@ -132,6 +138,16 @@ def test_adjustment_merges_checkpointed_constraint_set_and_pairs_substitution() 
         for mention in third_intent.constraints.session_injuries
         if mention.enforced
     ] == ["knee"]
+    third_parts = generation_data_parts(turns[2])
+    constraints_part = next(
+        part for part in third_parts if part.type == "data-constraints"
+    )
+    assert (
+        constraints_part.data.session_injury_persistence_suggestions[
+            0
+        ].requires_confirmation
+        is True
+    )
 
 
 _MAIN_DUMBBELL_ID = "02fe4cf5-bb21-4bef-868f-fea1477e2a53"
