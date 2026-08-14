@@ -64,7 +64,8 @@ _ROUND_LIMIT_MESSAGE = (
 _SYSTEM_PROMPT = """You are the coach copilot for one member.
 Answer only from retrieval tool results in this thread. Use a retrieval tool before
 making a member-specific claim. The tools are already scoped to the current member.
-Never invent a value or node id. Treat Journey stage and Churn risk as tone guidance,
+For a chart request, call render_chart and select only its kind and window. Never invent
+a value, chart point, or node id. Treat Journey stage and Churn risk as tone guidance,
 not answer evidence. A coach action is only a proposal until the coach confirms it.
 After at most five retrieval tool rounds, answer concisely."""
 
@@ -335,6 +336,7 @@ def _build_graph(
                 _fallback_message(
                     assistant_message_id,
                     _sources(state["messages"]),
+                    _current_tool_data_parts(state["messages"]),
                 )
             ]
         }
@@ -363,6 +365,7 @@ def _build_graph(
                         response,
                         assistant_message_id,
                         _sources(state["messages"]),
+                        _current_tool_data_parts(state["messages"]),
                     )
                 ]
             }
@@ -403,12 +406,16 @@ def _build_graph(
                 continue
             result = retrieval_tool.invoke(tool_call.get("args", {}))
             node_ids = getattr(result, "node_ids", ())
+            additional_kwargs: dict[str, object] = {"node_ids": list(node_ids)}
+            data_part = getattr(result, "data_part", None)
+            if _is_data_part_payload(data_part):
+                additional_kwargs[_DATA_PARTS_KEY] = [data_part]
             tool_messages.append(
                 ToolMessage(
                     content=str(result),
                     name=name,
                     tool_call_id=tool_call["id"],
-                    additional_kwargs={"node_ids": list(node_ids)},
+                    additional_kwargs=additional_kwargs,
                 )
             )
         return {
@@ -507,6 +514,7 @@ def _build_graph(
                     AIMessage(content=_ROUND_LIMIT_MESSAGE),
                     assistant_message_id,
                     _sources(state["messages"]),
+                    _current_tool_data_parts(state["messages"]),
                 )
             ]
         }
@@ -555,18 +563,47 @@ def _member_tool(
     member_id: str,
     as_of: date | None,
 ) -> BaseTool:
-    def retrieve() -> object:
-        return retrieval_tool.invoke({"member_id": member_id, "as_of": as_of})
+    def retrieve(**arguments: object) -> object:
+        return retrieval_tool.invoke(
+            {**arguments, "member_id": member_id, "as_of": as_of}
+        )
+
+    input_schema = retrieval_tool.get_input_jsonschema()
+    raw_properties = input_schema.get("properties")
+    properties = (
+        {
+            key: value
+            for key, value in raw_properties.items()
+            if key not in {"member_id", "as_of"}
+        }
+        if isinstance(raw_properties, dict)
+        else {}
+    )
+    raw_required = input_schema.get("required")
+    required = (
+        [
+            key
+            for key in raw_required
+            if isinstance(key, str) and key not in {"member_id", "as_of"}
+        ]
+        if isinstance(raw_required, list)
+        else []
+    )
+    definitions = input_schema.get("$defs")
+    args_schema: dict[str, object] = {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": False,
+    }
+    if isinstance(definitions, dict):
+        args_schema["$defs"] = definitions
 
     return StructuredTool.from_function(
         func=retrieve,
         name=retrieval_tool.name,
         description=retrieval_tool.description,
-        args_schema={
-            "type": "object",
-            "properties": {},
-            "additionalProperties": False,
-        },
+        args_schema=args_schema,
     )
 
 
@@ -619,11 +656,13 @@ def _has_current_turn_retrieval(messages: Sequence[AnyMessage]) -> bool:
 def _fallback_message(
     message_id: str,
     sources: tuple[CopilotSource, ...],
+    tool_data_parts: tuple[CopilotDataPart, ...],
 ) -> AIMessage:
     return _answer_message(
         AIMessage(content=_FAILURE_MESSAGE),
         message_id,
         sources,
+        tool_data_parts,
     )
 
 
@@ -672,11 +711,17 @@ def _answer_message(
     response: AIMessage,
     message_id: str,
     sources: tuple[CopilotSource, ...],
+    tool_data_parts: tuple[CopilotDataPart, ...] = (),
 ) -> AIMessage:
     data_parts = _ordered_data_parts(
         (
             _sources_part(sources),
-            *(part for part in _data_parts(response) if part.type != "data-sources"),
+            *tool_data_parts,
+            *(
+                part
+                for part in _data_parts(response)
+                if part.type not in {"data-chart", "data-sources"}
+            ),
         )
     )
     additional_kwargs = {
@@ -729,6 +774,29 @@ def _data_parts(message: BaseMessage) -> tuple[CopilotDataPart, ...]:
             continue
         data_parts.append(CopilotDataPart(type=part_type, data=cast("JsonValue", data)))
     return tuple(data_parts)
+
+
+def _current_tool_data_parts(
+    messages: Sequence[AnyMessage],
+) -> tuple[CopilotDataPart, ...]:
+    parts: list[CopilotDataPart] = []
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage):
+            break
+        if isinstance(message, ToolMessage):
+            parts.extend(reversed(_data_parts(message)))
+    return tuple(reversed(parts))
+
+
+def _is_data_part_payload(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    part_type = value.get("type")
+    return (
+        isinstance(part_type, str)
+        and part_type.startswith("data-")
+        and _is_json_value(value.get("data"))
+    )
 
 
 def _is_json_value(value: object) -> bool:

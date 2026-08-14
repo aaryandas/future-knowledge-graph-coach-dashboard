@@ -215,7 +215,10 @@ input:focus-visible {
 }
 
 .copilot-panel {
+  position: sticky;
+  top: var(--header-height);
   width: var(--sidebar-width);
+  height: calc(100svh - var(--header-height));
   min-height: calc(100svh - var(--header-height));
   border-left: 1px solid var(--border);
   opacity: 1;
@@ -229,6 +232,265 @@ input:focus-visible {
   opacity: 0;
   transform: translateX(18px);
   pointer-events: none;
+}
+
+.copilot-log {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding: 14px 2px;
+  overflow-y: auto;
+  border-block: 1px solid var(--border);
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.copilot-empty {
+  display: grid;
+  flex: 1;
+  align-content: center;
+  max-width: 230px;
+  margin-inline: auto;
+  text-align: center;
+}
+
+.copilot-empty p {
+  margin: 0;
+  color: var(--foreground);
+  font-weight: 550;
+}
+
+.copilot-empty span {
+  margin-top: 4px;
+  color: var(--foreground-subtle);
+  font-size: 12px;
+}
+
+.copilot-message {
+  display: flex;
+  animation: copilot-message-in 180ms var(--ease-fluid) both;
+}
+
+.copilot-message[data-role="user"] {
+  justify-content: flex-end;
+}
+
+.copilot-message-body {
+  max-width: 88%;
+  padding: 9px 11px;
+  color: var(--foreground-muted);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px 14px 14px 14px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.copilot-message[data-role="user"] .copilot-message-body {
+  color: var(--foreground);
+  background: var(--accent-muted);
+  border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: 14px 14px 6px;
+}
+
+.copilot-message-body p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.copilot-message-body p + p {
+  margin-top: 7px;
+}
+
+.copilot-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.copilot-sources li {
+  padding: 3px 7px;
+  color: var(--accent);
+  background: var(--accent-muted);
+  border-radius: 999px;
+  font-family: var(--font-app-mono);
+  font-size: 9px;
+}
+
+.copilot-stream-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  padding: 4px 2px;
+  color: var(--foreground-subtle);
+  font-size: 11px;
+}
+
+.copilot-stream-status i {
+  width: 6px;
+  height: 6px;
+  background: var(--accent);
+  border-radius: 50%;
+  box-shadow: 0 0 0 0 var(--accent-muted);
+  animation: copilot-pulse 1.25s ease-out infinite;
+}
+
+.copilot-error {
+  margin: 0;
+  padding: 8px 10px;
+  color: var(--danger);
+  background: var(--danger-muted);
+  border-radius: 10px;
+  font-size: 11px;
+}
+
+.session-plan {
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 18px;
+  animation: content-rise 300ms var(--ease-fluid) both;
+}
+
+.session-plan-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.session-plan-heading span,
+.session-plan-heading p,
+.session-plan-section-heading span {
+  color: var(--foreground-subtle);
+  font-size: 10.5px;
+}
+
+.session-plan-heading span,
+.session-plan-section-heading {
+  font-family: var(--font-app-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.session-plan-heading h2 {
+  margin: 2px 0 0;
+  font-size: 22px;
+  font-weight: 620;
+  letter-spacing: -0.03em;
+}
+
+.session-plan-heading p {
+  margin: 0 0 3px;
+}
+
+.session-plan-sections {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.session-plan-section {
+  min-width: 0;
+  padding: 14px 16px 0;
+}
+
+.session-plan-section:first-child {
+  padding-left: 0;
+}
+
+.session-plan-section:last-child {
+  padding-right: 0;
+}
+
+.session-plan-section + .session-plan-section {
+  border-left: 1px solid var(--border);
+}
+
+.session-plan-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 8px;
+}
+
+.session-plan-section-heading h3 {
+  margin: 0;
+  color: var(--foreground-muted);
+  font-size: 10.5px;
+  font-weight: 550;
+}
+
+.session-plan-section ul {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.session-plan-row {
+  display: grid;
+  grid-template-columns: 19px minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.session-plan-verdict {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  place-items: center;
+  color: var(--success);
+  background: var(--success-muted);
+  border-radius: 50%;
+  font-size: 9px;
+}
+
+.session-plan-row[data-verdict="caution"] .session-plan-verdict {
+  color: var(--warning);
+  background: var(--warning-muted);
+}
+
+.session-plan-row[data-verdict="exclude"] .session-plan-verdict {
+  color: var(--danger);
+  background: var(--danger-muted);
+}
+
+.session-plan-row strong {
+  display: block;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 580;
+  line-height: 1.35;
+}
+
+.session-plan-row strong small {
+  color: var(--foreground-subtle);
+  font-size: 10px;
+  font-weight: 450;
+}
+
+.session-plan-row p,
+.session-plan-caution {
+  margin: 2px 0 0;
+  color: var(--foreground-subtle);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.session-plan-caution {
+  display: block;
+  color: var(--warning);
 }
 
 .skeleton-shimmer {
@@ -933,6 +1195,20 @@ input:focus-visible {
   }
 }
 
+@keyframes copilot-message-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+}
+
+@keyframes copilot-pulse {
+  60%,
+  100% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
 @media (max-width: 900px) {
   .shell-columns,
   .shell-columns[data-sidebar-state="closed"] {
@@ -968,6 +1244,21 @@ input:focus-visible {
 
   .morning-brief ul {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .session-plan-sections {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .session-plan-section,
+  .session-plan-section:first-child,
+  .session-plan-section:last-child {
+    padding-inline: 0;
+  }
+
+  .session-plan-section + .session-plan-section {
+    border-top: 1px solid var(--border);
+    border-left: 0;
   }
 }
 
@@ -1013,6 +1304,10 @@ input:focus-visible {
     bottom: 12px;
     left: 12px;
     width: auto;
+  }
+
+  .session-plan {
+    padding: 14px;
   }
 }
 

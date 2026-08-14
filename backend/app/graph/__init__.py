@@ -48,6 +48,7 @@ from .member_context import (
     get_observations,
     get_workout_sessions,
 )
+from .relevance import RelevanceWindowName, scope_relevance_window
 
 __all__ = [
     "BarrierView",
@@ -77,6 +78,7 @@ __all__ = [
     "ObservationKind",
     "ObservationValue",
     "ObservationView",
+    "RelevanceWindowName",
     "SendMemberMessageWrite",
     "UpdateBriefTaskWrite",
     "WorkoutSessionView",
@@ -93,4 +95,5 @@ __all__ = [
     "get_workout_sessions",
     "ingest_kg1",
     "ingest_kg2",
+    "scope_relevance_window",
 ]
