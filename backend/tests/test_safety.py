@@ -88,6 +88,9 @@ def test_safety_layers_return_verdicts_with_walked_paths(
     assert tuple(node.kind for node in verdict.walked_path.nodes) == node_kinds
     assert tuple(edge.kind for edge in verdict.walked_path.edges) == edge_kinds
     assert len(verdict.walked_path.edges) == len(verdict.walked_path.nodes) - 1
+    assert verdict.trace[0].kind == "verdict"
+    assert verdict.trace[0].walked_path == verdict.decisions[0].walked_path
+    assert verdict.trace[0].was_attributed_to == "graph"
     if layer is not None:
         assert verdict.walked_path.nodes[0].kind == "MemberInjury"
 
@@ -190,6 +193,7 @@ def test_agent_may_tighten_the_safety_floor_but_never_loosen_it(
 
     assert verdict.status == expected_status
     assert tuple(item.kind for item in verdict.decisions) == expected_kinds
+    assert tuple(item.was_attributed_to for item in verdict.trace) == expected_kinds
 
 
 def test_resolver_parsed_clinical_clearance_has_highest_precedence(
