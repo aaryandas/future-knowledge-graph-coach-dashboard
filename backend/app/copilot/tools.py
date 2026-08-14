@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping
-from typing import Any, Literal, TypedDict
+from dataclasses import asdict, dataclass
+from typing import Any, Literal
 
 from langchain_core.tools import BaseTool, tool
 from neo4j import Record
@@ -12,26 +14,36 @@ type ObservationScalar = str | int | float | bool
 type ChatSender = Literal["member", "coach"]
 
 
-class ObservationMeasurement(TypedDict):
+@dataclass(frozen=True)
+class _JsonToolResult:
+    def __str__(self) -> str:
+        return json.dumps(asdict(self), ensure_ascii=False)
+
+
+@dataclass(frozen=True)
+class ObservationMeasurement:
     name: str
     value: ObservationScalar
 
 
-class ObservationData(TypedDict):
+@dataclass(frozen=True)
+class ObservationData:
     node_id: str
     kind: str
     observed_at: str
     value: int | float | None
     unit: str | None
-    measurements: list[ObservationMeasurement]
+    measurements: tuple[ObservationMeasurement, ...]
 
 
-class ObservationsResult(TypedDict):
-    observations: list[ObservationData]
-    node_ids: list[str]
+@dataclass(frozen=True)
+class ObservationsResult(_JsonToolResult):
+    observations: tuple[ObservationData, ...]
+    node_ids: tuple[str, ...]
 
 
-class WorkoutSessionData(TypedDict):
+@dataclass(frozen=True)
+class WorkoutSessionData:
     node_id: str
     date: str
     title: str
@@ -39,16 +51,18 @@ class WorkoutSessionData(TypedDict):
     completed: bool
     duration_min: int
     rpe: int | float | None
-    exercise_mentions: list[str]
-    exercise_ids: list[str]
+    exercise_mentions: tuple[str, ...]
+    exercise_ids: tuple[str, ...]
 
 
-class WorkoutSessionsResult(TypedDict):
-    workout_sessions: list[WorkoutSessionData]
-    node_ids: list[str]
+@dataclass(frozen=True)
+class WorkoutSessionsResult(_JsonToolResult):
+    workout_sessions: tuple[WorkoutSessionData, ...]
+    node_ids: tuple[str, ...]
 
 
-class ChatMessageData(TypedDict):
+@dataclass(frozen=True)
+class ChatMessageData:
     node_id: str
     timestamp: str
     sender: ChatSender
@@ -56,12 +70,14 @@ class ChatMessageData(TypedDict):
     attachments_json: str | None
 
 
-class ChatMessagesResult(TypedDict):
-    chat_messages: list[ChatMessageData]
-    node_ids: list[str]
+@dataclass(frozen=True)
+class ChatMessagesResult(_JsonToolResult):
+    chat_messages: tuple[ChatMessageData, ...]
+    node_ids: tuple[str, ...]
 
 
-class GoalData(TypedDict):
+@dataclass(frozen=True)
+class GoalData:
     node_id: str
     external_id: str
     text: str
@@ -69,12 +85,14 @@ class GoalData(TypedDict):
     target_date: str | None
 
 
-class MemberGoalsResult(TypedDict):
-    goals: list[GoalData]
-    node_ids: list[str]
+@dataclass(frozen=True)
+class MemberGoalsResult(_JsonToolResult):
+    goals: tuple[GoalData, ...]
+    node_ids: tuple[str, ...]
 
 
-class MemberInjuryData(TypedDict):
+@dataclass(frozen=True)
+class MemberInjuryData:
     node_id: str
     external_id: str
     region: str
@@ -84,47 +102,53 @@ class MemberInjuryData(TypedDict):
     since: str
     notes: str
     snomedct_hint: str | None
-    clinical_finding_mentions: list[str]
-    clinical_finding_ids: list[str]
+    clinical_finding_mentions: tuple[str, ...]
+    clinical_finding_ids: tuple[str, ...]
 
 
-class MemberInjuriesResult(TypedDict):
-    injuries: list[MemberInjuryData]
-    node_ids: list[str]
+@dataclass(frozen=True)
+class MemberInjuriesResult(_JsonToolResult):
+    injuries: tuple[MemberInjuryData, ...]
+    node_ids: tuple[str, ...]
 
 
-class BarrierData(TypedDict):
+@dataclass(frozen=True)
+class BarrierData:
     node_id: str
     kind: str
     copper_id: str
     reason: str
     risk_level: str
-    evidence_node_ids: list[str]
+    evidence_node_ids: tuple[str, ...]
 
 
-class CoachTaskData(TypedDict):
+@dataclass(frozen=True)
+class CoachTaskData:
     node_id: str
     generated_for: str
     type: str
     text: str
     status: str
-    addressed_node_ids: list[str]
+    addressed_node_ids: tuple[str, ...]
 
 
-class MorningBriefData(TypedDict):
+@dataclass(frozen=True)
+class MorningBriefData:
     generated_for: str
     churn_risk_level: str
-    churn_risk_reasons: list[str]
-    barriers: list[BarrierData]
-    coach_tasks: list[CoachTaskData]
+    churn_risk_reasons: tuple[str, ...]
+    barriers: tuple[BarrierData, ...]
+    coach_tasks: tuple[CoachTaskData, ...]
 
 
-class MorningBriefResult(TypedDict):
+@dataclass(frozen=True)
+class MorningBriefResult(_JsonToolResult):
     morning_brief: MorningBriefData | None
-    node_ids: list[str]
+    node_ids: tuple[str, ...]
 
 
-class MemberProfileData(TypedDict):
+@dataclass(frozen=True)
+class MemberProfileData:
     node_id: str
     name: str
     age: int
@@ -137,15 +161,16 @@ class MemberProfileData(TypedDict):
     tier: str
     preferred_session_minutes: int
     training_days_per_week: int
-    preferred_days: list[str]
+    preferred_days: tuple[str, ...]
     preference_notes: str
-    equipment_available: list[str]
-    dislikes: list[str]
+    equipment_available: tuple[str, ...]
+    dislikes: tuple[str, ...]
 
 
-class MemberProfileResult(TypedDict):
+@dataclass(frozen=True)
+class MemberProfileResult(_JsonToolResult):
     profile: MemberProfileData | None
-    node_ids: list[str]
+    node_ids: tuple[str, ...]
 
 
 @tool
@@ -171,10 +196,10 @@ def get_observations(member_id: str) -> ObservationsResult:
             properties = _record_properties(record)
             observations.append(_observation_data(node_id, properties))
             observation_node_ids.append(node_id)
-    return {
-        "observations": observations,
-        "node_ids": _node_ids(member_node_id, observation_node_ids),
-    }
+    return ObservationsResult(
+        observations=tuple(observations),
+        node_ids=_node_ids(member_node_id, observation_node_ids),
+    )
 
 
 @tool
@@ -202,20 +227,20 @@ def get_workout_sessions(member_id: str) -> WorkoutSessionsResult:
             if node_id is None:
                 continue
             properties = _record_properties(record)
-            exercise_ids = sorted(_record_strings(record, "exercise_ids"))
+            exercise_ids = tuple(sorted(_record_strings(record, "exercise_ids")))
             workout_sessions.append(
                 _workout_session_data(node_id, properties, exercise_ids)
             )
             workout_node_ids.append(node_id)
             exercise_node_ids.extend(exercise_ids)
-    return {
-        "workout_sessions": workout_sessions,
-        "node_ids": _node_ids(
+    return WorkoutSessionsResult(
+        workout_sessions=tuple(workout_sessions),
+        node_ids=_node_ids(
             member_node_id,
             workout_node_ids,
             exercise_node_ids,
         ),
-    }
+    )
 
 
 @tool
@@ -242,10 +267,10 @@ def get_chat_messages(member_id: str) -> ChatMessagesResult:
                 _chat_message_data(node_id, _record_properties(record))
             )
             message_node_ids.append(node_id)
-    return {
-        "chat_messages": chat_messages,
-        "node_ids": _node_ids(member_node_id, message_node_ids),
-    }
+    return ChatMessagesResult(
+        chat_messages=tuple(chat_messages),
+        node_ids=_node_ids(member_node_id, message_node_ids),
+    )
 
 
 @tool
@@ -270,10 +295,10 @@ def get_member_goals(member_id: str) -> MemberGoalsResult:
                 continue
             goals.append(_goal_data(node_id, _record_properties(record)))
             goal_node_ids.append(node_id)
-    return {
-        "goals": goals,
-        "node_ids": _node_ids(member_node_id, goal_node_ids),
-    }
+    return MemberGoalsResult(
+        goals=tuple(goals),
+        node_ids=_node_ids(member_node_id, goal_node_ids),
+    )
 
 
 @tool
@@ -300,8 +325,8 @@ def get_member_injuries(member_id: str) -> MemberInjuriesResult:
             node_id = _optional_record_string(record, "node_id")
             if node_id is None:
                 continue
-            clinical_finding_ids = sorted(
-                _record_strings(record, "clinical_finding_ids")
+            clinical_finding_ids = tuple(
+                sorted(_record_strings(record, "clinical_finding_ids"))
             )
             injuries.append(
                 _member_injury_data(
@@ -312,14 +337,14 @@ def get_member_injuries(member_id: str) -> MemberInjuriesResult:
             )
             injury_node_ids.append(node_id)
             finding_node_ids.extend(clinical_finding_ids)
-    return {
-        "injuries": injuries,
-        "node_ids": _node_ids(
+    return MemberInjuriesResult(
+        injuries=tuple(injuries),
+        node_ids=_node_ids(
             member_node_id,
             injury_node_ids,
             finding_node_ids,
         ),
-    }
+    )
 
 
 @tool
@@ -342,36 +367,36 @@ def get_morning_brief(member_id: str) -> MorningBriefResult:
             member_id=member_id,
         ).single()
     if record is None:
-        return {"morning_brief": None, "node_ids": []}
+        return MorningBriefResult(morning_brief=None, node_ids=())
 
     member_node_id = _record_string(record, "member_node_id")
     properties = _record_properties(record)
     coach_tasks = _coach_tasks(_record_mappings(record, "task_rows"))
     barriers = _barriers(_record_mappings(record, "barrier_rows"))
-    return {
-        "morning_brief": {
-            "generated_for": _string(properties, "brief_generated_for"),
-            "churn_risk_level": _string(properties, "churn_risk_level"),
-            "churn_risk_reasons": _strings(properties, "churn_risk_reasons"),
-            "barriers": barriers,
-            "coach_tasks": coach_tasks,
-        },
-        "node_ids": _node_ids(
+    return MorningBriefResult(
+        morning_brief=MorningBriefData(
+            generated_for=_string(properties, "brief_generated_for"),
+            churn_risk_level=_string(properties, "churn_risk_level"),
+            churn_risk_reasons=_strings(properties, "churn_risk_reasons"),
+            barriers=barriers,
+            coach_tasks=coach_tasks,
+        ),
+        node_ids=_node_ids(
             member_node_id,
-            (task["node_id"] for task in coach_tasks),
+            (task.node_id for task in coach_tasks),
             (
                 addressed_node_id
                 for task in coach_tasks
-                for addressed_node_id in task["addressed_node_ids"]
+                for addressed_node_id in task.addressed_node_ids
             ),
-            (barrier["node_id"] for barrier in barriers),
+            (barrier.node_id for barrier in barriers),
             (
                 evidence_node_id
                 for barrier in barriers
-                for evidence_node_id in barrier["evidence_node_ids"]
+                for evidence_node_id in barrier.evidence_node_ids
             ),
         ),
-    }
+    )
 
 
 @tool
@@ -388,20 +413,20 @@ def get_member_profile(member_id: str) -> MemberProfileResult:
             member_id=member_id,
         ).single()
     if record is None:
-        return {"profile": None, "node_ids": []}
+        return MemberProfileResult(profile=None, node_ids=())
 
     member_node_id = _record_string(record, "member_node_id")
     properties = _record_properties(record)
     equipment_node_ids = sorted(_record_strings(record, "equipment_node_ids"))
     exercise_node_ids = sorted(_record_strings(record, "exercise_node_ids"))
-    return {
-        "profile": _member_profile_data(member_node_id, properties),
-        "node_ids": _node_ids(
+    return MemberProfileResult(
+        profile=_member_profile_data(member_node_id, properties),
+        node_ids=_node_ids(
             member_node_id,
             equipment_node_ids,
             exercise_node_ids,
         ),
-    }
+    )
 
 
 RETRIEVAL_TOOLS: tuple[BaseTool, ...] = (
@@ -427,104 +452,104 @@ def _observation_data(node_id: str, properties: dict[str, Any]) -> ObservationDa
         "version",
         "ingested_at",
     }
-    measurements: list[ObservationMeasurement] = [
-        {"name": key, "value": _observation_scalar(item, key)}
+    measurements = tuple(
+        ObservationMeasurement(name=key, value=_observation_scalar(item, key))
         for key, item in sorted(properties.items())
         if key not in excluded
-    ]
-    return {
-        "node_id": node_id,
-        "kind": _string(properties, "kind"),
-        "observed_at": _string(properties, "observed_at"),
-        "value": _optional_number(properties, "value"),
-        "unit": _optional_string(properties, "unit"),
-        "measurements": measurements,
-    }
+    )
+    return ObservationData(
+        node_id=node_id,
+        kind=_string(properties, "kind"),
+        observed_at=_string(properties, "observed_at"),
+        value=_optional_number(properties, "value"),
+        unit=_optional_string(properties, "unit"),
+        measurements=measurements,
+    )
 
 
 def _workout_session_data(
     node_id: str,
     properties: dict[str, Any],
-    exercise_ids: list[str],
+    exercise_ids: tuple[str, ...],
 ) -> WorkoutSessionData:
-    return {
-        "node_id": node_id,
-        "date": _string(properties, "date"),
-        "title": _string(properties, "title"),
-        "planned": _bool(properties, "planned"),
-        "completed": _bool(properties, "completed"),
-        "duration_min": _int(properties, "duration_min"),
-        "rpe": _optional_number(properties, "rpe"),
-        "exercise_mentions": _strings(properties, "exercise_mentions"),
-        "exercise_ids": exercise_ids,
-    }
+    return WorkoutSessionData(
+        node_id=node_id,
+        date=_string(properties, "date"),
+        title=_string(properties, "title"),
+        planned=_bool(properties, "planned"),
+        completed=_bool(properties, "completed"),
+        duration_min=_int(properties, "duration_min"),
+        rpe=_optional_number(properties, "rpe"),
+        exercise_mentions=_strings(properties, "exercise_mentions"),
+        exercise_ids=exercise_ids,
+    )
 
 
 def _chat_message_data(node_id: str, properties: dict[str, Any]) -> ChatMessageData:
     sender = _string(properties, "sender")
     if sender not in ("member", "coach"):
         raise ValueError(f"ChatMessage {node_id} has unsupported sender {sender}")
-    return {
-        "node_id": node_id,
-        "timestamp": _string(properties, "timestamp"),
-        "sender": sender,
-        "text": _string(properties, "text"),
-        "attachments_json": _optional_string(properties, "attachments_json"),
-    }
+    return ChatMessageData(
+        node_id=node_id,
+        timestamp=_string(properties, "timestamp"),
+        sender=sender,
+        text=_string(properties, "text"),
+        attachments_json=_optional_string(properties, "attachments_json"),
+    )
 
 
 def _goal_data(node_id: str, properties: dict[str, Any]) -> GoalData:
-    return {
-        "node_id": node_id,
-        "external_id": _string(properties, "external_id"),
-        "text": _string(properties, "text"),
-        "priority": _int(properties, "priority"),
-        "target_date": _optional_string(properties, "target_date"),
-    }
+    return GoalData(
+        node_id=node_id,
+        external_id=_string(properties, "external_id"),
+        text=_string(properties, "text"),
+        priority=_int(properties, "priority"),
+        target_date=_optional_string(properties, "target_date"),
+    )
 
 
 def _member_injury_data(
     node_id: str,
     properties: dict[str, Any],
-    clinical_finding_ids: list[str],
+    clinical_finding_ids: tuple[str, ...],
 ) -> MemberInjuryData:
-    return {
-        "node_id": node_id,
-        "external_id": _string(properties, "external_id"),
-        "region": _string(properties, "region"),
-        "joint": _string(properties, "joint"),
-        "status": _string(properties, "status"),
-        "severity": _string(properties, "severity"),
-        "since": _string(properties, "since"),
-        "notes": _string(properties, "notes"),
-        "snomedct_hint": _optional_string(properties, "snomedct_hint"),
-        "clinical_finding_mentions": _strings(properties, "clinical_finding_mentions"),
-        "clinical_finding_ids": clinical_finding_ids,
-    }
+    return MemberInjuryData(
+        node_id=node_id,
+        external_id=_string(properties, "external_id"),
+        region=_string(properties, "region"),
+        joint=_string(properties, "joint"),
+        status=_string(properties, "status"),
+        severity=_string(properties, "severity"),
+        since=_string(properties, "since"),
+        notes=_string(properties, "notes"),
+        snomedct_hint=_optional_string(properties, "snomedct_hint"),
+        clinical_finding_mentions=_strings(properties, "clinical_finding_mentions"),
+        clinical_finding_ids=clinical_finding_ids,
+    )
 
 
 def _member_profile_data(node_id: str, properties: dict[str, Any]) -> MemberProfileData:
-    return {
-        "node_id": node_id,
-        "name": _string(properties, "name"),
-        "age": _int(properties, "age"),
-        "sex": _string(properties, "sex"),
-        "height_cm": _number(properties, "height_cm"),
-        "weight_kg": _number(properties, "weight_kg"),
-        "timezone": _string(properties, "timezone"),
-        "member_since": _string(properties, "member_since"),
-        "coach_id": _string(properties, "coach_id"),
-        "tier": _string(properties, "tier"),
-        "preferred_session_minutes": _int(properties, "preferred_session_minutes"),
-        "training_days_per_week": _int(properties, "training_days_per_week"),
-        "preferred_days": _strings(properties, "preferred_days"),
-        "preference_notes": _string(properties, "preference_notes"),
-        "equipment_available": _strings(properties, "equipment_available"),
-        "dislikes": _strings(properties, "dislikes"),
-    }
+    return MemberProfileData(
+        node_id=node_id,
+        name=_string(properties, "name"),
+        age=_int(properties, "age"),
+        sex=_string(properties, "sex"),
+        height_cm=_number(properties, "height_cm"),
+        weight_kg=_number(properties, "weight_kg"),
+        timezone=_string(properties, "timezone"),
+        member_since=_string(properties, "member_since"),
+        coach_id=_string(properties, "coach_id"),
+        tier=_string(properties, "tier"),
+        preferred_session_minutes=_int(properties, "preferred_session_minutes"),
+        training_days_per_week=_int(properties, "training_days_per_week"),
+        preferred_days=_strings(properties, "preferred_days"),
+        preference_notes=_string(properties, "preference_notes"),
+        equipment_available=_strings(properties, "equipment_available"),
+        dislikes=_strings(properties, "dislikes"),
+    )
 
 
-def _coach_tasks(rows: list[Mapping[str, Any]]) -> list[CoachTaskData]:
+def _coach_tasks(rows: list[Mapping[str, Any]]) -> tuple[CoachTaskData, ...]:
     task_rows: dict[str, tuple[dict[str, Any], set[str]]] = {}
     for row in rows:
         node_id = _optional_mapping_string(row, "node_id")
@@ -536,24 +561,24 @@ def _coach_tasks(rows: list[Mapping[str, Any]]) -> list[CoachTaskData]:
             task_rows[node_id] = (properties, set())
         if addressed_node_id is not None:
             task_rows[node_id][1].add(addressed_node_id)
-    return [
-        {
-            "node_id": node_id,
-            "generated_for": _string(properties, "generated_for"),
-            "type": _string(properties, "type"),
-            "text": _string(properties, "text"),
-            "status": _string(properties, "status"),
-            "addressed_node_ids": sorted(addressed_node_ids),
-        }
+    return tuple(
+        CoachTaskData(
+            node_id=node_id,
+            generated_for=_string(properties, "generated_for"),
+            type=_string(properties, "type"),
+            text=_string(properties, "text"),
+            status=_string(properties, "status"),
+            addressed_node_ids=tuple(sorted(addressed_node_ids)),
+        )
         for node_id, (properties, addressed_node_ids) in sorted(
             sorted(task_rows.items()),
             key=lambda item: _string(item[1][0], "generated_for"),
             reverse=True,
         )
-    ]
+    )
 
 
-def _barriers(rows: list[Mapping[str, Any]]) -> list[BarrierData]:
+def _barriers(rows: list[Mapping[str, Any]]) -> tuple[BarrierData, ...]:
     barrier_rows: dict[str, tuple[dict[str, Any], set[str]]] = {}
     for row in rows:
         node_id = _optional_mapping_string(row, "node_id")
@@ -565,23 +590,23 @@ def _barriers(rows: list[Mapping[str, Any]]) -> list[BarrierData]:
             barrier_rows[node_id] = (properties, set())
         if evidence_node_id is not None:
             barrier_rows[node_id][1].add(evidence_node_id)
-    return [
-        {
-            "node_id": node_id,
-            "kind": _string(properties, "kind"),
-            "copper_id": _string(properties, "copper_id"),
-            "reason": _string(properties, "reason"),
-            "risk_level": _string(properties, "risk_level"),
-            "evidence_node_ids": sorted(evidence_node_ids),
-        }
+    return tuple(
+        BarrierData(
+            node_id=node_id,
+            kind=_string(properties, "kind"),
+            copper_id=_string(properties, "copper_id"),
+            reason=_string(properties, "reason"),
+            risk_level=_string(properties, "risk_level"),
+            evidence_node_ids=tuple(sorted(evidence_node_ids)),
+        )
         for node_id, (properties, evidence_node_ids) in sorted(barrier_rows.items())
-    ]
+    )
 
 
 def _node_ids(
     member_node_id: str | None,
     *node_id_groups: Iterable[str],
-) -> list[str]:
+) -> tuple[str, ...]:
     node_ids: list[str] = []
     seen: set[str] = set()
     for node_id in () if member_node_id is None else (member_node_id,):
@@ -593,7 +618,7 @@ def _node_ids(
                 continue
             seen.add(node_id)
             node_ids.append(node_id)
-    return node_ids
+    return tuple(node_ids)
 
 
 def _record_properties(record: Record) -> dict[str, Any]:
@@ -617,11 +642,11 @@ def _optional_record_string(record: Record, key: str) -> str | None:
     return value
 
 
-def _record_strings(record: Record, key: str) -> list[str]:
+def _record_strings(record: Record, key: str) -> tuple[str, ...]:
     value = record[key]
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise TypeError(f"Expected {key} to be a list of strings")
-    return value
+    return tuple(value)
 
 
 def _record_mappings(record: Record, key: str) -> list[Mapping[str, Any]]:
@@ -661,11 +686,11 @@ def _optional_string(properties: Mapping[str, Any], key: str) -> str | None:
     return value
 
 
-def _strings(properties: Mapping[str, Any], key: str) -> list[str]:
+def _strings(properties: Mapping[str, Any], key: str) -> tuple[str, ...]:
     value = properties.get(key)
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise TypeError(f"Expected {key} to be a list of strings")
-    return value
+    return tuple(value)
 
 
 def _bool(properties: Mapping[str, Any], key: str) -> bool:
