@@ -252,6 +252,7 @@ def _build_graph(
         result = pack(state.get("candidates", ()), intent, state["window"])
         if isinstance(result, PackingFailure):
             return {
+                "plan": None,
                 "failure": GenerationFailure(
                     reason=result.reason,
                     message=result.message,
@@ -303,7 +304,6 @@ def _rank_inputs(
     verdict_by_exercise_id = {verdict.exercise_id: verdict for verdict in verdicts}
     target_ids = _resolved_ids(resolved_intent.targets)
     exclusion_ids, exclusion_pattern_ids = _resolved_exclusions(
-        catalog,
         resolved_intent.constraints.exclusions,
     )
     equipment_override = resolved_intent.constraints.equipment_override
@@ -355,7 +355,6 @@ def _resolved_ids(mentions: tuple[ResolvedMention, ...]) -> frozenset[str]:
 
 
 def _resolved_exclusions(
-    catalog: tuple[CatalogExercise, ...],
     mentions: tuple[ResolvedMention, ...],
 ) -> tuple[frozenset[str], frozenset[str]]:
     exercise_ids = frozenset(
@@ -365,20 +364,14 @@ def _resolved_exclusions(
         and mention.vocabulary == "Exercise"
         and mention.resolution.concept_id is not None
     )
-    movement_pattern_ids = {
+    movement_pattern_ids = frozenset(
         mention.resolution.concept_id
         for mention in mentions
         if mention.enforced
         and mention.vocabulary == "MovementPattern"
         and mention.resolution.concept_id is not None
-    }
-    movement_pattern_ids.update(
-        pattern_id
-        for exercise in catalog
-        if exercise.exercise_id in exercise_ids
-        for pattern_id in exercise.movement_pattern_ids
     )
-    return exercise_ids, frozenset(movement_pattern_ids)
+    return exercise_ids, movement_pattern_ids
 
 
 def _thread_config(thread_id: str) -> RunnableConfig:
