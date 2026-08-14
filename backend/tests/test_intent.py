@@ -169,4 +169,4 @@ def test_intent_is_frozen() -> None:
     )
 
     with pytest.raises(FrozenInstanceError):
-        intent.focus = "lower-body"  # ty: ignore[invalid-assignment]
+        intent.focus = "lower-body"  # ty: ignore[invalid-assignment]  # Verify immutability.

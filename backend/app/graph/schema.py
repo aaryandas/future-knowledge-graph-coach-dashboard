@@ -9,6 +9,14 @@ type NodeLabel = Literal[
     "Injury",
     "AnatomicalStructure",
     "ClinicalFinding",
+    "Member",
+    "Goal",
+    "MemberInjury",
+    "WorkoutSession",
+    "Observation",
+    "ChatMessage",
+    "Barrier",
+    "CoachTask",
 ]
 type EdgeType = Literal[
     "targets",
@@ -19,10 +27,21 @@ type EdgeType = Literal[
     "isA",
     "exactMatch",
     "contraindicates",
+    "pursues",
+    "has",
+    "owns",
+    "performed",
+    "observed",
+    "said",
+    "received",
+    "dislikes",
+    "included",
+    "evidencedBy",
+    "addresses",
 ]
 type TaxonomyField = tuple[str, NodeLabel, EdgeType, str]
 
-NODE_LABELS: tuple[NodeLabel, ...] = (
+KG1_NODE_LABELS: tuple[NodeLabel, ...] = (
     "Exercise",
     "MuscleGroup",
     "Joint",
@@ -33,7 +52,20 @@ NODE_LABELS: tuple[NodeLabel, ...] = (
     "ClinicalFinding",
 )
 
-EDGE_TYPES: tuple[EdgeType, ...] = (
+KG2_NODE_LABELS: tuple[NodeLabel, ...] = (
+    "Member",
+    "Goal",
+    "MemberInjury",
+    "WorkoutSession",
+    "Observation",
+    "ChatMessage",
+    "Barrier",
+    "CoachTask",
+)
+
+NODE_LABELS: tuple[NodeLabel, ...] = (*KG1_NODE_LABELS, *KG2_NODE_LABELS)
+
+KG1_EDGE_TYPES: tuple[EdgeType, ...] = (
     "targets",
     "loads",
     "performs",
@@ -42,6 +74,25 @@ EDGE_TYPES: tuple[EdgeType, ...] = (
     "isA",
     "exactMatch",
     "contraindicates",
+)
+
+KG2_EDGE_TYPES: tuple[EdgeType, ...] = (
+    "pursues",
+    "has",
+    "owns",
+    "performed",
+    "observed",
+    "said",
+    "received",
+    "dislikes",
+    "included",
+    "exactMatch",
+    "evidencedBy",
+    "addresses",
+)
+
+EDGE_TYPES: tuple[EdgeType, ...] = tuple(
+    dict.fromkeys((*KG1_EDGE_TYPES, *KG2_EDGE_TYPES))
 )
 
 EXERCISE_TAXONOMIES: tuple[TaxonomyField, ...] = (
