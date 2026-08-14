@@ -1396,5 +1396,91 @@
     "supports_weight": true,
     "estimated_rep_duration": 0.5,
     "bilateral_pair_id": "690b051a-3c35-4d5f-b135-9f868bed2136"
+  },
+  {
+    "id": "2f787955-4e40-4103-9d9e-7f0d22b3e194",
+    "name": "Barbell Deadlift",
+    "muscle_groups": [
+      "glutes",
+      "hamstrings",
+      "quads",
+      "lower back"
+    ],
+    "joints_loaded": [
+      "hip",
+      "knee",
+      "lumbar spine"
+    ],
+    "movement_patterns": [
+      "lower pull - hip hinge"
+    ],
+    "equipment_required": [
+      "Barbell",
+      "Plate"
+    ],
+    "is_bilateral": false,
+    "side": null,
+    "priority_tier": 2,
+    "is_reps": true,
+    "is_duration": true,
+    "supports_weight": true,
+    "estimated_rep_duration": 0.4,
+    "bilateral_pair_id": null
+  },
+  {
+    "id": "9b09c2e8-d997-4b9b-b13b-986ade901fc7",
+    "name": "Dumbbell Romanian Deadlift",
+    "muscle_groups": [
+      "hamstrings",
+      "glutes",
+      "lower back"
+    ],
+    "joints_loaded": [
+      "hip",
+      "knee",
+      "lumbar spine"
+    ],
+    "movement_patterns": [
+      "lower pull - hip hinge"
+    ],
+    "equipment_required": [
+      "Dumbbell"
+    ],
+    "is_bilateral": false,
+    "side": null,
+    "priority_tier": 2,
+    "is_reps": true,
+    "is_duration": true,
+    "supports_weight": true,
+    "estimated_rep_duration": 0.4,
+    "bilateral_pair_id": null
+  },
+  {
+    "id": "90900327-80eb-4981-9a09-c218484be28b",
+    "name": "Kettlebell Romanian Deadlift",
+    "muscle_groups": [
+      "hamstrings",
+      "glutes",
+      "lower back"
+    ],
+    "joints_loaded": [
+      "hip",
+      "knee",
+      "lumbar spine"
+    ],
+    "movement_patterns": [
+      "lower pull - hip hinge"
+    ],
+    "equipment_required": [
+      "Kettlebell"
+    ],
+    "is_bilateral": false,
+    "side": null,
+    "priority_tier": 2,
+    "is_reps": true,
+    "is_duration": true,
+    "supports_weight": true,
+    "estimated_rep_duration": 0.4,
+    "bilateral_pair_id": null
   }
 ]

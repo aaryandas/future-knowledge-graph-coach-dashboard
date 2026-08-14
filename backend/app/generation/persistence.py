@@ -24,6 +24,7 @@ from app.generation._trace import (
     AgentTraceEvent,
     PackingTraceEvent,
     ResolutionTraceEvent,
+    SubstitutionTraceEvent,
     VerdictTraceEvent,
 )
 from app.generation.intent import Intent
@@ -57,6 +58,7 @@ _CHECKPOINT_TYPES = (
     ResolutionTraceEvent,
     ResolvedIntent,
     ResolvedMention,
+    SubstitutionTraceEvent,
     Verdict,
     VerdictTraceEvent,
     WalkedEdge,

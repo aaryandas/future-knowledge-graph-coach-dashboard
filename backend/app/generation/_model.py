@@ -15,6 +15,7 @@ type ResolutionVocabulary = Literal[
     "Exercise",
     "MuscleGroup",
     "Joint",
+    "MovementPattern",
     "Equipment",
     "AnatomicalStructure",
     "ClinicalFinding",

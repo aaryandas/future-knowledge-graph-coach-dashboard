@@ -12,6 +12,7 @@ from app.generation._catalog import (
     read_catalog_exercises,
     read_generation_member_context,
 )
+from app.generation._constraints import merge_intent, merge_resolved_intent
 from app.generation._model import (
     Candidate,
     CatalogExercise,
@@ -23,15 +24,20 @@ from app.generation._model import (
 )
 from app.generation._packing import PackingFailure, pack
 from app.generation._resolution import resolve_intent
+from app.generation._safety import evaluate_generation_safety
+from app.generation._substitution import pair_substitutions
 from app.generation._trace import AgentTraceEvent, TraceEvent
 from app.generation.annotation import AnnotationLLM, annotate
 from app.generation.intent import Intent, InterpretationFailure, interpret
 from app.generation.llm import IntentLLM
-from app.safety import Verdict, evaluate_safety
+from app.safety import Verdict
 
 type CatalogReader = Callable[[], tuple[CatalogExercise, ...]]
 type MemberContextReader = Callable[[str], GenerationMemberContext | None]
-type VerdictEvaluator = Callable[[str, tuple[str, ...]], tuple[Verdict, ...]]
+type VerdictEvaluator = Callable[
+    [str, tuple[str, ...], tuple[ResolvedMention, ...]],
+    tuple[Verdict, ...],
+]
 type AnnotationTraceRecorder = Callable[
     [tuple[TraceEvent, ...], AgentTraceEvent],
     None,
@@ -44,6 +50,7 @@ class _GenerationState(TypedDict, total=False):
     coach_message: str
     window: int
     intent: Intent | None
+    intent_delta: Intent | None
     resolved_intent: ResolvedIntent | None
     catalog: tuple[CatalogExercise, ...]
     verdicts: tuple[Verdict, ...]
@@ -76,7 +83,7 @@ def run_generation_session(
     message_id: str | None = None,
     catalog_reader: CatalogReader = read_catalog_exercises,
     member_context_reader: MemberContextReader = read_generation_member_context,
-    verdict_evaluator: VerdictEvaluator = evaluate_safety,
+    verdict_evaluator: VerdictEvaluator = evaluate_generation_safety,
     annotation_trace_recorder: AnnotationTraceRecorder | None = None,
 ) -> GenerationTurn:
     """Run one checkpointed generation turn using the useChat thread id."""
@@ -100,12 +107,6 @@ def run_generation_session(
                 "member_id": member_id,
                 "coach_message": coach_message.strip(),
                 "window": window,
-                "intent": None,
-                "resolved_intent": None,
-                "catalog": (),
-                "verdicts": (),
-                "candidates": (),
-                "plan": None,
                 "trace": (),
                 "failure": None,
             },
@@ -154,7 +155,7 @@ def append_annotation_trace_event(
         llm=None,
         catalog_reader=read_catalog_exercises,
         member_context_reader=read_generation_member_context,
-        verdict_evaluator=evaluate_safety,
+        verdict_evaluator=evaluate_generation_safety,
     )
     graph.update_state(_thread_config(thread_id), {"trace": (*trace, event)})
 
@@ -177,25 +178,36 @@ def _build_graph(
                     attempts=result.attempts,
                 )
             }
-        return {"intent": result}
+        return {"intent_delta": result}
 
     def route_after_interpret(state: _GenerationState) -> GenerationRoute:
         return "__end__" if state.get("failure") is not None else "resolve"
 
     def resolve_node(state: _GenerationState) -> dict[str, object]:
-        intent = state.get("intent")
-        if intent is None:
-            raise RuntimeError("The resolve node has no Intent")
-        resolved, events = resolve_intent(intent)
+        delta = state.get("intent_delta")
+        if delta is None:
+            raise RuntimeError("The resolve node has no Intent delta")
+        resolved_delta, events = resolve_intent(delta)
         return {
-            "resolved_intent": resolved,
+            "intent": merge_intent(state.get("intent"), delta),
+            "resolved_intent": merge_resolved_intent(
+                state.get("resolved_intent"),
+                resolved_delta,
+            ),
             "trace": (*state.get("trace", ()), *events),
         }
 
     def verdicts_node(state: _GenerationState) -> dict[str, object]:
         catalog = catalog_reader()
         exercise_ids = tuple(exercise.exercise_id for exercise in catalog)
-        verdicts = verdict_evaluator(state["member_id"], exercise_ids)
+        resolved = state.get("resolved_intent")
+        if resolved is None:
+            raise RuntimeError("The verdicts node has no resolved Intent")
+        verdicts = verdict_evaluator(
+            state["member_id"],
+            exercise_ids,
+            resolved.constraints.session_injuries,
+        )
         return {
             "catalog": catalog,
             "verdicts": verdicts,
@@ -244,9 +256,14 @@ def _build_graph(
                 "trace": (*state.get("trace", ()), *result.events),
             }
         plan, events = result
+        substitutions = pair_substitutions(
+            state.get("plan"),
+            plan,
+            state.get("catalog", ()),
+        )
         return {
             "plan": plan,
-            "trace": (*state.get("trace", ()), *events),
+            "trace": (*state.get("trace", ()), *events, *substitutions),
         }
 
     # ty cannot recognize LangGraph's supported TypedDict state schema.
@@ -281,7 +298,10 @@ def _rank_inputs(
 ) -> tuple[Candidate, ...]:
     verdict_by_exercise_id = {verdict.exercise_id: verdict for verdict in verdicts}
     target_ids = _resolved_ids(resolved_intent.targets)
-    exclusion_ids = _resolved_ids(resolved_intent.constraints.exclusions)
+    exclusion_ids, exclusion_pattern_ids = _resolved_exclusions(
+        catalog,
+        resolved_intent.constraints.exclusions,
+    )
     equipment_override = resolved_intent.constraints.equipment_override
     available_equipment_ids = (
         frozenset(member_context.equipment_ids)
@@ -313,7 +333,10 @@ def _rank_inputs(
             has_required_equipment=frozenset(exercise.equipment_ids).issubset(
                 available_equipment_ids
             ),
-            explicitly_excluded=exercise.exercise_id in exclusion_ids,
+            explicitly_excluded=(
+                exercise.exercise_id in exclusion_ids
+                or not exclusion_pattern_ids.isdisjoint(exercise.movement_pattern_ids)
+            ),
         )
         for exercise in catalog
     )
@@ -325,6 +348,33 @@ def _resolved_ids(mentions: tuple[ResolvedMention, ...]) -> frozenset[str]:
         for mention in mentions
         if mention.enforced and mention.resolution.concept_id is not None
     )
+
+
+def _resolved_exclusions(
+    catalog: tuple[CatalogExercise, ...],
+    mentions: tuple[ResolvedMention, ...],
+) -> tuple[frozenset[str], frozenset[str]]:
+    exercise_ids = frozenset(
+        mention.resolution.concept_id
+        for mention in mentions
+        if mention.enforced
+        and mention.vocabulary == "Exercise"
+        and mention.resolution.concept_id is not None
+    )
+    movement_pattern_ids = {
+        mention.resolution.concept_id
+        for mention in mentions
+        if mention.enforced
+        and mention.vocabulary == "MovementPattern"
+        and mention.resolution.concept_id is not None
+    }
+    movement_pattern_ids.update(
+        pattern_id
+        for exercise in catalog
+        if exercise.exercise_id in exercise_ids
+        for pattern_id in exercise.movement_pattern_ids
+    )
+    return exercise_ids, frozenset(movement_pattern_ids)
 
 
 def _thread_config(thread_id: str) -> RunnableConfig:

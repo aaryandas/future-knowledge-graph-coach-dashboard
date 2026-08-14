@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, JsonValue
 
 from app.api.copilot_action_models import DataAction, DataActionPart
 from app.api.copilot_brief_models import DataBrief, DataBriefPart
+from app.api.data_chart import DataChartPart
 from app.copilot import (
     CopilotConflict,
     CopilotDataPart,
@@ -76,7 +77,14 @@ class CopilotReplayMessage(BaseModel):
 
     id: str
     role: Literal["user", "assistant"]
-    parts: list[TextPart | DataSourcesPart | DataBriefPart | DataActionPart | DataPart]
+    parts: list[
+        TextPart
+        | DataChartPart
+        | DataSourcesPart
+        | DataBriefPart
+        | DataActionPart
+        | DataPart
+    ]
 
 
 class CopilotHistory(BaseModel):
@@ -198,7 +206,9 @@ def _message_text(parts: list[dict[str, object]]) -> str:
 
 def _data_part(
     part: CopilotDataPart,
-) -> DataSourcesPart | DataBriefPart | DataActionPart | DataPart:
+) -> DataChartPart | DataSourcesPart | DataBriefPart | DataActionPart | DataPart:
+    if part.type == "data-chart":
+        return DataChartPart.model_validate({"data": part.data})
     if part.type == "data-sources":
         return DataSourcesPart(data=DataSources.model_validate(part.data))
     if part.type == "data-brief":
@@ -210,7 +220,12 @@ def _data_part(
 
 def _replay_message(message: CopilotHistoryMessage) -> CopilotReplayMessage:
     parts: list[
-        TextPart | DataSourcesPart | DataBriefPart | DataActionPart | DataPart
+        TextPart
+        | DataChartPart
+        | DataSourcesPart
+        | DataBriefPart
+        | DataActionPart
+        | DataPart
     ] = [
         *(_data_part(part) for part in _ordered_data_parts(message.data_parts)),
         TextPart(text=message.text),

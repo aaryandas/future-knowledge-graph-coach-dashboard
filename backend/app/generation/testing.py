@@ -10,8 +10,10 @@ from app.generation._model import (
     Plan,
     PlanEntry,
     PlanSection,
+    ResolvedMention,
 )
 from app.generation._trace import AgentTraceEvent
+from app.generation.graph import run_generation_session as run_checkpointed_session
 from app.generation.intent import (
     Intent,
     InterpretationFailure,
@@ -23,6 +25,7 @@ from app.generation.llm import (
     LLMProviderError,
     build_intent_llm,
 )
+from app.safety import Verdict, WalkedPath
 
 
 class FakeAnnotationLLM:
@@ -61,6 +64,10 @@ __all__ = [
     "Plan",
     "PlanEntry",
     "PlanSection",
+    "ResolvedMention",
+    "Verdict",
+    "WalkedPath",
     "build_intent_llm",
     "interpret",
+    "run_checkpointed_session",
 ]

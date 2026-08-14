@@ -251,8 +251,7 @@ above come from `docs/STANDARDS.md`.
 - All human-facing prose — README, ADRs, UI copy, this spec — follows
   ASD-STE100 Simplified Technical English. UI copy carries zero explainer
   text.
-- `OPENROUTER_API_KEY` is not yet set on Railway. Set it when the first LLM
-  feature deploys.
+- `OPENROUTER_API_KEY` is set for the Railway backend service.
 - The multi-agent build workflow is itself PRD-graded material; keep
   collecting evidence for the "how AI built this" README section as the build
   runs.

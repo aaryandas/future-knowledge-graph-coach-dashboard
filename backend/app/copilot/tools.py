@@ -8,6 +8,7 @@ from typing import Literal
 
 from langchain_core.tools import BaseTool, tool
 
+from app.copilot.charts import render_chart
 from app.graph import (
     BarrierView,
     ChatMessageView,
@@ -355,6 +356,7 @@ def get_member_profile(
 
 
 RETRIEVAL_TOOLS: tuple[BaseTool, ...] = (
+    render_chart,
     get_observations,
     get_workout_sessions,
     get_chat_messages,

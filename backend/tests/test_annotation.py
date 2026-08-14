@@ -14,6 +14,7 @@ from app.generation.testing import (
     FakeLLM,
     GenerationMemberContext,
     LLMProviderError,
+    ResolvedMention,
 )
 from app.safety import Verdict, WalkedPath
 from langchain_core.messages import BaseMessage
@@ -259,6 +260,7 @@ def _exercise(
 def _clear_verdicts(
     member_id: str,
     exercise_ids: tuple[str, ...],
+    session_injuries: tuple[ResolvedMention, ...],
 ) -> tuple[Verdict, ...]:
     return tuple(
         Verdict(

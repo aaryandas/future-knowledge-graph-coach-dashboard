@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -30,6 +30,7 @@ class ResolvedMention(BaseModel):
         "Exercise",
         "MuscleGroup",
         "Joint",
+        "MovementPattern",
         "Equipment",
         "AnatomicalStructure",
         "ClinicalFinding",
@@ -106,6 +107,7 @@ class DataPlanPart(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     type: Literal["data-plan"] = "data-plan"
+    id: Literal["generation-plan"] = "generation-plan"
     data: Plan
 
 
@@ -147,6 +149,7 @@ class ResolutionTraceEvent(BaseModel):
         "Exercise",
         "MuscleGroup",
         "Joint",
+        "MovementPattern",
         "Equipment",
         "AnatomicalStructure",
         "ClinicalFinding",
@@ -210,8 +213,27 @@ class AgentTraceEvent(BaseModel):
     was_attributed_to: Literal["agent"] = Field(alias="wasAttributedTo")
 
 
+class SubstitutionTraceEvent(BaseModel):
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
+    kind: Literal["substitution"] = "substitution"
+    dropped_exercise_id: str
+    replacement_exercise_id: str
+    basis: Literal["movement pattern", "muscle overlap"]
+    shared_movement_pattern_ids: list[str]
+    shared_muscle_group_ids: list[str]
+    reason: str
+    used: list[str]
+    was_generated_by: Literal["pair_substitutions"] = Field(alias="wasGeneratedBy")
+    was_attributed_to: Literal["graph"] = Field(alias="wasAttributedTo")
+
+
 type TraceEvent = Annotated[
-    ResolutionTraceEvent | VerdictTraceEvent | PackingTraceEvent | AgentTraceEvent,
+    ResolutionTraceEvent
+    | VerdictTraceEvent
+    | PackingTraceEvent
+    | AgentTraceEvent
+    | SubstitutionTraceEvent,
     Field(discriminator="kind"),
 ]
 
@@ -220,7 +242,37 @@ class DataTracePart(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     type: Literal["data-trace"] = "data-trace"
+    id: Literal["generation-trace"] = "generation-trace"
     data: list[TraceEvent]
+
+
+class OmissionChip(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    raw_text: str
+    purpose: Literal["target", "exclusion", "equipment override"]
+    candidates: list[ResolutionCandidate]
+    message: str
+
+
+class NotEnforcedFlag(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    raw_text: str
+    purpose: Literal["session injury"] = "session injury"
+    candidates: list[ResolutionCandidate]
+    message: str
+
+
+class SessionInjuryPersistenceSuggestion(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    raw_text: str
+    concept_id: str
+    vocabulary: Literal["Joint", "AnatomicalStructure", "ClinicalFinding"]
+    action: Literal["persist session injury"] = "persist session injury"
+    requires_confirmation: Literal[True] = True
+    message: str
 
 
 class ConstraintsData(BaseModel):
@@ -228,6 +280,9 @@ class ConstraintsData(BaseModel):
 
     targets: list[ResolvedMention]
     constraints: ConstraintSet
+    omissions: list[OmissionChip]
+    not_enforced: list[NotEnforcedFlag]
+    session_injury_persistence_suggestions: list[SessionInjuryPersistenceSuggestion]
     failure: GenerationFailure | None
 
 
@@ -235,6 +290,7 @@ class DataConstraintsPart(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     type: Literal["data-constraints"] = "data-constraints"
+    id: Literal["generation-constraints"] = "generation-constraints"
     data: ConstraintsData
 
 
@@ -305,6 +361,11 @@ def _data_constraints_part(turn) -> DataConstraintsPart:
                     else None
                 ),
             ),
+            omissions=_omission_chips(resolved_intent),
+            not_enforced=_not_enforced_flags(resolved_intent),
+            session_injury_persistence_suggestions=(
+                _session_injury_persistence_suggestions(resolved_intent)
+            ),
             failure=(
                 GenerationFailure(
                     reason=failure.reason,
@@ -366,6 +427,77 @@ def _resolution_candidate(candidate) -> ResolutionCandidate:
         preferred_term=candidate.preferred_term,
         confidence=candidate.confidence,
     )
+
+
+def _omission_chips(resolved_intent) -> list[OmissionChip]:
+    if resolved_intent is None:
+        return []
+    constraints = resolved_intent.constraints
+    mentions = (
+        *resolved_intent.targets,
+        *constraints.exclusions,
+        *(constraints.equipment_override or ()),
+    )
+    return [
+        OmissionChip(
+            raw_text=mention.resolution.raw_text,
+            purpose=cast(
+                Literal["target", "exclusion", "equipment override"],
+                mention.purpose,
+            ),
+            candidates=[
+                _resolution_candidate(candidate)
+                for candidate in mention.resolution.candidates
+            ],
+            message=mention.message or "The generator term was omitted.",
+        )
+        for mention in mentions
+        if mention.resolution.concept_id is None
+    ]
+
+
+def _not_enforced_flags(resolved_intent) -> list[NotEnforcedFlag]:
+    if resolved_intent is None:
+        return []
+    return [
+        NotEnforcedFlag(
+            raw_text=mention.resolution.raw_text,
+            candidates=[
+                _resolution_candidate(candidate)
+                for candidate in mention.resolution.candidates
+            ],
+            message=mention.message or "Safety was not enforced.",
+        )
+        for mention in resolved_intent.constraints.session_injuries
+        if not mention.enforced
+    ]
+
+
+def _session_injury_persistence_suggestions(
+    resolved_intent,
+) -> list[SessionInjuryPersistenceSuggestion]:
+    if resolved_intent is None:
+        return []
+    suggestions: list[SessionInjuryPersistenceSuggestion] = []
+    for mention in resolved_intent.constraints.session_injuries:
+        concept_id = mention.resolution.concept_id
+        if not mention.enforced or concept_id is None:
+            continue
+        suggestions.append(
+            SessionInjuryPersistenceSuggestion(
+                raw_text=mention.resolution.raw_text,
+                concept_id=concept_id,
+                vocabulary=cast(
+                    Literal["Joint", "AnatomicalStructure", "ClinicalFinding"],
+                    mention.vocabulary,
+                ),
+                message=(
+                    mention.message
+                    or "Coach confirmation is required to add this injury."
+                ),
+            )
+        )
+    return suggestions
 
 
 def _trace_event(event) -> TraceEvent:
@@ -430,6 +562,18 @@ def _trace_event(event) -> TraceEvent:
     if event.kind == "agent":
         return AgentTraceEvent(
             action=event.action,
+            reason=event.reason,
+            used=list(event.used),
+            was_generated_by=event.was_generated_by,
+            was_attributed_to=event.was_attributed_to,
+        )
+    if event.kind == "substitution":
+        return SubstitutionTraceEvent(
+            dropped_exercise_id=event.dropped_exercise_id,
+            replacement_exercise_id=event.replacement_exercise_id,
+            basis=event.basis,
+            shared_movement_pattern_ids=list(event.shared_movement_pattern_ids),
+            shared_muscle_group_ids=list(event.shared_muscle_group_ids),
             reason=event.reason,
             used=list(event.used),
             was_generated_by=event.was_generated_by,

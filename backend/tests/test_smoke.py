@@ -13,6 +13,26 @@ def test_ci_smoke_ingests_kg1_and_kg2_and_reports_health() -> None:
 
     assert second_kg1_counts == first_kg1_counts
     assert second_kg2_counts == first_kg2_counts
+    assert first_kg1_counts.nodes == {
+        "AnatomicalStructure": 442,
+        "ClinicalFinding": 4,
+        "Equipment": 32,
+        "Exercise": 53,
+        "Injury": 4,
+        "Joint": 9,
+        "MovementPattern": 37,
+        "MuscleGroup": 19,
+    }
+    assert first_kg1_counts.edges == {
+        "contraindicates": 4,
+        "exactMatch": 13,
+        "findingSite": 4,
+        "isA": 559,
+        "loads": 133,
+        "performs": 96,
+        "requires": 71,
+        "targets": 130,
+    }
     assert response.status_code == 200
     assert response.json() == {
         "api": "up",
