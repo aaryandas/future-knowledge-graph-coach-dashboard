@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from typing import Literal, cast
@@ -18,8 +19,8 @@ from app.copilot.testing import (
     run_quick_prompt,
 )
 from app.graph import ingest_kg2
-from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.tools import StructuredTool
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.checkpoint.memory import InMemorySaver
 
 MEMBER_ID = "test-member-copilot"
@@ -84,6 +85,37 @@ def test_copilot_tool_loop_persists_follow_ups_and_replays_sources() -> None:
     ]
     assert history[1].data_parts == first_turn.data_parts
     assert history[3].data_parts == second_turn.data_parts
+
+
+def test_each_follow_up_requires_a_current_turn_tool_call() -> None:
+    checkpointer = InMemorySaver()
+    llm = _CurrentTurnRetrievalLLM()
+    retrieval_tools = (_goals_tool(),)
+
+    first_turn = run_copilot_turn(
+        MEMBER_ID,
+        "What is the priority goal?",
+        checkpointer=checkpointer,
+        llm=llm,
+        message_id="current-retrieval-user-1",
+        retrieval_tools=retrieval_tools,
+        tone_fact_reader=_no_tone_facts,
+    )
+    second_turn = run_copilot_turn(
+        MEMBER_ID,
+        "What is the priority goal?",
+        checkpointer=checkpointer,
+        llm=llm,
+        message_id="current-retrieval-user-2",
+        retrieval_tools=retrieval_tools,
+        tone_fact_reader=_no_tone_facts,
+    )
+
+    assert isinstance(first_turn, CopilotTurn)
+    assert isinstance(second_turn, CopilotTurn)
+    assert first_turn.text == "Jordan's priority goal is strength."
+    assert second_turn.text == "Jordan's priority goal is strength."
+    assert llm.require_tool_calls == [True, False, True, False]
 
 
 def test_copilot_stops_after_five_retrieval_tool_rounds() -> None:
@@ -318,6 +350,23 @@ def _tool_call(
             }
         ],
     )
+
+
+class _CurrentTurnRetrievalLLM:
+    def __init__(self) -> None:
+        self.require_tool_calls: list[bool] = []
+
+    def invoke(
+        self,
+        messages: Sequence[BaseMessage],
+        tools: Sequence[BaseTool],
+        *,
+        require_tool_call: bool = False,
+    ) -> object:
+        self.require_tool_calls.append(require_tool_call)
+        if require_tool_call:
+            return _tool_call(f"current-retrieval-{len(self.require_tool_calls)}")
+        return AIMessage(content="Jordan's priority goal is strength.")
 
 
 @dataclass(frozen=True)
