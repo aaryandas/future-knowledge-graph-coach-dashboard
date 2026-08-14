@@ -1,20 +1,15 @@
 import json
 import shutil
+from copy import deepcopy
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
-from app.graph import ingest_kg1, ingest_kg2
-from app.graph.store import neo4j_session
+from app.graph import MemberContext, get_member_context, ingest_kg1, ingest_kg2
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIRECTORY = REPOSITORY_ROOT / "data"
-SEED_SOURCE = "data/member-context.json"
-TEST_NODE_IDS = (
-    "mbr_01HX9JORDAN:workout:obsolete-index-0",
-    "mbr_01HX9JORDAN:coach-task:obsolete-index-0",
-    "test:runtime-workout-session",
-    "test:runtime-coach-task",
-)
+MEMBER_ID = "mbr_01HX9JORDAN"
 
 
 def test_ingest_kg1_rejects_uncited_condition_row(tmp_path: Path) -> None:
@@ -29,96 +24,122 @@ def test_ingest_kg1_rejects_uncited_condition_row(tmp_path: Path) -> None:
         ingest_kg1(data_directory)
 
 
-def test_ingest_kg2_reconciles_seed_owned_nodes_and_preserves_runtime_nodes() -> None:
-    ingest_kg2()
-    _delete_test_nodes()
-    with neo4j_session() as session:
-        session.run(
-            """
-            MATCH (member:Member {id: $member_id})
-            MERGE (obsolete_session:WorkoutSession {id: $obsolete_session_id})
-            SET obsolete_session.source = $seed_source,
-                obsolete_session.version = 'obsolete'
-            MERGE (member)-[:performed {id: $obsolete_performed_id}]
-                ->(obsolete_session)
-            MERGE (obsolete_task:CoachTask {id: $obsolete_task_id})
-            SET obsolete_task.source = $seed_source,
-                obsolete_task.version = 'obsolete'
-            MERGE (obsolete_task)-[:addresses {id: $obsolete_addresses_id}]
-                ->(obsolete_session)
-            MERGE (runtime_session:WorkoutSession {id: $runtime_session_id})
-            SET runtime_session.source = 'coach-confirmed',
-                runtime_session.actor = 'coach'
-            MERGE (member)-[:performed {id: $runtime_performed_id}]
-                ->(runtime_session)
-            MERGE (runtime_task:CoachTask {id: $runtime_task_id})
-            SET runtime_task.source = 'coach-confirmed',
-                runtime_task.actor = 'coach'
-            MERGE (runtime_task)-[:addresses {id: $runtime_addresses_id}]
-                ->(runtime_session)
-            """,
-            member_id="mbr_01HX9JORDAN",
-            obsolete_session_id=TEST_NODE_IDS[0],
-            obsolete_task_id=TEST_NODE_IDS[1],
-            runtime_session_id=TEST_NODE_IDS[2],
-            runtime_task_id=TEST_NODE_IDS[3],
-            seed_source=SEED_SOURCE,
-            obsolete_performed_id="test:obsolete-performed",
-            obsolete_addresses_id="test:obsolete-addresses",
-            runtime_performed_id="test:runtime-performed",
-            runtime_addresses_id="test:runtime-addresses",
-        ).consume()
+def test_ingest_kg2_reconciles_seed_owned_nodes_and_preserves_other_sources(
+    tmp_path: Path,
+) -> None:
+    seed_data_directory = tmp_path / "seed-data"
+    other_data_directory = tmp_path / "other-data"
+    shutil.copytree(DATA_DIRECTORY, seed_data_directory)
+    shutil.copytree(DATA_DIRECTORY, other_data_directory)
+
+    seed_member_path = seed_data_directory / "member-context.json"
+    other_member_path = other_data_directory / "member-context-other-source.json"
+    (other_data_directory / "member-context.json").rename(other_member_path)
+    base_member_bytes = seed_member_path.read_bytes()
+    base_member = cast(dict[str, Any], json.loads(base_member_bytes))
+
+    obsolete_title = "Obsolete seed workout"
+    obsolete_task_text = "Obsolete seed coach task"
+    survivor_title = "Workout from another source"
+    survivor_task_text = "Coach task from another source"
+    seed_member_path.write_text(
+        json.dumps(
+            _member_fixture(
+                base_member,
+                workout={
+                    "date": "2026-05-01",
+                    "title": obsolete_title,
+                    "planned": True,
+                    "completed": True,
+                    "duration_min": 30,
+                    "rpe": 6,
+                    "exercises": [],
+                },
+                task={"type": "celebrate", "text": obsolete_task_text},
+            )
+        )
+    )
+    other_member_path.write_text(
+        json.dumps(
+            _member_fixture(
+                base_member,
+                workout={
+                    "date": "2026-05-02",
+                    "title": survivor_title,
+                    "planned": True,
+                    "completed": True,
+                    "duration_min": 35,
+                    "rpe": 7,
+                    "exercises": [],
+                },
+                task={"type": "celebrate", "text": survivor_task_text},
+            )
+        )
+    )
 
     try:
-        first_counts = ingest_kg2()
-        first_seed_ids = _seed_owned_session_and_task_ids()
-        first_surviving_test_ids = _surviving_test_node_ids()
-        second_counts = ingest_kg2()
+        ingest_kg2(seed_data_directory)
+        obsolete_ids = _matching_ids(
+            _member_context(), obsolete_title, obsolete_task_text
+        )
 
-        assert first_seed_ids == _seed_owned_session_and_task_ids()
+        ingest_kg2(other_data_directory)
+        survivor_ids = _matching_ids(
+            _member_context(), survivor_title, survivor_task_text
+        )
+
+        seed_member_path.write_bytes(base_member_bytes)
+        first_counts = ingest_kg2(seed_data_directory)
+        first_context = _member_context()
+        second_counts = ingest_kg2(seed_data_directory)
+        second_context = _member_context()
+
         assert first_counts == second_counts
-        assert TEST_NODE_IDS[0] not in first_seed_ids
-        assert TEST_NODE_IDS[1] not in first_seed_ids
-        assert first_surviving_test_ids == {TEST_NODE_IDS[2], TEST_NODE_IDS[3]}
-        assert _surviving_test_node_ids() == {TEST_NODE_IDS[2], TEST_NODE_IDS[3]}
+        assert first_context == second_context
+        assert obsolete_ids.isdisjoint(_session_and_task_ids(first_context))
+        assert survivor_ids <= _session_and_task_ids(first_context)
     finally:
-        _delete_test_nodes()
+        other_member_path.write_bytes(base_member_bytes)
+        ingest_kg2(other_data_directory)
+        seed_member_path.write_bytes(base_member_bytes)
+        ingest_kg2(seed_data_directory)
 
 
-def _seed_owned_session_and_task_ids() -> set[str]:
-    with neo4j_session() as session:
-        records = session.run(
-            """
-            MATCH (node)
-            WHERE (node:WorkoutSession OR node:CoachTask)
-              AND node.source = $source
-            RETURN node.id AS id
-            """,
-            source=SEED_SOURCE,
-        )
-        return {record["id"] for record in records}
+def _member_fixture(
+    base_member: dict[str, Any],
+    *,
+    workout: dict[str, Any],
+    task: dict[str, Any],
+) -> dict[str, Any]:
+    member = deepcopy(base_member)
+    cast(list[dict[str, Any]], member["workout_history"]).append(workout)
+    coach_brief = cast(dict[str, Any], member["coach_brief"])
+    cast(list[dict[str, Any]], coach_brief["morning_tasks"]).append(task)
+    return member
 
 
-def _surviving_test_node_ids() -> set[str]:
-    with neo4j_session() as session:
-        records = session.run(
-            """
-            MATCH (node)
-            WHERE node.id IN $ids
-            RETURN node.id AS id
-            """,
-            ids=list(TEST_NODE_IDS),
-        )
-        return {record["id"] for record in records}
+def _member_context() -> MemberContext:
+    context = get_member_context(MEMBER_ID)
+    assert context is not None
+    return context
 
 
-def _delete_test_nodes() -> None:
-    with neo4j_session() as session:
-        session.run(
-            """
-            MATCH (node)
-            WHERE node.id IN $ids
-            DETACH DELETE node
-            """,
-            ids=list(TEST_NODE_IDS),
-        ).consume()
+def _matching_ids(context: MemberContext, title: str, task_text: str) -> set[str]:
+    workout_id = next(
+        session.node_id
+        for session in context.workout_sessions
+        if session.title == title
+    )
+    task_id = next(
+        task.node_id
+        for task in context.morning_brief.coach_tasks
+        if task.text == task_text
+    )
+    return {workout_id, task_id}
+
+
+def _session_and_task_ids(context: MemberContext) -> set[str]:
+    return {
+        *(session.node_id for session in context.workout_sessions),
+        *(task.node_id for task in context.morning_brief.coach_tasks),
+    }
