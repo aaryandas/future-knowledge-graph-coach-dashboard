@@ -2,24 +2,54 @@ import json
 import re
 from collections import defaultdict
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, LiteralString, cast
 
+from neo4j import ManagedTransaction, Session
+
 from app.graph.schema import (
-    EDGE_TYPES,
     EXERCISE_TAXONOMIES,
+    KG1_EDGE_TYPES,
+    KG1_NODE_LABELS,
+    KG2_EDGE_TYPES,
+    KG2_NODE_LABELS,
     NODE_LABELS,
     EdgeType,
     NodeLabel,
 )
 from app.graph.store import neo4j_session
-from neo4j import ManagedTransaction, Session
+from app.resolver import ArtifactVocabulary, Resolution, resolve
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_DATA_DIRECTORY = REPOSITORY_ROOT / "data"
 CATALOG_SOURCE = "data/exercises.json"
+MEMBER_CONTEXT_PATTERN = "member-context*.json"
+
+KG1_EDGE_SOURCE_LABELS: dict[EdgeType, NodeLabel] = {
+    "targets": "Exercise",
+    "loads": "Exercise",
+    "performs": "Exercise",
+    "requires": "Exercise",
+    "findingSite": "ClinicalFinding",
+    "isA": "AnatomicalStructure",
+    "exactMatch": "Joint",
+}
+KG2_EDGE_SOURCE_LABELS: dict[EdgeType, NodeLabel] = {
+    "pursues": "Member",
+    "has": "Member",
+    "owns": "Member",
+    "performed": "Member",
+    "observed": "Member",
+    "said": "Member",
+    "received": "Member",
+    "dislikes": "Member",
+    "included": "WorkoutSession",
+    "exactMatch": "MemberInjury",
+    "evidencedBy": "Barrier",
+    "addresses": "CoachTask",
+}
 
 type JsonObject = dict[str, Any]
 
@@ -64,6 +94,18 @@ class KG1Counts:
     edges: dict[EdgeType, int]
 
 
+@dataclass(frozen=True)
+class KG2Payload:
+    nodes: list[NodeBatch]
+    edges: list[EdgeBatch]
+
+
+@dataclass(frozen=True)
+class KG2Counts:
+    nodes: dict[NodeLabel, int]
+    edges: dict[EdgeType, int]
+
+
 def ingest_kg1(data_directory: Path = DEFAULT_DATA_DIRECTORY) -> KG1Counts:
     payload = _load_kg1(data_directory)
     ingested_at = datetime.now(UTC).isoformat()
@@ -71,7 +113,17 @@ def ingest_kg1(data_directory: Path = DEFAULT_DATA_DIRECTORY) -> KG1Counts:
     with neo4j_session() as session:
         _ensure_constraints(session)
         session.execute_write(_merge_payload, payload, ingested_at)
-        return _read_counts(session)
+        return _read_kg1_counts(session)
+
+
+def ingest_kg2(data_directory: Path = DEFAULT_DATA_DIRECTORY) -> KG2Counts:
+    payload = _load_kg2(data_directory)
+    ingested_at = datetime.now(UTC).isoformat()
+
+    with neo4j_session() as session:
+        _ensure_constraints(session)
+        session.execute_write(_merge_payload, payload, ingested_at)
+        return _read_kg2_counts(session)
 
 
 def _load_kg1(data_directory: Path) -> KG1Payload:
@@ -96,6 +148,750 @@ def _load_kg1(data_directory: Path) -> KG1Payload:
             *mapping_edge_batches,
         ],
     )
+
+
+def _load_kg2(data_directory: Path) -> KG2Payload:
+    member_paths = sorted(data_directory.glob(MEMBER_CONTEXT_PATTERN))
+    if not member_paths:
+        raise FileNotFoundError(
+            f"No member seed documents match {MEMBER_CONTEXT_PATTERN!r}"
+        )
+
+    synonyms_path = data_directory / "synonyms.json"
+    exercise_path = data_directory / "exercises.json"
+    snomed_path = data_directory / "ontology" / "snomed-ct.json"
+    equipment_vocab = ArtifactVocabulary.from_file(
+        exercise_path,
+        kind="Equipment",
+        synonyms_path=synonyms_path,
+    )
+    exercise_vocab = ArtifactVocabulary.from_file(
+        exercise_path,
+        kind="Exercise",
+        synonyms_path=synonyms_path,
+    )
+    finding_vocab = ArtifactVocabulary.from_file(
+        snomed_path,
+        kind="ClinicalFinding",
+        synonyms_path=synonyms_path,
+    )
+
+    node_rows: dict[NodeLabel, list[Node]] = defaultdict(list)
+    edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Edge]] = defaultdict(
+        list
+    )
+    for member_path in member_paths:
+        member_bytes = member_path.read_bytes()
+        member = _object(json.loads(member_bytes), str(member_path))
+        source = f"data/{member_path.name}"
+        version = sha256(member_bytes).hexdigest()
+        _append_member(
+            member,
+            source,
+            version,
+            equipment_vocab,
+            exercise_vocab,
+            finding_vocab,
+            node_rows,
+            edge_rows,
+        )
+
+    for label, rows in node_rows.items():
+        _require_unique_ids(rows, label)
+
+    return KG2Payload(
+        nodes=[NodeBatch(label, node_rows.get(label, [])) for label in KG2_NODE_LABELS],
+        edges=[
+            EdgeBatch(source_label, edge_type, target_label, rows)
+            for (source_label, edge_type, target_label), rows in edge_rows.items()
+        ],
+    )
+
+
+def _append_member(
+    member: JsonObject,
+    source: str,
+    version: str,
+    equipment_vocab: ArtifactVocabulary,
+    exercise_vocab: ArtifactVocabulary,
+    finding_vocab: ArtifactVocabulary,
+    node_rows: dict[NodeLabel, list[Node]],
+    edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Edge]],
+) -> None:
+    stamp = {"source": source, "version": version}
+    profile = _object(member.get("profile"), "member profile")
+    member_id = _required_string(profile, "id")
+    preferences = _object(member.get("preferences"), f"Member {member_id} preferences")
+    equipment_mentions = _string_list(
+        member.get("equipment_available"), f"Member {member_id} equipment_available"
+    )
+    dislike_mentions = _string_list(
+        preferences.get("dislikes"), f"Member {member_id} preferences.dislikes"
+    )
+    coach_brief = _object(member.get("coach_brief"), f"Member {member_id} coach_brief")
+    churn_risk = _object(
+        coach_brief.get("churn_risk"), f"Member {member_id} churn_risk"
+    )
+
+    member_properties = {key: value for key, value in profile.items() if key != "id"}
+    member_properties.update(
+        {
+            "preferred_session_minutes": preferences.get("preferred_session_minutes"),
+            "training_days_per_week": preferences.get("training_days_per_week"),
+            "preferred_days": _string_list(
+                preferences.get("preferred_days"),
+                f"Member {member_id} preferences.preferred_days",
+            ),
+            "preference_notes": preferences.get("notes"),
+            "equipment_available": equipment_mentions,
+            "dislikes": dislike_mentions,
+            "brief_generated_for": _required_string(coach_brief, "generated_for"),
+            "churn_risk_level": _required_string(churn_risk, "level"),
+            "churn_risk_reasons": _string_list(
+                churn_risk.get("reasons"), f"Member {member_id} churn_risk.reasons"
+            ),
+            **stamp,
+        }
+    )
+    node_rows["Member"].append(
+        Node(id=member_id, properties=_neo4j_properties(member_properties, member_id))
+    )
+
+    _append_bridge_edges(
+        member_id,
+        "Member",
+        "owns",
+        "Equipment",
+        equipment_mentions,
+        equipment_vocab,
+        stamp,
+        edge_rows,
+    )
+    _append_bridge_edges(
+        member_id,
+        "Member",
+        "dislikes",
+        "Exercise",
+        dislike_mentions,
+        exercise_vocab,
+        stamp,
+        edge_rows,
+    )
+
+    _append_goals(member, member_id, stamp, node_rows, edge_rows)
+    _append_injuries(
+        member,
+        member_id,
+        finding_vocab,
+        stamp,
+        node_rows,
+        edge_rows,
+    )
+    sessions = _append_workout_sessions(
+        member,
+        member_id,
+        exercise_vocab,
+        stamp,
+        node_rows,
+        edge_rows,
+    )
+    observations = _append_observations(
+        member,
+        member_id,
+        _required_string(coach_brief, "generated_for"),
+        stamp,
+        node_rows,
+        edge_rows,
+    )
+    messages = _append_chat_messages(member, member_id, stamp, node_rows, edge_rows)
+    barrier_ids = _append_barriers(
+        churn_risk,
+        member_id,
+        stamp,
+        observations,
+        sessions,
+        messages,
+        node_rows,
+        edge_rows,
+    )
+    _append_coach_tasks(
+        coach_brief,
+        member_id,
+        stamp,
+        sessions,
+        barrier_ids,
+        node_rows,
+        edge_rows,
+    )
+
+
+def _append_goals(
+    member: JsonObject,
+    member_id: str,
+    stamp: JsonObject,
+    node_rows: dict[NodeLabel, list[Node]],
+    edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Edge]],
+) -> None:
+    for value in _object_list(member.get("goals"), f"Member {member_id} goals"):
+        external_id = _required_string(value, "id")
+        goal_id = f"{member_id}:goal:{external_id}"
+        properties = {key: item for key, item in value.items() if key != "id"}
+        properties.update(external_id=external_id, member_id=member_id, **stamp)
+        node_rows["Goal"].append(Node(goal_id, _neo4j_properties(properties, goal_id)))
+        _append_edge(
+            member_id,
+            "Member",
+            "pursues",
+            goal_id,
+            "Goal",
+            stamp,
+            edge_rows,
+        )
+
+
+def _append_injuries(
+    member: JsonObject,
+    member_id: str,
+    finding_vocab: ArtifactVocabulary,
+    stamp: JsonObject,
+    node_rows: dict[NodeLabel, list[Node]],
+    edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Edge]],
+) -> None:
+    for value in _object_list(member.get("injuries"), f"Member {member_id} injuries"):
+        external_id = _required_string(value, "id")
+        injury_id = f"{member_id}:injury:{external_id}"
+        finding_mentions = _clinical_finding_mentions(value)
+        properties = {key: item for key, item in value.items() if key != "id"}
+        properties.update(
+            external_id=external_id,
+            member_id=member_id,
+            clinical_finding_mentions=finding_mentions,
+            **stamp,
+        )
+        node_rows["MemberInjury"].append(
+            Node(injury_id, _neo4j_properties(properties, injury_id))
+        )
+        _append_edge(
+            member_id,
+            "Member",
+            "has",
+            injury_id,
+            "MemberInjury",
+            stamp,
+            edge_rows,
+        )
+        for mention in finding_mentions:
+            resolution = _exact_resolution(mention, finding_vocab)
+            if resolution is None:
+                continue
+            _append_edge(
+                injury_id,
+                "MemberInjury",
+                "exactMatch",
+                cast(str, resolution.concept_id),
+                "ClinicalFinding",
+                _bridge_properties(stamp, resolution),
+                edge_rows,
+            )
+
+
+def _append_workout_sessions(
+    member: JsonObject,
+    member_id: str,
+    exercise_vocab: ArtifactVocabulary,
+    stamp: JsonObject,
+    node_rows: dict[NodeLabel, list[Node]],
+    edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Edge]],
+) -> list[tuple[str, JsonObject]]:
+    sessions: list[tuple[str, JsonObject]] = []
+    workouts = _object_list(
+        member.get("workout_history"), f"Member {member_id} workout_history"
+    )
+    for workout in workouts:
+        workout_date = _required_string(workout, "date")
+        session_id = f"{member_id}:workout:{workout_date}"
+        exercise_mentions = _string_list(
+            workout.get("exercises"), f"WorkoutSession {session_id} exercises"
+        )
+        properties = {key: item for key, item in workout.items() if key != "exercises"}
+        properties.update(
+            member_id=member_id, exercise_mentions=exercise_mentions, **stamp
+        )
+        node_rows["WorkoutSession"].append(
+            Node(session_id, _neo4j_properties(properties, session_id))
+        )
+        sessions.append((session_id, properties))
+        _append_edge(
+            member_id,
+            "Member",
+            "performed",
+            session_id,
+            "WorkoutSession",
+            stamp,
+            edge_rows,
+        )
+        _append_bridge_edges(
+            session_id,
+            "WorkoutSession",
+            "included",
+            "Exercise",
+            exercise_mentions,
+            exercise_vocab,
+            stamp,
+            edge_rows,
+        )
+    return sessions
+
+
+def _append_observations(
+    member: JsonObject,
+    member_id: str,
+    generated_for: str,
+    stamp: JsonObject,
+    node_rows: dict[NodeLabel, list[Node]],
+    edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Edge]],
+) -> dict[str, list[str]]:
+    observations: dict[str, list[str]] = defaultdict(list)
+    adherence = _object(member.get("adherence"), f"Member {member_id} adherence")
+    for weekly in _object_list(
+        adherence.get("weekly_completion_pct"),
+        f"Member {member_id} adherence.weekly_completion_pct",
+    ):
+        observed_at = _required_string(weekly, "week_of")
+        _append_observation(
+            member_id,
+            "adherence-week",
+            observed_at,
+            {"value": weekly.get("pct"), "unit": "percent"},
+            stamp,
+            observations,
+            node_rows,
+            edge_rows,
+        )
+
+    biomarkers = _object(member.get("biomarkers"), f"Member {member_id} biomarkers")
+    _append_observation(
+        member_id,
+        "resting-hr",
+        generated_for,
+        {"value": biomarkers.get("resting_hr_bpm"), "unit": "bpm"},
+        stamp,
+        observations,
+        node_rows,
+        edge_rows,
+    )
+    _append_observation(
+        member_id,
+        "hrv",
+        generated_for,
+        {"value": biomarkers.get("hrv_ms"), "unit": "ms"},
+        stamp,
+        observations,
+        node_rows,
+        edge_rows,
+    )
+
+    sleep_values = _number_list(
+        biomarkers.get("sleep_hours_last_7_days"),
+        f"Member {member_id} biomarkers.sleep_hours_last_7_days",
+    )
+    sleep_start = date.fromisoformat(generated_for) - timedelta(days=len(sleep_values))
+    for offset, value in enumerate(sleep_values):
+        observed_at = (sleep_start + timedelta(days=offset)).isoformat()
+        _append_observation(
+            member_id,
+            "sleep-night",
+            observed_at,
+            {"value": value, "unit": "hours"},
+            stamp,
+            observations,
+            node_rows,
+            edge_rows,
+        )
+
+    for weight in _object_list(
+        biomarkers.get("weight_trend_kg"),
+        f"Member {member_id} biomarkers.weight_trend_kg",
+    ):
+        observed_at = _required_string(weight, "date")
+        _append_observation(
+            member_id,
+            "weight",
+            observed_at,
+            {"value": weight.get("kg"), "unit": "kg"},
+            stamp,
+            observations,
+            node_rows,
+            edge_rows,
+        )
+
+    labs = _object(member.get("labs"), f"Member {member_id} labs")
+    for field, kind in (("blood_panel", "blood-panel"), ("dexa_scan", "dexa")):
+        lab = _object(labs.get(field), f"Member {member_id} labs.{field}")
+        observed_at = _required_string(lab, "date")
+        values = {key: item for key, item in lab.items() if key != "date"}
+        _append_observation(
+            member_id,
+            kind,
+            observed_at,
+            values,
+            stamp,
+            observations,
+            node_rows,
+            edge_rows,
+        )
+    return observations
+
+
+def _append_observation(
+    member_id: str,
+    kind: str,
+    observed_at: str,
+    values: JsonObject,
+    stamp: JsonObject,
+    observations: dict[str, list[str]],
+    node_rows: dict[NodeLabel, list[Node]],
+    edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Edge]],
+) -> None:
+    observation_id = f"{member_id}:observation:{kind}:{observed_at}"
+    properties = {
+        "member_id": member_id,
+        "kind": kind,
+        "observed_at": observed_at,
+        **values,
+        **stamp,
+    }
+    node_rows["Observation"].append(
+        Node(observation_id, _neo4j_properties(properties, observation_id))
+    )
+    observations[kind].append(observation_id)
+    _append_edge(
+        member_id,
+        "Member",
+        "observed",
+        observation_id,
+        "Observation",
+        stamp,
+        edge_rows,
+    )
+
+
+def _append_chat_messages(
+    member: JsonObject,
+    member_id: str,
+    stamp: JsonObject,
+    node_rows: dict[NodeLabel, list[Node]],
+    edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Edge]],
+) -> list[tuple[str, JsonObject]]:
+    messages: list[tuple[str, JsonObject]] = []
+    chat_history = _object_list(
+        member.get("chat_history"), f"Member {member_id} chat_history"
+    )
+    for message in chat_history:
+        timestamp = _required_string(message, "ts")
+        sender = _required_string(message, "from")
+        text = _required_string(message, "text")
+        digest = sha256(f"{sender}\0{text}".encode()).hexdigest()[:12]
+        message_id = f"{member_id}:chat:{timestamp}:{digest}"
+        properties: JsonObject = {
+            "member_id": member_id,
+            "timestamp": timestamp,
+            "sender": sender,
+            "text": text,
+            **stamp,
+        }
+        if "attachments" in message:
+            properties["attachments_json"] = json.dumps(
+                message["attachments"], sort_keys=True, separators=(",", ":")
+            )
+        node_rows["ChatMessage"].append(
+            Node(message_id, _neo4j_properties(properties, message_id))
+        )
+        messages.append((message_id, properties))
+        if sender not in ("member", "coach"):
+            raise ValueError(
+                f"ChatMessage {message_id} has unsupported sender {sender}"
+            )
+        _append_edge(
+            member_id,
+            "Member",
+            "said" if sender == "member" else "received",
+            message_id,
+            "ChatMessage",
+            stamp,
+            edge_rows,
+        )
+    return messages
+
+
+def _append_barriers(
+    churn_risk: JsonObject,
+    member_id: str,
+    stamp: JsonObject,
+    observations: dict[str, list[str]],
+    sessions: list[tuple[str, JsonObject]],
+    messages: list[tuple[str, JsonObject]],
+    node_rows: dict[NodeLabel, list[Node]],
+    edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Edge]],
+) -> list[str]:
+    reasons = _string_list(churn_risk.get("reasons"), f"Member {member_id} barriers")
+    risk_level = _required_string(churn_risk, "level")
+    barriers: list[str] = []
+
+    adherence_reason = next(
+        (reason for reason in reasons if "adherence" in reason.casefold()), None
+    )
+    adherence_evidence = observations.get("adherence-week", [])
+    if adherence_reason is not None and len(adherence_evidence) >= 2:
+        barrier_id = _append_barrier(
+            member_id,
+            "adherence-decline",
+            "https://github.com/EBehaviourChange-COPPER/ontology/blob/main/COPPER_3048",
+            adherence_reason,
+            risk_level,
+            [(node_id, "Observation") for node_id in adherence_evidence],
+            stamp,
+            node_rows,
+            edge_rows,
+        )
+        barriers.append(barrier_id)
+
+    fatigue_reason = next(
+        (
+            reason
+            for reason in reasons
+            if any(term in reason.casefold() for term in ("skipped", "fatigue", "work"))
+        ),
+        None,
+    )
+    missed_sessions: list[tuple[str, NodeLabel]] = [
+        (session_id, "WorkoutSession")
+        for session_id, properties in sessions
+        if properties.get("completed") is False
+    ]
+    fatigue_messages: list[tuple[str, NodeLabel]] = [
+        (message_id, "ChatMessage")
+        for message_id, properties in messages
+        if any(
+            term in cast(str, properties["text"]).casefold()
+            for term in ("skipped", "wiped", "work")
+        )
+    ]
+    fatigue_evidence = [*missed_sessions, *fatigue_messages]
+    if fatigue_reason is not None and fatigue_evidence:
+        barrier_id = _append_barrier(
+            member_id,
+            "work-fatigue",
+            "http://purl.obolibrary.org/obo/MFOEM_000080",
+            fatigue_reason,
+            risk_level,
+            fatigue_evidence,
+            stamp,
+            node_rows,
+            edge_rows,
+        )
+        barriers.append(barrier_id)
+    return barriers
+
+
+def _append_barrier(
+    member_id: str,
+    kind: str,
+    copper_id: str,
+    reason: str,
+    risk_level: str,
+    evidence: list[tuple[str, NodeLabel]],
+    stamp: JsonObject,
+    node_rows: dict[NodeLabel, list[Node]],
+    edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Edge]],
+) -> str:
+    barrier_id = f"{member_id}:barrier:{kind}"
+    properties = {
+        "member_id": member_id,
+        "kind": kind,
+        "copper_id": copper_id,
+        "reason": reason,
+        "risk_level": risk_level,
+        **stamp,
+    }
+    node_rows["Barrier"].append(Node(barrier_id, properties))
+    for evidence_id, evidence_label in evidence:
+        _append_edge(
+            barrier_id,
+            "Barrier",
+            "evidencedBy",
+            evidence_id,
+            evidence_label,
+            stamp,
+            edge_rows,
+        )
+    return barrier_id
+
+
+def _append_coach_tasks(
+    coach_brief: JsonObject,
+    member_id: str,
+    stamp: JsonObject,
+    sessions: list[tuple[str, JsonObject]],
+    barrier_ids: list[str],
+    node_rows: dict[NodeLabel, list[Node]],
+    edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Edge]],
+) -> None:
+    generated_for = _required_string(coach_brief, "generated_for")
+    tasks = _object_list(
+        coach_brief.get("morning_tasks"), f"Member {member_id} morning_tasks"
+    )
+    completed_sessions = [
+        (session_id, properties)
+        for session_id, properties in sessions
+        if properties.get("completed") is True
+    ]
+    latest_completed_id = (
+        max(
+            completed_sessions,
+            key=lambda item: cast(str, item[1]["date"]),
+        )[0]
+        if completed_sessions
+        else None
+    )
+    for task in tasks:
+        task_type = _required_string(task, "type")
+        task_text = _required_string(task, "text")
+        digest = sha256(f"{task_type}\0{task_text}".encode()).hexdigest()[:12]
+        task_id = f"{member_id}:coach-task:{generated_for}:{digest}"
+        properties = {
+            "member_id": member_id,
+            "generated_for": generated_for,
+            "type": task_type,
+            "text": task_text,
+            "status": "open",
+            **stamp,
+        }
+        node_rows["CoachTask"].append(Node(task_id, properties))
+        if task_type == "celebrate" and latest_completed_id is not None:
+            _append_edge(
+                task_id,
+                "CoachTask",
+                "addresses",
+                latest_completed_id,
+                "WorkoutSession",
+                stamp,
+                edge_rows,
+            )
+        elif task_type == "review_risk":
+            for barrier_id in barrier_ids:
+                _append_edge(
+                    task_id,
+                    "CoachTask",
+                    "addresses",
+                    barrier_id,
+                    "Barrier",
+                    stamp,
+                    edge_rows,
+                )
+
+
+def _append_bridge_edges(
+    source_id: str,
+    source_label: NodeLabel,
+    edge_type: EdgeType,
+    target_label: NodeLabel,
+    mentions: list[str],
+    vocab: ArtifactVocabulary,
+    stamp: JsonObject,
+    edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Edge]],
+) -> None:
+    for mention in mentions:
+        resolution = _exact_resolution(mention, vocab)
+        if resolution is None:
+            continue
+        _append_edge(
+            source_id,
+            source_label,
+            edge_type,
+            cast(str, resolution.concept_id),
+            target_label,
+            _bridge_properties(stamp, resolution),
+            edge_rows,
+        )
+
+
+def _append_edge(
+    source_id: str,
+    source_label: NodeLabel,
+    edge_type: EdgeType,
+    target_id: str,
+    target_label: NodeLabel,
+    properties: JsonObject,
+    edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Edge]],
+) -> None:
+    edge_id = f"{source_id}:{edge_type}:{target_id}"
+    edge_rows[(source_label, edge_type, target_label)].append(
+        Edge(edge_id, source_id, target_id, properties)
+    )
+
+
+def _exact_resolution(mention: str, vocab: ArtifactVocabulary) -> Resolution | None:
+    resolution = resolve(mention, vocab)
+    if resolution.pass_ != "exact" or resolution.concept_id is None:
+        return None
+    return resolution
+
+
+def _bridge_properties(stamp: JsonObject, resolution: Resolution) -> JsonObject:
+    return {
+        "raw_text": resolution.raw_text,
+        "modifiers": list(resolution.modifiers),
+        "confidence": resolution.confidence,
+        **stamp,
+    }
+
+
+def _clinical_finding_mentions(injury: JsonObject) -> list[str]:
+    mentions = [
+        value
+        for field in ("condition", "diagnosis", "finding")
+        if isinstance((value := injury.get(field)), str) and value
+    ]
+    hint = injury.get("snomedct_hint")
+    if isinstance(hint, str) and hint:
+        query = hint.removeprefix("Look up ").split("/", maxsplit=1)[0].strip()
+        if query:
+            mentions.append(query)
+    return list(dict.fromkeys(mentions))
+
+
+def _neo4j_properties(properties: JsonObject, node_id: str) -> JsonObject:
+    valid_scalars = (str, int, float, bool)
+    for key, value in properties.items():
+        if value is None or isinstance(value, valid_scalars):
+            continue
+        if isinstance(value, list) and all(
+            isinstance(item, valid_scalars) for item in value
+        ):
+            continue
+        raise TypeError(f"Node {node_id} property {key!r} cannot be stored in Neo4j")
+    return properties
+
+
+def _object_list(value: Any, description: str) -> list[JsonObject]:
+    if not isinstance(value, list):
+        raise TypeError(f"{description} must be a list")
+    return [_object(item, description) for item in value]
+
+
+def _string_list(value: Any, description: str) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise TypeError(f"{description} must be a list of strings")
+    return value
+
+
+def _number_list(value: Any, description: str) -> list[int | float]:
+    if not isinstance(value, list) or not all(
+        isinstance(item, int | float) and not isinstance(item, bool) for item in value
+    ):
+        raise TypeError(f"{description} must be a list of numbers")
+    return value
 
 
 def _read_object(path: Path) -> JsonObject:
@@ -296,7 +1092,7 @@ def _node_label(value: str) -> NodeLabel:
 
 
 def _edge_type(value: str) -> EdgeType:
-    if value not in EDGE_TYPES:
+    if value not in KG1_EDGE_TYPES:
         raise ValueError(f"Unsupported edge type: {value}")
     return value
 
@@ -323,7 +1119,8 @@ def _require_unique_ids(nodes: list[Node], source: str) -> None:
 
 def _ensure_constraints(session: Session) -> None:
     for label in NODE_LABELS:
-        constraint_name = f"kg1_{_slug(label)}_id"
+        graph_name = "kg1" if label in KG1_NODE_LABELS else "kg2"
+        constraint_name = f"{graph_name}_{_slug(label)}_id"
         session.run(
             _cypher(
                 f"""
@@ -335,7 +1132,9 @@ def _ensure_constraints(session: Session) -> None:
 
 
 def _merge_payload(
-    transaction: ManagedTransaction, payload: KG1Payload, ingested_at: str
+    transaction: ManagedTransaction,
+    payload: KG1Payload | KG2Payload,
+    ingested_at: str,
 ) -> None:
     for batch in payload.nodes:
         transaction.run(
@@ -368,21 +1167,46 @@ def _merge_payload(
         ).consume()
 
 
-def _read_counts(session: Session) -> KG1Counts:
+def _read_kg1_counts(session: Session) -> KG1Counts:
     node_counts = {
         label: _count(
             session, _cypher(f"MATCH (node:`{label}`) RETURN count(node) AS count")
         )
-        for label in NODE_LABELS
+        for label in KG1_NODE_LABELS
     }
     edge_counts = {
         edge_type: _count(
             session,
-            _cypher(f"MATCH ()-[edge:`{edge_type}`]->() RETURN count(edge) AS count"),
+            _cypher(
+                f"MATCH (source:`{KG1_EDGE_SOURCE_LABELS[edge_type]}`)"
+                f"-[edge]->() WHERE type(edge) = '{edge_type}' "
+                "RETURN count(edge) AS count"
+            ),
         )
-        for edge_type in EDGE_TYPES
+        for edge_type in KG1_EDGE_TYPES
     }
     return KG1Counts(nodes=node_counts, edges=edge_counts)
+
+
+def _read_kg2_counts(session: Session) -> KG2Counts:
+    node_counts = {
+        label: _count(
+            session, _cypher(f"MATCH (node:`{label}`) RETURN count(node) AS count")
+        )
+        for label in KG2_NODE_LABELS
+    }
+    edge_counts = {
+        edge_type: _count(
+            session,
+            _cypher(
+                f"MATCH (source:`{KG2_EDGE_SOURCE_LABELS[edge_type]}`)"
+                f"-[edge]->() WHERE type(edge) = '{edge_type}' "
+                "RETURN count(edge) AS count"
+            ),
+        )
+        for edge_type in KG2_EDGE_TYPES
+    }
+    return KG2Counts(nodes=node_counts, edges=edge_counts)
 
 
 def _cypher(query: str) -> LiteralString:
