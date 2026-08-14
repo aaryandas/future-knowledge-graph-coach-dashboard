@@ -89,9 +89,9 @@ class FakeAnnotationLLM:
 def generation_test_adapters(
     *,
     llm: IntentLLM,
-    catalog_reader: CatalogReader,
-    member_context_reader: MemberContextReader,
-    verdict_evaluator: VerdictEvaluator,
+    catalog_reader: CatalogReader = read_catalog_exercises,
+    member_context_reader: MemberContextReader = read_generation_member_context,
+    verdict_evaluator: VerdictEvaluator = evaluate_generation_safety,
     annotation_llm: AnnotationLLM | None = None,
 ) -> Iterator[InMemorySaver]:
     checkpointer = InMemorySaver(serde=_PickleSerializer())
