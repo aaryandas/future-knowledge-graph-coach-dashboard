@@ -40,6 +40,15 @@
     "expected_modifiers": []
   },
   {
+    "name": "deadlift plural family alias",
+    "text": "deadlifts",
+    "vocabulary": "exercise",
+    "expected_id": "2f787955-4e40-4103-9d9e-7f0d22b3e194",
+    "expected_pass": "fuzzy",
+    "expected_confidence": 1.0,
+    "expected_modifiers": []
+  },
+  {
     "name": "SNOMED synonym exact",
     "text": "Patellofemoral pain syndrome",
     "vocabulary": "snomed_finding",
@@ -135,8 +144,9 @@
     "source": "member-context",
     "text": "Deadlift",
     "vocabulary": "exercise",
-    "expected_id": null,
-    "expected_pass": "none",
+    "expected_id": "2f787955-4e40-4103-9d9e-7f0d22b3e194",
+    "expected_pass": "fuzzy",
+    "expected_confidence": 1.0,
     "expected_modifiers": []
   },
   {
@@ -261,8 +271,8 @@
     "source": "member-context",
     "text": "KB Romanian Deadlift",
     "vocabulary": "exercise",
-    "expected_id": null,
-    "expected_pass": "none",
+    "expected_id": "90900327-80eb-4981-9a09-c218484be28b",
+    "expected_pass": "exact",
     "expected_modifiers": []
   },
   {
