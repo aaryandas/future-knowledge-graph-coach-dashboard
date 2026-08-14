@@ -1,0 +1,122 @@
+{
+  "artifact_id": "ontology:skos-mappings",
+  "schema_version": 1,
+  "version": "2025_09_01",
+  "source": {
+    "standard": "SKOS",
+    "url": "https://www.w3.org/TR/skos-reference/",
+    "snomedct_version": "2025_09_01",
+    "verified_at": "2026-08-13"
+  },
+  "@context": {
+    "fkg": "https://example.com/fkg/",
+    "skos": "http://www.w3.org/2004/02/skos/core#",
+    "snomedct": "http://snomed.info/id/"
+  },
+  "mappings": [
+    {
+      "id": "skos-map:fkg:injury/lateral-ankle-sprain:exactMatch:snomedct:263133002",
+      "source_id": "fkg:injury/lateral-ankle-sprain",
+      "predicate": "skos:exactMatch",
+      "target_id": "snomedct:263133002",
+      "target_label": "Sprain of lateral ligament of ankle joint",
+      "confidence": 1.0
+    },
+    {
+      "id": "skos-map:fkg:injury/nonspecific-low-back-pain:exactMatch:snomedct:279039007",
+      "source_id": "fkg:injury/nonspecific-low-back-pain",
+      "predicate": "skos:exactMatch",
+      "target_id": "snomedct:279039007",
+      "target_label": "Low back pain",
+      "confidence": 1.0
+    },
+    {
+      "id": "skos-map:fkg:injury/patellofemoral-pain-syndrome:exactMatch:snomedct:430725003",
+      "source_id": "fkg:injury/patellofemoral-pain-syndrome",
+      "predicate": "skos:exactMatch",
+      "target_id": "snomedct:430725003",
+      "target_label": "Patellofemoral stress syndrome",
+      "confidence": 1.0
+    },
+    {
+      "id": "skos-map:fkg:injury/shoulder-impingement:exactMatch:snomedct:239960007",
+      "source_id": "fkg:injury/shoulder-impingement",
+      "predicate": "skos:exactMatch",
+      "target_id": "snomedct:239960007",
+      "target_label": "Impingement syndrome of shoulder region",
+      "confidence": 1.0
+    },
+    {
+      "id": "skos-map:fkg:joint/ankle:exactMatch:snomedct:70258002",
+      "source_id": "fkg:joint/ankle",
+      "predicate": "skos:exactMatch",
+      "target_id": "snomedct:70258002",
+      "target_label": "Ankle joint structure",
+      "confidence": 1.0
+    },
+    {
+      "id": "skos-map:fkg:joint/cervical-spine:exactMatch:snomedct:786964009",
+      "source_id": "fkg:joint/cervical-spine",
+      "predicate": "skos:exactMatch",
+      "target_id": "snomedct:786964009",
+      "target_label": "Structure of cervical spine joint region",
+      "confidence": 1.0
+    },
+    {
+      "id": "skos-map:fkg:joint/elbow:exactMatch:snomedct:16953009",
+      "source_id": "fkg:joint/elbow",
+      "predicate": "skos:exactMatch",
+      "target_id": "snomedct:16953009",
+      "target_label": "Elbow joint structure",
+      "confidence": 1.0
+    },
+    {
+      "id": "skos-map:fkg:joint/hip:exactMatch:snomedct:24136001",
+      "source_id": "fkg:joint/hip",
+      "predicate": "skos:exactMatch",
+      "target_id": "snomedct:24136001",
+      "target_label": "Hip joint structure",
+      "confidence": 1.0
+    },
+    {
+      "id": "skos-map:fkg:joint/knee:exactMatch:snomedct:49076000",
+      "source_id": "fkg:joint/knee",
+      "predicate": "skos:exactMatch",
+      "target_id": "snomedct:49076000",
+      "target_label": "Knee joint structure",
+      "confidence": 1.0
+    },
+    {
+      "id": "skos-map:fkg:joint/lumbar-spine:exactMatch:snomedct:52612000",
+      "source_id": "fkg:joint/lumbar-spine",
+      "predicate": "skos:exactMatch",
+      "target_id": "snomedct:52612000",
+      "target_label": "Structure of lumbar region of back",
+      "confidence": 1.0
+    },
+    {
+      "id": "skos-map:fkg:joint/shoulder:exactMatch:snomedct:16982005",
+      "source_id": "fkg:joint/shoulder",
+      "predicate": "skos:exactMatch",
+      "target_id": "snomedct:16982005",
+      "target_label": "Shoulder region structure",
+      "confidence": 1.0
+    },
+    {
+      "id": "skos-map:fkg:joint/thoracic-spine:exactMatch:snomedct:786965005",
+      "source_id": "fkg:joint/thoracic-spine",
+      "predicate": "skos:exactMatch",
+      "target_id": "snomedct:786965005",
+      "target_label": "Structure of thoracic spine joint region",
+      "confidence": 1.0
+    },
+    {
+      "id": "skos-map:fkg:joint/wrist:exactMatch:snomedct:74670003",
+      "source_id": "fkg:joint/wrist",
+      "predicate": "skos:exactMatch",
+      "target_id": "snomedct:74670003",
+      "target_label": "Wrist joint structure",
+      "confidence": 1.0
+    }
+  ]
+}
