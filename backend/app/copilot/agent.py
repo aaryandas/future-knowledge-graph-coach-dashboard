@@ -36,6 +36,12 @@ type AgentRoute = Literal["tools", "limit", "__end__"]
 
 MAX_TOOL_ROUNDS = 5
 _DATA_PARTS_KEY = "copilot_data_parts"
+_DATA_PART_ORDER = {
+    "data-chart": 0,
+    "data-sources": 1,
+    "data-brief": 2,
+    "data-action": 3,
+}
 _FAILURE_MESSAGE = "I could not answer that question. Please try again."
 _ROUND_LIMIT_MESSAGE = (
     "I could not complete that answer within five retrieval tool rounds. "
@@ -212,9 +218,19 @@ def _build_graph(
 ) -> Any:
     tool_by_name = {tool.name: tool for tool in member_tools}
 
+    def fallback(state: _CopilotState) -> dict[str, list[AIMessage]]:
+        return {
+            "messages": [
+                _fallback_message(
+                    assistant_message_id,
+                    _sources(state["messages"]),
+                )
+            ]
+        }
+
     def call_model(state: _CopilotState) -> dict[str, list[AIMessage]]:
         if llm is None:
-            return {"messages": [_fallback_message(assistant_message_id)]}
+            return fallback(state)
         messages: tuple[BaseMessage, ...] = (
             SystemMessage(content=_system_prompt(tone_facts)),
             *state["messages"],
@@ -222,14 +238,14 @@ def _build_graph(
         try:
             response = llm.invoke(messages, member_tools)
         except Exception:  # noqa: BLE001 - every LLM adapter failure degrades here.
-            return {"messages": [_fallback_message(assistant_message_id)]}
+            return fallback(state)
         if not isinstance(response, AIMessage) or response.invalid_tool_calls:
-            return {"messages": [_fallback_message(assistant_message_id)]}
+            return fallback(state)
         if not response.tool_calls and not _message_text(response):
-            return {"messages": [_fallback_message(assistant_message_id)]}
+            return fallback(state)
         if not response.tool_calls:
             if not _has_current_turn_retrieval(state["messages"]):
-                return {"messages": [_fallback_message(assistant_message_id)]}
+                return fallback(state)
             return {
                 "messages": [
                     _answer_message(
@@ -386,11 +402,14 @@ def _has_current_turn_retrieval(messages: Sequence[AnyMessage]) -> bool:
     raise RuntimeError("The copilot turn has no user message.")
 
 
-def _fallback_message(message_id: str) -> AIMessage:
+def _fallback_message(
+    message_id: str,
+    sources: tuple[CopilotSource, ...],
+) -> AIMessage:
     return _answer_message(
         AIMessage(content=_FAILURE_MESSAGE),
         message_id,
-        (),
+        sources,
     )
 
 
@@ -399,9 +418,11 @@ def _answer_message(
     message_id: str,
     sources: tuple[CopilotSource, ...],
 ) -> AIMessage:
-    data_parts = (
-        _sources_part(sources),
-        *(part for part in _data_parts(response) if part.type != "data-sources"),
+    data_parts = _ordered_data_parts(
+        (
+            _sources_part(sources),
+            *(part for part in _data_parts(response) if part.type != "data-sources"),
+        )
     )
     additional_kwargs = {
         **response.additional_kwargs,
@@ -423,6 +444,12 @@ def _sources_part(sources: tuple[CopilotSource, ...]) -> CopilotDataPart:
         ]
     }
     return CopilotDataPart(type="data-sources", data=data)
+
+
+def _ordered_data_parts(
+    parts: tuple[CopilotDataPart, ...],
+) -> tuple[CopilotDataPart, ...]:
+    return tuple(sorted(parts, key=lambda part: _DATA_PART_ORDER.get(part.type, 4)))
 
 
 def _data_part_payload(part: CopilotDataPart) -> dict[str, JsonValue]:

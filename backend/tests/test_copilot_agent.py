@@ -116,6 +116,27 @@ def test_copilot_provider_and_response_errors_are_visible_answers() -> None:
         )
 
 
+def test_copilot_provider_error_after_retrieval_keeps_sources() -> None:
+    turn = run_copilot_turn(
+        MEMBER_ID,
+        "How is Jordan doing?",
+        checkpointer=InMemorySaver(),
+        llm=FakeCopilotLLM(
+            (
+                _tool_call("goals-before-provider-error"),
+                RuntimeError("provider offline"),
+            )
+        ),
+        retrieval_tools=(_goals_tool(),),
+        tone_fact_reader=_no_tone_facts,
+    )
+
+    assert turn.text == "I could not answer that question. Please try again."
+    assert _source_payload(turn.data_parts) == [
+        {"tool": "get_member_goals", "node_ids": [MEMBER_ID, "goal:strength"]}
+    ]
+
+
 def test_copilot_rejects_member_answer_without_current_retrieval() -> None:
     turn = run_copilot_turn(
         MEMBER_ID,
@@ -182,7 +203,11 @@ def test_copilot_thread_and_data_parts_replay_after_restart() -> None:
             history[1].id,
         ]
         assert history[1].text == "A persisted answer."
-        assert history[1].data_parts[1] == chart
+        assert [part.type for part in history[1].data_parts] == [
+            "data-chart",
+            "data-sources",
+        ]
+        assert history[1].data_parts[0] == chart
     finally:
         with open_postgres_checkpointer() as checkpointer:
             checkpointer.delete_thread(MEMBER_ID)

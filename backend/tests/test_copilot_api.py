@@ -2,6 +2,7 @@ import json
 
 from app.api.copilot import (
     DataPart,
+    DataSourcesPart,
     HistoryReader,
     TurnRunner,
     create_copilot_router,
@@ -17,8 +18,11 @@ from fastapi.testclient import TestClient
 MEMBER_ID = "mbr_01HX9JORDAN"
 
 
-def test_copilot_stream_emits_data_sources_before_text_for_use_chat() -> None:
+def test_copilot_stream_emits_data_parts_in_prescribed_order_before_text() -> None:
     sources_part = _sources_part()
+    chart_part = _chart_part()
+    brief_part = CopilotDataPart(type="data-brief", data={"priority": "strength"})
+    action_part = CopilotDataPart(type="data-action", data={"kind": "send-message"})
 
     def run_turn(
         member_id: str,
@@ -31,7 +35,7 @@ def test_copilot_stream_emits_data_sources_before_text_for_use_chat() -> None:
         return CopilotTurn(
             message_id="assistant-1",
             text="Build strength.",
-            data_parts=(sources_part,),
+            data_parts=(action_part, sources_part, brief_part, chart_part),
         )
 
     response = _client(turn_runner=run_turn).post(
@@ -54,14 +58,17 @@ def test_copilot_stream_emits_data_sources_before_text_for_use_chat() -> None:
     assert [event["type"] for event in events] == [
         "start",
         "start-step",
+        "data-chart",
         "data-sources",
+        "data-brief",
+        "data-action",
         "text-start",
         "text-delta",
         "text-end",
         "finish-step",
         "finish",
     ]
-    assert events[2] == {
+    assert events[3] == {
         "type": "data-sources",
         "data": {
             "sources": [
@@ -76,10 +83,7 @@ def test_copilot_stream_emits_data_sources_before_text_for_use_chat() -> None:
 
 def test_copilot_history_returns_replayable_data_parts() -> None:
     sources_part = _sources_part()
-    chart_part = CopilotDataPart(
-        type="data-chart",
-        data={"kind": "sleep-week", "series": [{"day": "Mon", "hours": 7.5}]},
-    )
+    chart_part = _chart_part()
 
     def read_history(
         member_id: str,
@@ -118,6 +122,13 @@ def test_copilot_history_returns_replayable_data_parts() -> None:
                 "role": "assistant",
                 "parts": [
                     {
+                        "type": "data-chart",
+                        "data": {
+                            "kind": "sleep-week",
+                            "series": [{"day": "Mon", "hours": 7.5}],
+                        },
+                    },
+                    {
                         "type": "data-sources",
                         "data": {
                             "sources": [
@@ -128,13 +139,6 @@ def test_copilot_history_returns_replayable_data_parts() -> None:
                             ]
                         },
                     },
-                    {
-                        "type": "data-chart",
-                        "data": {
-                            "kind": "sleep-week",
-                            "series": [{"day": "Mon", "hours": 7.5}],
-                        },
-                    },
                     {"type": "text", "text": "Build strength."},
                 ],
             },
@@ -142,8 +146,17 @@ def test_copilot_history_returns_replayable_data_parts() -> None:
     }
 
 
-def test_data_part_is_a_frozen_generic_pydantic_contract() -> None:
-    assert DataPart.model_config["frozen"] is True
+def test_data_sources_part_is_a_frozen_typed_pydantic_contract() -> None:
+    assert DataSourcesPart.model_config["frozen"] is True
+    schema = DataSourcesPart.model_json_schema()
+    assert schema["properties"]["type"]["const"] == "data-sources"
+    assert schema["properties"]["data"] == {"$ref": "#/$defs/DataSources"}
+    assert schema["$defs"]["DataSources"]["properties"]["sources"]["items"] == {
+        "$ref": "#/$defs/Source"
+    }
+
+
+def test_data_part_keeps_future_data_kinds_generic() -> None:
     schema = DataPart.model_json_schema()
     assert schema["properties"]["type"]["type"] == "string"
 
@@ -174,6 +187,13 @@ def _sources_part() -> CopilotDataPart:
                 }
             ]
         },
+    )
+
+
+def _chart_part() -> CopilotDataPart:
+    return CopilotDataPart(
+        type="data-chart",
+        data={"kind": "sleep-week", "series": [{"day": "Mon", "hours": 7.5}]},
     )
 
 

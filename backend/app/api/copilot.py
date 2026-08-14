@@ -18,6 +18,26 @@ from app.copilot import (
 )
 
 
+class Source(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    tool: str
+    node_ids: list[str]
+
+
+class DataSources(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    sources: list[Source]
+
+
+class DataSourcesPart(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    type: Literal["data-sources"] = "data-sources"
+    data: DataSources
+
+
 class DataPart(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -52,7 +72,7 @@ class CopilotReplayMessage(BaseModel):
 
     id: str
     role: Literal["user", "assistant"]
-    parts: list[TextPart | DataPart]
+    parts: list[TextPart | DataSourcesPart | DataPart]
 
 
 class CopilotHistory(BaseModel):
@@ -64,6 +84,13 @@ class CopilotHistory(BaseModel):
 
 type TurnRunner = Callable[[str, str, str], CopilotTurn]
 type HistoryReader = Callable[[str], tuple[CopilotHistoryMessage, ...]]
+
+_DATA_PART_ORDER = {
+    "data-chart": 0,
+    "data-sources": 1,
+    "data-brief": 2,
+    "data-action": 3,
+}
 
 
 def create_copilot_router(
@@ -163,13 +190,15 @@ def _message_text(parts: list[dict[str, object]]) -> str:
     )
 
 
-def _data_part(part: CopilotDataPart) -> DataPart:
+def _data_part(part: CopilotDataPart) -> DataSourcesPart | DataPart:
+    if part.type == "data-sources":
+        return DataSourcesPart(data=DataSources.model_validate(part.data))
     return DataPart(type=part.type, data=part.data)
 
 
 def _replay_message(message: CopilotHistoryMessage) -> CopilotReplayMessage:
-    parts: list[TextPart | DataPart] = [
-        *(_data_part(part) for part in message.data_parts),
+    parts: list[TextPart | DataSourcesPart | DataPart] = [
+        *(_data_part(part) for part in _ordered_data_parts(message.data_parts)),
         TextPart(text=message.text),
     ]
     return CopilotReplayMessage(id=message.id, role=message.role, parts=parts)
@@ -179,7 +208,7 @@ def _ui_message_stream(turn: CopilotTurn) -> Iterator[str]:
     text_part_id = f"{turn.message_id}-text"
     yield _sse({"type": "start", "messageId": turn.message_id})
     yield _sse({"type": "start-step"})
-    for part in turn.data_parts:
+    for part in _ordered_data_parts(turn.data_parts):
         yield _sse(_data_part(part).model_dump(mode="json"))
     yield _sse({"type": "text-start", "id": text_part_id})
     yield _sse({"type": "text-delta", "id": text_part_id, "delta": turn.text})
@@ -191,6 +220,12 @@ def _ui_message_stream(turn: CopilotTurn) -> Iterator[str]:
 
 def _sse(event: dict[str, object]) -> str:
     return f"data: {json.dumps(event, separators=(',', ':'))}\n\n"
+
+
+def _ordered_data_parts(
+    parts: tuple[CopilotDataPart, ...],
+) -> tuple[CopilotDataPart, ...]:
+    return tuple(sorted(parts, key=lambda part: _DATA_PART_ORDER.get(part.type, 4)))
 
 
 router = create_copilot_router()
