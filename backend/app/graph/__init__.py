@@ -1,5 +1,6 @@
 """Build and read the Movement/Clinical and Member Context Graphs."""
 
+from .constants import ObservationKind
 from .graph_neighborhood import (
     GraphEdge,
     GraphEdgeKind,
@@ -11,6 +12,11 @@ from .graph_neighborhood import (
     get_graph_neighborhood,
 )
 from .ingest import KG1Counts, KG2Counts, ingest_kg1, ingest_kg2
+from .journey import (
+    JourneyStage,
+    JourneyStageEvidence,
+    JourneyStageName,
+)
 from .member_context import (
     BarrierView,
     ChatMessageView,
@@ -27,6 +33,7 @@ from .member_context import (
     get_member_context,
     get_member_goals,
     get_member_injuries,
+    get_member_node_id,
     get_member_profile,
     get_morning_brief,
     get_observations,
@@ -45,12 +52,16 @@ __all__ = [
     "GraphNode",
     "GraphNodeKind",
     "GraphPropertyValue",
+    "JourneyStage",
+    "JourneyStageEvidence",
+    "JourneyStageName",
     "KG1Counts",
     "KG2Counts",
     "MemberContext",
     "MemberInjuryView",
     "MemberProfile",
     "MorningBrief",
+    "ObservationKind",
     "ObservationValue",
     "ObservationView",
     "WorkoutSessionView",
@@ -59,6 +70,7 @@ __all__ = [
     "get_member_context",
     "get_member_goals",
     "get_member_injuries",
+    "get_member_node_id",
     "get_member_profile",
     "get_morning_brief",
     "get_observations",
