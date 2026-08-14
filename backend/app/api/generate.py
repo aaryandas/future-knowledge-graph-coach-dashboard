@@ -110,13 +110,13 @@ def _ui_message_stream(turn: GenerationTurn) -> Iterator[str]:
     text_part_id = f"{turn.message_id}-text"
     yield _sse({"type": "start", "messageId": turn.message_id})
     yield _sse({"type": "start-step"})
-    note_parts = iter(turn.coaching_note_parts)
-    first_note_part = next(note_parts, None)
     for part in generation_data_parts(turn):
         yield _sse(part.model_dump(mode="json", by_alias=True))
     yield _sse({"type": "text-start", "id": text_part_id})
     yield _sse({"type": "text-delta", "id": text_part_id, "delta": turn.text})
     yield _sse({"type": "text-end", "id": text_part_id})
+    note_parts = iter(turn.coaching_note_parts)
+    first_note_part = next(note_parts, None)
     if first_note_part is not None:
         note_part_id = f"{turn.message_id}-annotation"
         yield _sse({"type": "text-start", "id": note_part_id})

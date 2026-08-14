@@ -3,6 +3,7 @@ from collections import deque
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import Protocol
 
+from langchain_core.exceptions import OutputParserException
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_openai import ChatOpenAI
@@ -56,6 +57,49 @@ _INTENT_SCHEMA = {
     "required": ["focus", "targets", "exclusions", "injuries", "equipment"],
     "additionalProperties": False,
 }
+_ANNOTATION_SCHEMA = {
+    "title": "coaching_note_cautions",
+    "description": "Optional tighten-only cautions for completed plan items.",
+    "type": "object",
+    "properties": {
+        "cautions": {
+            "type": "array",
+            "maxItems": 2,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "plan_item_id": {
+                        "type": "string",
+                        "description": "An exercise id present in the completed plan.",
+                    },
+                    "tightening_kind": {
+                        "type": "string",
+                        "enum": [
+                            "reduce-load",
+                            "reduce-range",
+                            "stop-on-pain",
+                            "add-rest",
+                        ],
+                    },
+                    "caution_text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200,
+                        "description": "Short caution text displayed verbatim.",
+                    },
+                },
+                "required": [
+                    "plan_item_id",
+                    "tightening_kind",
+                    "caution_text",
+                ],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["cautions"],
+    "additionalProperties": False,
+}
 
 
 class LLMProviderError(Exception):
@@ -67,12 +111,11 @@ class IntentLLM(Protocol):
 
 
 class AnnotationLLM(Protocol):
-    def stream(self, messages: Sequence[BaseMessage]) -> Iterator[str]: ...
+    def stream(self, messages: Sequence[BaseMessage]) -> Iterator[object]: ...
 
 
-class _OpenRouterLLM:
+class _OpenRouterIntentLLM:
     def __init__(self, chat_model: BaseChatModel) -> None:
-        self._chat_model = chat_model
         self._structured_llm = chat_model.with_structured_output(
             _INTENT_SCHEMA,
             method="json_schema",
@@ -81,15 +124,33 @@ class _OpenRouterLLM:
     def invoke(self, messages: Sequence[BaseMessage]) -> object:
         try:
             return self._structured_llm.invoke(list(messages))
-        except Exception as error:
+        except (
+            ConnectionError,
+            IndexError,
+            OpenAIError,
+            OutputParserException,
+            TimeoutError,
+        ) as error:
             raise LLMProviderError from error
 
-    def stream(self, messages: Sequence[BaseMessage]) -> Iterator[str]:
+
+class _OpenRouterAnnotationLLM:
+    def __init__(self, chat_model: BaseChatModel) -> None:
+        self._structured_llm = chat_model.with_structured_output(
+            _ANNOTATION_SCHEMA,
+            method="json_schema",
+        )
+
+    def stream(self, messages: Sequence[BaseMessage]) -> Iterator[object]:
         try:
-            for chunk in self._chat_model.stream(list(messages)):
-                if text := chunk.text:
-                    yield text
-        except (ConnectionError, OpenAIError, TimeoutError) as error:
+            yield from self._structured_llm.stream(list(messages))
+        except (
+            ConnectionError,
+            IndexError,
+            OpenAIError,
+            OutputParserException,
+            TimeoutError,
+        ) as error:
             raise LLMProviderError from error
 
 
@@ -117,16 +178,20 @@ class FakeLLM:
 
 
 def build_intent_llm(chat_model: BaseChatModel | None = None) -> IntentLLM | None:
-    return _build_openrouter_llm(chat_model)
+    built_model = _build_openrouter_chat_model(chat_model)
+    return _OpenRouterIntentLLM(built_model) if built_model is not None else None
 
 
 def build_annotation_llm(
     chat_model: BaseChatModel | None = None,
 ) -> AnnotationLLM | None:
-    return _build_openrouter_llm(chat_model)
+    built_model = _build_openrouter_chat_model(chat_model)
+    return _OpenRouterAnnotationLLM(built_model) if built_model is not None else None
 
 
-def _build_openrouter_llm(chat_model: BaseChatModel | None) -> _OpenRouterLLM | None:
+def _build_openrouter_chat_model(
+    chat_model: BaseChatModel | None,
+) -> BaseChatModel | None:
     if chat_model is None:
         api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
@@ -139,4 +204,4 @@ def _build_openrouter_llm(chat_model: BaseChatModel | None) -> _OpenRouterLLM | 
             temperature=0,
             max_retries=0,
         )
-    return _OpenRouterLLM(chat_model)
+    return chat_model

@@ -25,7 +25,7 @@ def test_generate_stream_calls_the_generation_session_seam() -> None:
         return GenerationTurn(
             message_id="user-1-assistant",
             plan=None,
-            trace=[],
+            trace=(),
             resolved_intent=None,
             failure=None,
             text="Session ready.",
@@ -66,16 +66,17 @@ def test_generate_stream_calls_the_generation_session_seam() -> None:
 
 
 def test_coaching_note_text_parts_stream_after_plan_and_trace() -> None:
-    trace = []
+    data_parts_built: list[bool] = []
+
+    class ObservedTrace(tuple[AgentTraceEvent, ...]):
+        def __iter__(self):
+            data_parts_built.append(True)
+            return super().__iter__()
+
+    trace = ObservedTrace()
 
     def coaching_note_parts():
-        trace.append(
-            AgentTraceEvent(
-                action="annotation",
-                reason="Added a verified tighten-only coaching note.",
-                used=("ex-1",),
-            )
-        )
+        assert data_parts_built
         yield "Keep the load light."
         yield " Stop if knee pain increases."
 
@@ -133,10 +134,7 @@ def test_coaching_note_text_parts_stream_after_plan_and_trace() -> None:
         "data"
     ]
     assert isinstance(trace_data, list)
-    trace_event = trace_data[-1]
-    assert isinstance(trace_event, dict)
-    assert trace_event["kind"] == "agent"
-    assert trace_event["wasAttributedTo"] == "agent"
+    assert trace_data == []
     assert [
         event["delta"]
         for event in events

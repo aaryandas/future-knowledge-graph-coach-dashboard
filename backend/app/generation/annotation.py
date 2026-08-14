@@ -1,37 +1,46 @@
-import re
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass
+from typing import Literal, cast
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from app.generation._model import Plan
-from app.generation._trace import AgentTraceEvent, TraceEvent
+from app.generation._trace import AgentTraceEvent
 from app.generation.llm import (
     AnnotationLLM,
     LLMProviderError,
     build_annotation_llm,
 )
 
-_MAX_NOTE_CHARACTERS = 400
-_MAX_NOTE_SENTENCES = 2
-_CAUTION_START = re.compile(
-    r"(?:keep|use|stop|avoid|pause|monitor|stay)\b",
-    re.IGNORECASE,
+type TighteningKind = Literal[
+    "reduce-load",
+    "reduce-range",
+    "stop-on-pain",
+    "add-rest",
+]
+
+_MAX_CAUTIONS = 2
+_MAX_CAUTION_TEXT_CHARACTERS = 200
+_TIGHTENING_KINDS: frozenset[str] = frozenset(
+    {"reduce-load", "reduce-range", "stop-on-pain", "add-rest"}
 )
-_LOOSENING_DIRECTIVE = re.compile(
-    r"\b(?:"
-    r"add|change|disregard|dismiss|heavier|ignore|increase|override|remove|replace|"
-    r"resume|skip|swap|unsafe|extra|maximum|maximal|"
-    r"push\s+through|full\s+range|more\s+(?:load|reps|sets|time|weight)"
-    r")\b",
-    re.IGNORECASE,
-)
-_SYSTEM_PROMPT = """You write short coaching notes for a completed workout plan.
-The plan, doses, and safety verdicts are final. Your note is presentation-only.
-You may add caution or recommend a more conservative execution.
-Never remove, reduce, contradict, or tell the coach to ignore a safety restriction.
-Never change the exercises or doses. Mention only exercises in the completed plan.
-Write at most two short sentences. Return plain text only.
-If there is no useful note, return no text."""
+_SYSTEM_PROMPT = """You add optional cautions to a completed workout plan.
+Return only the structured caution form. Each caution must reference one plan_item_id
+from the completed plan and choose one tightening_kind from the schema.
+Write a short caution_text for display. The completed exercise selection and doses are final.
+Return an empty cautions list when no caution is useful."""
+
+
+@dataclass(frozen=True)
+class Caution:
+    plan_item_id: str
+    tightening_kind: TighteningKind
+    caution_text: str
+
+
+@dataclass(frozen=True)
+class Annotation:
+    cautions: tuple[Caution, ...]
 
 
 def annotate(
@@ -39,9 +48,9 @@ def annotate(
     coach_message: str,
     *,
     llm: AnnotationLLM | None = None,
-    trace: list[TraceEvent],
+    record_trace_event: Callable[[AgentTraceEvent], None],
 ) -> Iterator[str]:
-    """Stream optional coaching note parts without exposing provider failures."""
+    """Stream one validated caution form and drop provider failures."""
     annotation_llm = llm or build_annotation_llm()
     if annotation_llm is None:
         return
@@ -51,36 +60,89 @@ def annotate(
         HumanMessage(content=_annotation_context(plan, coach_message)),
     )
     try:
-        parts = _validated_parts(annotation_llm.stream(messages))
-        first_part = next(parts, None)
+        payload = _complete_payload(annotation_llm.stream(messages))
     except LLMProviderError:
-        return
-    if first_part is None:
         return
 
-    trace.append(
+    annotation = _annotation_from_payload(payload, _plan_item_ids(plan))
+    if annotation is None or not annotation.cautions:
+        return
+
+    record_trace_event(
         AgentTraceEvent(
             action="annotation",
-            reason="Added a verified tighten-only coaching note.",
-            used=tuple(
-                entry.exercise_id
-                for section in (plan.warm_up, plan.main, plan.cool_down)
-                for entry in section.entries
-            ),
+            reason="Added a structurally validated tighten-only coaching note.",
+            used=tuple(caution.plan_item_id for caution in annotation.cautions),
         )
     )
-    yield first_part
-    try:
-        yield from parts
-    except LLMProviderError:
-        return
+    for caution in annotation.cautions:
+        yield caution.caution_text
+
+
+def _complete_payload(parts: Iterator[object]) -> object:
+    payload: object = None
+    for payload in parts:
+        pass
+    return payload
+
+
+def _annotation_from_payload(
+    payload: object,
+    plan_item_ids: frozenset[str],
+) -> Annotation | None:
+    if not isinstance(payload, Mapping) or set(payload) != {"cautions"}:
+        return None
+
+    caution_payloads = payload["cautions"]
+    if not isinstance(caution_payloads, list) or len(caution_payloads) > _MAX_CAUTIONS:
+        return None
+
+    cautions: list[Caution] = []
+    for caution_payload in caution_payloads:
+        caution = _caution_from_payload(caution_payload, plan_item_ids)
+        if caution is None:
+            return None
+        cautions.append(caution)
+    return Annotation(cautions=tuple(cautions))
+
+
+def _caution_from_payload(
+    payload: object,
+    plan_item_ids: frozenset[str],
+) -> Caution | None:
+    if not isinstance(payload, Mapping) or set(payload) != {
+        "plan_item_id",
+        "tightening_kind",
+        "caution_text",
+    }:
+        return None
+
+    plan_item_id = payload["plan_item_id"]
+    tightening_kind = payload["tightening_kind"]
+    caution_text = payload["caution_text"]
+    if not isinstance(plan_item_id, str) or plan_item_id not in plan_item_ids:
+        return None
+    if not isinstance(tightening_kind, str) or tightening_kind not in _TIGHTENING_KINDS:
+        return None
+    if (
+        not isinstance(caution_text, str)
+        or not caution_text.strip()
+        or len(caution_text) > _MAX_CAUTION_TEXT_CHARACTERS
+    ):
+        return None
+
+    return Caution(
+        plan_item_id=plan_item_id,
+        tightening_kind=cast("TighteningKind", tightening_kind),
+        caution_text=caution_text,
+    )
 
 
 def _annotation_context(plan: Plan, coach_message: str) -> str:
     rows = "\n".join(
         (
-            f"- {section.section}: {entry.name}; "
-            f"dose={_dose(entry)}; verdict={entry.verdict}; "
+            f"- plan_item_id={entry.exercise_id}; section={section.section}; "
+            f"exercise={entry.name}; dose={_dose(entry)}; verdict={entry.verdict}; "
             f"caution={entry.caution_note or 'none'}"
         )
         for section in (plan.warm_up, plan.main, plan.cool_down)
@@ -89,44 +151,15 @@ def _annotation_context(plan: Plan, coach_message: str) -> str:
     return f"Coach message:\n{coach_message}\n\nCompleted plan:\n{rows}"
 
 
+def _plan_item_ids(plan: Plan) -> frozenset[str]:
+    return frozenset(
+        entry.exercise_id
+        for section in (plan.warm_up, plan.main, plan.cool_down)
+        for entry in section.entries
+    )
+
+
 def _dose(entry) -> str:
     if entry.reps is not None:
         return f"{entry.sets} sets x {entry.reps} reps"
     return f"{entry.sets} sets x {entry.hold_minutes} minutes"
-
-
-def _validated_parts(parts: Iterator[str]) -> Iterator[str]:
-    remaining = _MAX_NOTE_CHARACTERS
-    accepted = 0
-    for sentence in _sentences(parts):
-        note = sentence.strip()
-        if not _is_tightening(note):
-            continue
-        prefix = " " if accepted else ""
-        bounded = f"{prefix}{note}"[:remaining]
-        if not bounded:
-            return
-        yield bounded
-        accepted += 1
-        remaining -= len(bounded)
-        if remaining == 0 or accepted == _MAX_NOTE_SENTENCES:
-            return
-
-
-def _sentences(parts: Iterator[str]) -> Iterator[str]:
-    buffered = ""
-    for part in parts:
-        buffered += part
-        while match := re.search(r"[.!?](?:\s|$)", buffered):
-            end = match.end()
-            yield buffered[:end]
-            buffered = buffered[end:]
-    if buffered.strip():
-        yield buffered
-
-
-def _is_tightening(note: str) -> bool:
-    first_word = note.split(maxsplit=1)[0] if note else ""
-    return bool(_CAUTION_START.fullmatch(first_word)) and not bool(
-        _LOOSENING_DIRECTIVE.search(note)
-    )

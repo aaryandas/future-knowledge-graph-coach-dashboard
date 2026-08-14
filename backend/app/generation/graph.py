@@ -23,7 +23,7 @@ from app.generation._model import (
 )
 from app.generation._packing import PackingFailure, pack
 from app.generation._resolution import resolve_intent
-from app.generation._trace import TraceEvent
+from app.generation._trace import AgentTraceEvent, TraceEvent
 from app.generation.annotation import AnnotationLLM, annotate
 from app.generation.intent import Intent, InterpretationFailure, interpret
 from app.generation.llm import IntentLLM
@@ -32,6 +32,10 @@ from app.safety import Verdict, evaluate_safety
 type CatalogReader = Callable[[], tuple[CatalogExercise, ...]]
 type MemberContextReader = Callable[[str], GenerationMemberContext | None]
 type VerdictEvaluator = Callable[[str, tuple[str, ...]], tuple[Verdict, ...]]
+type AnnotationTraceRecorder = Callable[
+    [tuple[TraceEvent, ...], AgentTraceEvent],
+    None,
+]
 type GenerationRoute = Literal["resolve", "pack", "__end__"]
 
 
@@ -53,7 +57,7 @@ class _GenerationState(TypedDict, total=False):
 class GenerationTurn:
     message_id: str
     plan: Plan | None
-    trace: list[TraceEvent]
+    trace: tuple[TraceEvent, ...]
     resolved_intent: ResolvedIntent | None
     failure: GenerationFailure | None
     text: str
@@ -73,6 +77,7 @@ def run_generation_session(
     catalog_reader: CatalogReader = read_catalog_exercises,
     member_context_reader: MemberContextReader = read_generation_member_context,
     verdict_evaluator: VerdictEvaluator = evaluate_safety,
+    annotation_trace_recorder: AnnotationTraceRecorder | None = None,
 ) -> GenerationTurn:
     """Run one checkpointed generation turn using the useChat thread id."""
     if not coach_message.strip():
@@ -87,6 +92,7 @@ def run_generation_session(
         member_context_reader=member_context_reader,
         verdict_evaluator=verdict_evaluator,
     )
+    config = _thread_config(thread_id)
     state = cast(
         _GenerationState,
         graph.invoke(
@@ -103,12 +109,19 @@ def run_generation_session(
                 "trace": (),
                 "failure": None,
             },
-            _thread_config(thread_id),
+            config,
         ),
     )
     failure = state.get("failure")
     plan = state.get("plan")
-    trace = list(state.get("trace", ()))
+    trace = state.get("trace", ())
+
+    def record_annotation_event(event: AgentTraceEvent) -> None:
+        if annotation_trace_recorder is None:
+            graph.update_state(config, {"trace": (*trace, event)})
+            return
+        annotation_trace_recorder(trace, event)
+
     return GenerationTurn(
         message_id=f"{message_id or thread_id}-assistant",
         plan=plan,
@@ -121,12 +134,29 @@ def run_generation_session(
                 plan,
                 coach_message.strip(),
                 llm=annotation_llm,
-                trace=trace,
+                record_trace_event=record_annotation_event,
             )
             if plan is not None
             else ()
         ),
     )
+
+
+def append_annotation_trace_event(
+    thread_id: str,
+    trace: tuple[TraceEvent, ...],
+    event: AgentTraceEvent,
+    *,
+    checkpointer: BaseCheckpointSaver[Any],
+) -> None:
+    graph = _build_graph(
+        checkpointer=checkpointer,
+        llm=None,
+        catalog_reader=read_catalog_exercises,
+        member_context_reader=read_generation_member_context,
+        verdict_evaluator=evaluate_safety,
+    )
+    graph.update_state(_thread_config(thread_id), {"trace": (*trace, event)})
 
 
 def _build_graph(

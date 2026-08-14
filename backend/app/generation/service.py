@@ -1,21 +1,7 @@
-from typing import Any
-
-from langgraph.checkpoint.base import BaseCheckpointSaver
-
-from app.generation._catalog import (
-    read_catalog_exercises,
-    read_generation_member_context,
-)
-from app.generation.graph import (
-    CatalogReader,
-    GenerationTurn,
-    MemberContextReader,
-    VerdictEvaluator,
-)
+from app.generation._trace import AgentTraceEvent, TraceEvent
+from app.generation.graph import GenerationTurn, append_annotation_trace_event
 from app.generation.graph import run_generation_session as run_checkpointed_session
-from app.generation.llm import AnnotationLLM, IntentLLM
 from app.generation.persistence import open_postgres_checkpointer
-from app.safety import evaluate_safety
 
 
 def run_generation_session(
@@ -24,39 +10,26 @@ def run_generation_session(
     window: int,
     thread_id: str,
     message_id: str,
-    *,
-    checkpointer: BaseCheckpointSaver[Any] | None = None,
-    llm: IntentLLM | None = None,
-    annotation_llm: AnnotationLLM | None = None,
-    catalog_reader: CatalogReader = read_catalog_exercises,
-    member_context_reader: MemberContextReader = read_generation_member_context,
-    verdict_evaluator: VerdictEvaluator = evaluate_safety,
 ) -> GenerationTurn:
-    if checkpointer is not None:
+    def record_annotation_trace(
+        trace: tuple[TraceEvent, ...],
+        event: AgentTraceEvent,
+    ) -> None:
+        with open_postgres_checkpointer() as checkpointer:
+            append_annotation_trace_event(
+                thread_id,
+                trace,
+                event,
+                checkpointer=checkpointer,
+            )
+
+    with open_postgres_checkpointer() as checkpointer:
         return run_checkpointed_session(
             member_id,
             coach_message,
             window,
             thread_id,
             checkpointer=checkpointer,
-            llm=llm,
-            annotation_llm=annotation_llm,
             message_id=message_id,
-            catalog_reader=catalog_reader,
-            member_context_reader=member_context_reader,
-            verdict_evaluator=verdict_evaluator,
-        )
-    with open_postgres_checkpointer() as stored_checkpointer:
-        return run_checkpointed_session(
-            member_id,
-            coach_message,
-            window,
-            thread_id,
-            checkpointer=stored_checkpointer,
-            llm=llm,
-            annotation_llm=annotation_llm,
-            message_id=message_id,
-            catalog_reader=catalog_reader,
-            member_context_reader=member_context_reader,
-            verdict_evaluator=verdict_evaluator,
+            annotation_trace_recorder=record_annotation_trace,
         )

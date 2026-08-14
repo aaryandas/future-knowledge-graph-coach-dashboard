@@ -1,54 +1,163 @@
+import pickle
+from collections.abc import Iterable, Iterator, Sequence
+from inspect import signature
+from typing import Any, cast
+
 import pytest
 from app.generation import GenerationTurn, run_generation_session
+from app.generation._trace import TraceEvent
+from app.generation.graph import (
+    run_generation_session as run_test_generation_session,
+)
 from app.generation.testing import (
     CatalogExercise,
-    FakeAnnotationLLM,
     FakeLLM,
     GenerationMemberContext,
     LLMProviderError,
 )
 from app.safety import Verdict, WalkedPath
+from langchain_core.messages import BaseMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 MEMBER_ID = "mbr_01HX9JORDAN"
+THREAD_ID = "annotation-test-thread"
 
 
-def test_generation_session_streams_verified_coaching_note_parts() -> None:
-    annotation_llm = FakeAnnotationLLM(
-        ["Keep the load light.", " Stop if knee pain increases."]
+class FakeStructuredAnnotationLLM:
+    def __init__(self, parts: Iterable[object | LLMProviderError]) -> None:
+        self._parts = tuple(parts)
+        self._calls: list[tuple[BaseMessage, ...]] = []
+        self._parts_requested = 0
+
+    @property
+    def calls(self) -> tuple[tuple[BaseMessage, ...], ...]:
+        return tuple(self._calls)
+
+    @property
+    def parts_requested(self) -> int:
+        return self._parts_requested
+
+    def stream(self, messages: Sequence[BaseMessage]) -> Iterator[object]:
+        self._calls.append(tuple(messages))
+        for part in self._parts:
+            self._parts_requested += 1
+            if isinstance(part, LLMProviderError):
+                raise part
+            yield part
+
+
+class _PickleSerializer:
+    def dumps_typed(self, obj: Any) -> tuple[str, bytes]:
+        return "pickle", pickle.dumps(obj)
+
+    def loads_typed(self, data: tuple[str, bytes]) -> Any:
+        _, value = data
+        return pickle.loads(value)
+
+
+def _in_memory_generation_checkpointer() -> InMemorySaver:
+    return InMemorySaver(serde=_PickleSerializer())
+
+
+def test_generation_session_streams_structured_coaching_note_text_verbatim() -> None:
+    annotation_llm = FakeStructuredAnnotationLLM(
+        [
+            {
+                "cautions": [
+                    {
+                        "plan_item_id": "ex-main",
+                        "tightening_kind": "reduce-load",
+                        "caution_text": " Keep the load light. ",
+                    },
+                    {
+                        "plan_item_id": "ex-main",
+                        "tightening_kind": "stop-on-pain",
+                        "caution_text": "Stop if knee pain increases.",
+                    },
+                ]
+            }
+        ]
     )
-    turn = _run_turn(annotation_llm=annotation_llm)
+    checkpointer = _in_memory_generation_checkpointer()
+    turn = _run_turn(annotation_llm=annotation_llm, checkpointer=checkpointer)
     parts = iter(turn.coaching_note_parts)
 
     assert not any(event.kind == "agent" for event in turn.trace)
-    assert next(parts) == "Keep the load light."
+    assert next(parts) == " Keep the load light. "
     assert annotation_llm.parts_requested == 1
-    assert turn.trace[-1].kind == "agent"
-    assert tuple(parts) == (" Stop if knee pain increases.",)
+    assert tuple(parts) == ("Stop if knee pain increases.",)
     assert len(annotation_llm.calls) == 1
     system_prompt = str(annotation_llm.calls[0][0].content)
     plan_context = str(annotation_llm.calls[0][1].content)
-    assert "Never remove, reduce, contradict" in system_prompt
-    assert "Completed plan:" in plan_context
+    assert "structured caution form" in system_prompt
+    assert "plan_item_id=ex-main" in plan_context
+    assert _checkpoint_trace(checkpointer)[-1].kind == "agent"
 
 
-def test_generation_session_drops_a_loosening_coaching_note() -> None:
-    annotation_llm = FakeAnnotationLLM(
-        ["Ignore the caution and add more sets of a different exercise."]
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "cautions": [
+                {
+                    "plan_item_id": "not-in-plan",
+                    "tightening_kind": "reduce-load",
+                    "caution_text": "Keep the load light.",
+                }
+            ]
+        },
+        {
+            "cautions": [
+                {
+                    "plan_item_id": "ex-main",
+                    "tightening_kind": "substitute",
+                    "caution_text": "Use a different exercise.",
+                }
+            ]
+        },
+        {
+            "cautions": [
+                {
+                    "plan_item_id": "ex-main",
+                    "tightening_kind": "add-rest",
+                    "caution_text": "Take more rest.",
+                    "replacement_id": "ex-warm",
+                }
+            ]
+        },
+        {"cautions": [], "remove_plan_item_ids": ["ex-main"]},
+    ],
+)
+def test_generation_session_drops_invalid_structured_coaching_note(
+    payload: dict[str, object],
+) -> None:
+    turn = _run_turn(annotation_llm=FakeStructuredAnnotationLLM([payload]))
+
+    assert tuple(turn.coaching_note_parts) == ()
+    assert not any(event.kind == "agent" for event in turn.trace)
+
+
+def test_generation_session_drops_the_whole_note_on_mid_note_provider_error() -> None:
+    annotation_llm = FakeStructuredAnnotationLLM(
+        [
+            {
+                "cautions": [
+                    {
+                        "plan_item_id": "ex-main",
+                        "tightening_kind": "reduce-range",
+                        "caution_text": "Use a smaller range.",
+                    }
+                ]
+            },
+            LLMProviderError("offline"),
+        ]
     )
-    turn = _run_turn(annotation_llm=annotation_llm)
+    checkpointer = _in_memory_generation_checkpointer()
+    turn = _run_turn(annotation_llm=annotation_llm, checkpointer=checkpointer)
 
     assert tuple(turn.coaching_note_parts) == ()
-    assert not any(event.kind == "agent" for event in turn.trace)
-
-
-def test_generation_session_provider_error_degrades_to_absent_notes() -> None:
-    annotation_llm = FakeAnnotationLLM([LLMProviderError("offline")])
-    turn = _run_turn(annotation_llm=annotation_llm)
-
-    assert tuple(turn.coaching_note_parts) == ()
-    assert len(annotation_llm.calls) == 1
-    assert not any(event.kind == "agent" for event in turn.trace)
+    assert annotation_llm.parts_requested == 2
+    assert not any(event.kind == "agent" for event in _checkpoint_trace(checkpointer))
 
 
 def test_generation_session_without_an_api_key_has_no_coaching_note(
@@ -61,17 +170,27 @@ def test_generation_session_without_an_api_key_has_no_coaching_note(
     assert not any(event.kind == "agent" for event in turn.trace)
 
 
+def test_generation_service_facade_exposes_only_session_inputs() -> None:
+    assert tuple(signature(run_generation_session).parameters) == (
+        "member_id",
+        "coach_message",
+        "window",
+        "thread_id",
+        "message_id",
+    )
+
+
 def _run_turn(
     *,
-    annotation_llm: FakeAnnotationLLM | None = None,
+    annotation_llm: FakeStructuredAnnotationLLM | None = None,
+    checkpointer: InMemorySaver | None = None,
 ) -> GenerationTurn:
-    return run_generation_session(
+    return run_test_generation_session(
         MEMBER_ID,
         "Build a careful full-body workout.",
         20,
-        "annotation-test-thread",
-        "annotation-user-message",
-        checkpointer=InMemorySaver(),
+        THREAD_ID,
+        checkpointer=checkpointer or _in_memory_generation_checkpointer(),
         llm=FakeLLM(
             [
                 {
@@ -84,6 +203,7 @@ def _run_turn(
             ]
         ),
         annotation_llm=annotation_llm,
+        message_id="annotation-user-message",
         catalog_reader=_catalog,
         member_context_reader=lambda member_id: GenerationMemberContext(
             equipment_ids=(),
@@ -91,6 +211,16 @@ def _run_turn(
         ),
         verdict_evaluator=_clear_verdicts,
     )
+
+
+def _checkpoint_trace(checkpointer: InMemorySaver) -> tuple[TraceEvent, ...]:
+    checkpoint = checkpointer.get({"configurable": {"thread_id": THREAD_ID}})
+    assert checkpoint is not None
+    channel_values = checkpoint["channel_values"]
+    assert isinstance(channel_values, dict)
+    trace = channel_values["trace"]
+    assert isinstance(trace, tuple)
+    return cast("tuple[TraceEvent, ...]", trace)
 
 
 def _catalog() -> tuple[CatalogExercise, ...]:
