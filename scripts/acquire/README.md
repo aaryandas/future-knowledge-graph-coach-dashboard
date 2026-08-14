@@ -41,3 +41,18 @@ string contains the concept name and its aliases, including SNOMED synonyms. It 
 `data/resolver-embeddings/`. Review and commit those artifacts after each intentional
 vocabulary or model update. Runtime queries must use the same model. Tests use the small
 committed fixtures under `backend/tests/fixtures/` and never call OpenRouter.
+
+Railway supplies `OPENROUTER_API_KEY` to the deployed backend from the backend service
+variables. The runtime uses the key to embed only the query text. It reads the concept
+vectors from the committed artifacts. For a local live check, read the same variable with
+the logged-in Railway CLI from the linked project:
+
+```sh
+export OPENROUTER_API_KEY="$(railway variables --service backend --json | jq -r .OPENROUTER_API_KEY)"
+```
+
+Do not print or commit the value. CI deliberately leaves this variable empty and does not
+call OpenRouter. Without a key, configure the vocabulary without an embedding provider.
+`resolve(text, vocab)` still runs the exact and fuzzy passes, skips the vector pass, and
+returns a `Resolution` value instead of raising an exception. The artifact build command
+above still requires the key because it creates the committed concept vectors.
