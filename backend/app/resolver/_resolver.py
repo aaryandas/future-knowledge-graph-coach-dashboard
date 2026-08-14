@@ -4,12 +4,10 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
-from ._aliases import TOKEN_ALIASES
 from ._model import Candidate, Resolution, Vocabulary, VocabularyConcept
 
 _PARENTHETICAL = re.compile(r"\(([^()]*)\)")
 _WHITESPACE = re.compile(r"\s+")
-_ALIAS_LENGTHS = tuple(sorted({len(alias) for alias in TOKEN_ALIASES}, reverse=True))
 
 
 @dataclass(frozen=True)
@@ -19,8 +17,12 @@ class _ExactHit:
 
 
 def resolve(text: str, vocab: Vocabulary) -> Resolution:
-    full_text, stripped_text, modifiers = _mention_parts(text)
-    index = _exact_index(vocab)
+    token_aliases = dict(vocab.token_aliases())
+    alias_lengths = tuple(sorted({len(alias) for alias in token_aliases}, reverse=True))
+    full_text, stripped_text, modifiers = _mention_parts(
+        text, token_aliases, alias_lengths
+    )
+    index = _exact_index(vocab, token_aliases, alias_lengths)
 
     for normalized_text in dict.fromkeys((full_text, stripped_text)):
         if not normalized_text:
@@ -31,8 +33,8 @@ def resolve(text: str, vocab: Vocabulary) -> Resolution:
             return Resolution(
                 concept_id=ranked[0].concept_id,
                 confidence=1.0,
-                method="exact",
-                candidates=ranked,
+                pass_="exact",
+                candidates=ranked[1:],
                 raw_text=text,
                 modifiers=modifiers,
             )
@@ -40,14 +42,18 @@ def resolve(text: str, vocab: Vocabulary) -> Resolution:
     return Resolution(
         concept_id=None,
         confidence=0.0,
-        method="none",
+        pass_="none",
         candidates=(),
         raw_text=text,
         modifiers=modifiers,
     )
 
 
-def _mention_parts(text: str) -> tuple[str, str, tuple[str, ...]]:
+def _mention_parts(
+    text: str,
+    token_aliases: dict[tuple[str, ...], tuple[str, ...]],
+    alias_lengths: tuple[int, ...],
+) -> tuple[str, str, tuple[str, ...]]:
     compatible_text = unicodedata.normalize("NFKC", text)
     modifiers = tuple(
         normalized
@@ -56,20 +62,24 @@ def _mention_parts(text: str) -> tuple[str, str, tuple[str, ...]]:
     )
     stripped_text = _PARENTHETICAL.sub(" ", compatible_text)
     return (
-        _normalize_match(compatible_text),
-        _normalize_match(stripped_text),
+        _normalize_match(compatible_text, token_aliases, alias_lengths),
+        _normalize_match(stripped_text, token_aliases, alias_lengths),
         modifiers,
     )
 
 
-def _normalize_match(text: str) -> str:
+def _normalize_match(
+    text: str,
+    token_aliases: dict[tuple[str, ...], tuple[str, ...]],
+    alias_lengths: tuple[int, ...],
+) -> str:
     compatible_text = unicodedata.normalize("NFKC", text).lower()
     without_punctuation = "".join(
         " " if unicodedata.category(character).startswith("P") else character
         for character in compatible_text
     )
     collapsed = _WHITESPACE.sub(" ", without_punctuation).strip()
-    return _expand_aliases(collapsed)
+    return _expand_aliases(collapsed, token_aliases, alias_lengths)
 
 
 def _normalize_modifier(text: str) -> str:
@@ -77,14 +87,18 @@ def _normalize_modifier(text: str) -> str:
     return _WHITESPACE.sub(" ", compatible_text).strip()
 
 
-def _expand_aliases(text: str) -> str:
+def _expand_aliases(
+    text: str,
+    token_aliases: dict[tuple[str, ...], tuple[str, ...]],
+    alias_lengths: tuple[int, ...],
+) -> str:
     tokens = tuple(text.split())
     expanded: list[str] = []
     position = 0
     while position < len(tokens):
-        for length in _ALIAS_LENGTHS:
+        for length in alias_lengths:
             alias = tokens[position : position + length]
-            if replacement := TOKEN_ALIASES.get(alias):
+            if replacement := token_aliases.get(alias):
                 expanded.extend(replacement)
                 position += length
                 break
@@ -94,14 +108,20 @@ def _expand_aliases(text: str) -> str:
     return " ".join(expanded)
 
 
-def _exact_index(vocab: Vocabulary) -> dict[str, tuple[_ExactHit, ...]]:
+def _exact_index(
+    vocab: Vocabulary,
+    token_aliases: dict[tuple[str, ...], tuple[str, ...]],
+    alias_lengths: tuple[int, ...],
+) -> dict[str, tuple[_ExactHit, ...]]:
     mutable_index: dict[str, list[_ExactHit]] = {}
     for concept in vocab.concepts():
         terms = ((concept.preferred_term, True),) + tuple(
             (alias, False) for alias in concept.aliases
         )
         for term, preferred in terms:
-            full_term, stripped_term, _ = _mention_parts(term)
+            full_term, stripped_term, _ = _mention_parts(
+                term, token_aliases, alias_lengths
+            )
             for normalized_term in dict.fromkeys((full_term, stripped_term)):
                 if normalized_term:
                     mutable_index.setdefault(normalized_term, []).append(

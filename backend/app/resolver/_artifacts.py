@@ -5,12 +5,23 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Literal, Self, TypeAlias
 
-from ._model import VocabularyConcept
+from ._model import TokenAlias, VocabularyConcept
 
-_EXERCISE_KIND = "Exercise"
-_EXERCISE_FACETS = {
+KG1NodeKind: TypeAlias = Literal[
+    "Exercise",
+    "MuscleGroup",
+    "Joint",
+    "MovementPattern",
+    "Equipment",
+    "Injury",
+    "AnatomicalStructure",
+    "ClinicalFinding",
+]
+
+_EXERCISE_KIND: KG1NodeKind = "Exercise"
+_EXERCISE_FACETS: dict[KG1NodeKind, tuple[str, str]] = {
     "MuscleGroup": ("muscle_groups", "muscle-group"),
     "Joint": ("joints_loaded", "joint"),
     "MovementPattern": ("movement_patterns", "movement-pattern"),
@@ -22,22 +33,36 @@ _SLUG_CHARACTER = re.compile(r"[^a-z0-9]+")
 @dataclass(frozen=True)
 class ArtifactVocabulary:
     _concepts: tuple[VocabularyConcept, ...]
+    _token_aliases: tuple[TokenAlias, ...]
 
     @classmethod
-    def from_file(cls, path: str | Path, *, kind: str) -> Self:
+    def from_file(
+        cls,
+        path: str | Path,
+        *,
+        kind: KG1NodeKind,
+        synonyms_path: str | Path,
+    ) -> Self:
         artifact = json.loads(Path(path).read_text())
+        synonyms = json.loads(Path(synonyms_path).read_text())
         concepts = (
             _exercise_concepts(artifact, kind)
             if isinstance(artifact, list)
             else _ontology_concepts(artifact, kind)
         )
-        return cls(_concepts=tuple(concepts))
+        return cls(
+            _concepts=tuple(concepts),
+            _token_aliases=_token_aliases(synonyms),
+        )
 
     def concepts(self) -> Iterable[VocabularyConcept]:
         return self._concepts
 
+    def token_aliases(self) -> Iterable[TokenAlias]:
+        return self._token_aliases
 
-def _exercise_concepts(artifact: Any, kind: str) -> Iterable[VocabularyConcept]:
+
+def _exercise_concepts(artifact: Any, kind: KG1NodeKind) -> Iterable[VocabularyConcept]:
     if not isinstance(artifact, list):
         raise TypeError("exercise artifact must contain a list")
     if kind == _EXERCISE_KIND:
@@ -62,7 +87,7 @@ def _exercise_concepts(artifact: Any, kind: str) -> Iterable[VocabularyConcept]:
         )
 
 
-def _ontology_concepts(artifact: Any, kind: str) -> Iterable[VocabularyConcept]:
+def _ontology_concepts(artifact: Any, kind: KG1NodeKind) -> Iterable[VocabularyConcept]:
     if not isinstance(artifact, dict):
         raise TypeError("ontology artifact must contain an object")
     records = next(
@@ -89,6 +114,18 @@ def _aliases(record: dict[str, Any]) -> tuple[str, ...]:
     aliases = _optional_string_list(record, "aliases")
     synonyms = _optional_string_list(record, "synonyms")
     return tuple(dict.fromkeys((*aliases, *synonyms)))
+
+
+def _token_aliases(artifact: Any) -> tuple[TokenAlias, ...]:
+    if not isinstance(artifact, dict) or not all(
+        isinstance(alias, str) and isinstance(replacement, str)
+        for alias, replacement in artifact.items()
+    ):
+        raise TypeError("synonyms artifact must map strings to strings")
+    return tuple(
+        (tuple(alias.split()), tuple(replacement.split()))
+        for alias, replacement in artifact.items()
+    )
 
 
 def _required_string(record: Any, field: str) -> str:

@@ -4,7 +4,7 @@
     "text": "kettlebell GOBLET cyclist squat",
     "vocabulary": "exercise",
     "expected_id": "00036a08-7c22-42e4-8fe5-323b53e31667",
-    "expected_method": "exact",
+    "expected_pass": "exact",
     "expected_modifiers": []
   },
   {
@@ -12,7 +12,7 @@
     "text": "Ｋｅｔｔｌｅｂｅｌｌ",
     "vocabulary": "equipment",
     "expected_id": "fkg:equipment/kettlebell",
-    "expected_method": "exact",
+    "expected_pass": "exact",
     "expected_modifiers": []
   },
   {
@@ -20,7 +20,7 @@
     "text": "DB",
     "vocabulary": "equipment",
     "expected_id": "fkg:equipment/dumbbell",
-    "expected_method": "exact",
+    "expected_pass": "exact",
     "expected_modifiers": []
   },
   {
@@ -28,7 +28,7 @@
     "text": "kb",
     "vocabulary": "equipment",
     "expected_id": "fkg:equipment/kettlebell",
-    "expected_method": "exact",
+    "expected_pass": "exact",
     "expected_modifiers": []
   },
   {
@@ -36,7 +36,7 @@
     "text": "bad lower back",
     "vocabulary": "muscle_group",
     "expected_id": "fkg:muscle-group/lower-back",
-    "expected_method": "exact",
+    "expected_pass": "exact",
     "expected_modifiers": []
   },
   {
@@ -44,7 +44,7 @@
     "text": "Patellofemoral pain syndrome",
     "vocabulary": "snomed_finding",
     "expected_id": "snomedct:430725003",
-    "expected_method": "exact",
+    "expected_pass": "exact",
     "expected_modifiers": []
   },
   {
@@ -52,7 +52,7 @@
     "text": "MM—Medial malleolus",
     "vocabulary": "snomed_anatomy",
     "expected_id": "snomedct:6417001",
-    "expected_method": "exact",
+    "expected_pass": "exact",
     "expected_modifiers": []
   },
   {
@@ -60,7 +60,7 @@
     "text": "Kettlebell Goblet Cyclist Squat (box-supported)",
     "vocabulary": "exercise",
     "expected_id": "00036a08-7c22-42e4-8fe5-323b53e31667",
-    "expected_method": "exact",
+    "expected_pass": "exact",
     "expected_modifiers": ["box-supported"]
   },
   {
@@ -69,7 +69,7 @@
     "text": "Deadlift",
     "vocabulary": "exercise",
     "expected_id": null,
-    "expected_method": "none",
+    "expected_pass": "none",
     "expected_modifiers": []
   },
   {
@@ -78,7 +78,7 @@
     "text": "Burpees",
     "vocabulary": "exercise",
     "expected_id": null,
-    "expected_method": "none",
+    "expected_pass": "none",
     "expected_modifiers": []
   },
   {
@@ -87,7 +87,7 @@
     "text": "Dumbbell",
     "vocabulary": "equipment",
     "expected_id": "fkg:equipment/dumbbell",
-    "expected_method": "exact",
+    "expected_pass": "exact",
     "expected_modifiers": []
   },
   {
@@ -96,7 +96,7 @@
     "text": "Kettlebell",
     "vocabulary": "equipment",
     "expected_id": "fkg:equipment/kettlebell",
-    "expected_method": "exact",
+    "expected_pass": "exact",
     "expected_modifiers": []
   },
   {
@@ -105,7 +105,7 @@
     "text": "Yoga Mat",
     "vocabulary": "equipment",
     "expected_id": "fkg:equipment/yoga-mat",
-    "expected_method": "exact",
+    "expected_pass": "exact",
     "expected_modifiers": []
   },
   {
@@ -114,7 +114,7 @@
     "text": "Resistance Band - Loop",
     "vocabulary": "equipment",
     "expected_id": "fkg:equipment/resistance-band-loop",
-    "expected_method": "exact",
+    "expected_pass": "exact",
     "expected_modifiers": []
   },
   {
@@ -123,7 +123,7 @@
     "text": "Flat Bench",
     "vocabulary": "equipment",
     "expected_id": "fkg:equipment/flat-bench",
-    "expected_method": "exact",
+    "expected_pass": "exact",
     "expected_modifiers": []
   },
   {
@@ -132,7 +132,7 @@
     "text": "Goblet Squat (box-supported)",
     "vocabulary": "exercise",
     "expected_id": null,
-    "expected_method": "none",
+    "expected_pass": "none",
     "expected_modifiers": ["box-supported"]
   },
   {
@@ -141,7 +141,7 @@
     "text": "Hip Thrust",
     "vocabulary": "exercise",
     "expected_id": null,
-    "expected_method": "none",
+    "expected_pass": "none",
     "expected_modifiers": []
   },
   {
@@ -150,7 +150,7 @@
     "text": "Banded Lateral Walk",
     "vocabulary": "exercise",
     "expected_id": null,
-    "expected_method": "none",
+    "expected_pass": "none",
     "expected_modifiers": []
   },
   {
@@ -159,7 +159,7 @@
     "text": "DB Floor Press",
     "vocabulary": "exercise",
     "expected_id": null,
-    "expected_method": "none",
+    "expected_pass": "none",
     "expected_modifiers": []
   },
   {
@@ -168,7 +168,7 @@
     "text": "Half-Kneeling DB Press",
     "vocabulary": "exercise",
     "expected_id": null,
-    "expected_method": "none",
+    "expected_pass": "none",
     "expected_modifiers": []
   },
   {
@@ -177,7 +177,7 @@
     "text": "Band Pull-Apart",
     "vocabulary": "exercise",
     "expected_id": null,
-    "expected_method": "none",
+    "expected_pass": "none",
     "expected_modifiers": []
   },
   {
@@ -186,7 +186,7 @@
     "text": "Step-Up",
     "vocabulary": "exercise",
     "expected_id": null,
-    "expected_method": "none",
+    "expected_pass": "none",
     "expected_modifiers": []
   },
   {
@@ -195,7 +195,7 @@
     "text": "KB Romanian Deadlift",
     "vocabulary": "exercise",
     "expected_id": null,
-    "expected_method": "none",
+    "expected_pass": "none",
     "expected_modifiers": []
   },
   {
@@ -204,7 +204,7 @@
     "text": "Wall Sit",
     "vocabulary": "exercise",
     "expected_id": null,
-    "expected_method": "none",
+    "expected_pass": "none",
     "expected_modifiers": []
   }
 ]
