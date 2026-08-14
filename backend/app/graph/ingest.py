@@ -124,6 +124,7 @@ class _MovementPatternVocabulary:
 class KG1Payload:
     nodes: list[NodeBatch]
     edges: list[EdgeBatch]
+    seed_sources: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -150,7 +151,7 @@ def ingest_kg1(data_directory: Path = DEFAULT_DATA_DIRECTORY) -> KG1Counts:
 
     with neo4j_session() as session:
         _ensure_constraints(session)
-        session.execute_write(_merge_payload, payload, ingested_at)
+        session.execute_write(_merge_and_reconcile_kg1_payload, payload, ingested_at)
         return _read_kg1_counts(session)
 
 
@@ -190,6 +191,16 @@ def _load_kg1(data_directory: Path) -> KG1Payload:
             *mapping_edge_batches,
             *condition_edge_batches,
         ],
+        seed_sources=tuple(
+            sorted(
+                {
+                    CATALOG_SOURCE,
+                    CONDITIONS_SOURCE,
+                    _artifact_stamp(snomed)[0],
+                    _artifact_stamp(mappings)[0],
+                }
+            )
+        ),
     )
 
 
@@ -1449,6 +1460,36 @@ def _merge_and_reconcile_kg2_payload(
             ),
             seed_sources=seed_sources,
             current_ids=[node.id for node in batch.rows],
+        ).consume()
+
+
+def _merge_and_reconcile_kg1_payload(
+    transaction: ManagedTransaction,
+    payload: KG1Payload,
+    ingested_at: str,
+) -> None:
+    _merge_payload(transaction, payload, ingested_at)
+    current_ids = {
+        label: [
+            node.id
+            for batch in payload.nodes
+            if batch.label == label
+            for node in batch.rows
+        ]
+        for label in KG1_NODE_LABELS
+    }
+    for label in KG1_NODE_LABELS:
+        transaction.run(
+            _cypher(
+                f"""
+            MATCH (node:`{label}`)
+            WHERE node.source IN $seed_sources
+              AND NOT node.id IN $current_ids
+            DETACH DELETE node
+            """
+            ),
+            seed_sources=list(payload.seed_sources),
+            current_ids=current_ids[label],
         ).consume()
 
 

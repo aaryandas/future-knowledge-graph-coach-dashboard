@@ -24,6 +24,61 @@ def test_ingest_kg1_rejects_uncited_condition_row(tmp_path: Path) -> None:
         ingest_kg1(data_directory)
 
 
+def test_ingest_kg1_reconciles_seed_owned_catalog_and_preserves_other_sources(
+    tmp_path: Path,
+) -> None:
+    catalog_a_directory = tmp_path / "catalog-a"
+    catalog_b_directory = tmp_path / "catalog-b"
+    other_source_directory = tmp_path / "other-source"
+    other_source_cleanup_directory = tmp_path / "other-source-cleanup"
+    for directory in (
+        catalog_a_directory,
+        catalog_b_directory,
+        other_source_directory,
+        other_source_cleanup_directory,
+    ):
+        shutil.copytree(DATA_DIRECTORY, directory)
+
+    _extend_kg1_catalog(catalog_a_directory)
+    _set_other_ontology_source(other_source_directory, include_extra_node=True)
+    _set_other_ontology_source(other_source_cleanup_directory, include_extra_node=False)
+
+    try:
+        ingest_kg1(other_source_cleanup_directory)
+        baseline_counts = ingest_kg1(catalog_b_directory)
+
+        catalog_a_counts = ingest_kg1(catalog_a_directory)
+        catalog_b_counts = ingest_kg1(catalog_b_directory)
+
+        assert catalog_b_counts == baseline_counts
+        assert {
+            label: catalog_a_counts.nodes[label] - catalog_b_counts.nodes[label]
+            for label in catalog_a_counts.nodes
+        } == {
+            "Exercise": 1,
+            "MuscleGroup": 1,
+            "Joint": 1,
+            "MovementPattern": 1,
+            "Equipment": 1,
+            "Injury": 1,
+            "AnatomicalStructure": 1,
+            "ClinicalFinding": 1,
+        }
+
+        ingest_kg1(other_source_directory)
+        first_counts = ingest_kg1(catalog_b_directory)
+        second_counts = ingest_kg1(catalog_b_directory)
+
+        expected_nodes = dict(baseline_counts.nodes)
+        expected_nodes["AnatomicalStructure"] += 1
+        assert first_counts.nodes == expected_nodes
+        assert first_counts.edges == baseline_counts.edges
+        assert second_counts == first_counts
+    finally:
+        ingest_kg1(other_source_cleanup_directory)
+        ingest_kg1(catalog_b_directory)
+
+
 def test_ingest_kg2_reconciles_seed_owned_nodes_and_preserves_other_sources(
     tmp_path: Path,
 ) -> None:
@@ -116,6 +171,105 @@ def _member_fixture(
     coach_brief = cast(dict[str, Any], member["coach_brief"])
     cast(list[dict[str, Any]], coach_brief["morning_tasks"]).append(task)
     return member
+
+
+def _extend_kg1_catalog(data_directory: Path) -> None:
+    exercises_path = data_directory / "exercises.json"
+    exercises = cast(list[dict[str, Any]], json.loads(exercises_path.read_bytes()))
+    exercises.append(
+        {
+            "id": "test:gnt-275:obsolete-exercise",
+            "name": "GNT-275 obsolete exercise",
+            "muscle_groups": ["gnt-275 obsolete muscle group"],
+            "joints_loaded": ["gnt-275 obsolete joint"],
+            "movement_patterns": ["gnt-275 obsolete pattern"],
+            "equipment_required": ["GNT-275 Obsolete Equipment"],
+            "is_bilateral": False,
+            "side": None,
+            "priority_tier": 3,
+            "is_reps": True,
+            "is_duration": False,
+            "supports_weight": False,
+            "estimated_rep_duration": 1.0,
+            "bilateral_pair_id": None,
+        }
+    )
+    exercises_path.write_text(json.dumps(exercises))
+
+    snomed_path = data_directory / "ontology" / "snomed-ct.json"
+    snomed = cast(dict[str, Any], json.loads(snomed_path.read_bytes()))
+    concepts = cast(list[dict[str, Any]], snomed["concepts"])
+    concepts.extend(
+        (
+            {
+                "id": "snomedct:test-gnt-275-anatomy",
+                "code": "test-gnt-275-anatomy",
+                "kind": "AnatomicalStructure",
+                "preferred_term": "GNT-275 obsolete anatomical structure",
+                "synonyms": [],
+            },
+            {
+                "id": "snomedct:test-gnt-275-finding",
+                "code": "test-gnt-275-finding",
+                "kind": "ClinicalFinding",
+                "preferred_term": "GNT-275 obsolete clinical finding",
+                "synonyms": [],
+            },
+        )
+    )
+    snomed_path.write_text(json.dumps(snomed))
+
+    conditions_path = data_directory / "contraindications.json"
+    conditions = cast(list[dict[str, Any]], json.loads(conditions_path.read_bytes()))
+    conditions.append(
+        {
+            "id": "fkg:injury/gnt-275-obsolete-injury",
+            "name": "GNT-275 obsolete Injury",
+            "clinical_finding_id": "snomedct:test-gnt-275-finding",
+            "target_kind": "MovementPattern",
+            "target_id": "fkg:movement-pattern/gnt-275-obsolete-pattern",
+            "level": "avoid",
+            "note": "Test-only obsolete seed knowledge.",
+            "citation": {
+                "reference": "GNT-275 seam fixture",
+                "url": "https://example.com/gnt-275",
+            },
+        }
+    )
+    conditions_path.write_text(json.dumps(conditions))
+
+    mappings_path = data_directory / "ontology" / "skos-mappings.json"
+    mappings = cast(dict[str, Any], json.loads(mappings_path.read_bytes()))
+    mapping_rows = cast(list[dict[str, Any]], mappings["mappings"])
+    mapping_rows.append(
+        {
+            "id": "fkg:injury/gnt-275-obsolete-injury:exactMatch:snomedct:test-gnt-275-finding",
+            "source_id": "fkg:injury/gnt-275-obsolete-injury",
+            "predicate": "skos:exactMatch",
+            "target_id": "snomedct:test-gnt-275-finding",
+        }
+    )
+    mappings_path.write_text(json.dumps(mappings))
+
+
+def _set_other_ontology_source(
+    data_directory: Path, *, include_extra_node: bool
+) -> None:
+    snomed_path = data_directory / "ontology" / "snomed-ct.json"
+    snomed = cast(dict[str, Any], json.loads(snomed_path.read_bytes()))
+    snomed["artifact_id"] = "test:gnt-275:other-ontology-source"
+    if include_extra_node:
+        concepts = cast(list[dict[str, Any]], snomed["concepts"])
+        concepts.append(
+            {
+                "id": "test:gnt-275:other-anatomical-structure",
+                "code": "test-gnt-275-other-anatomy",
+                "kind": "AnatomicalStructure",
+                "preferred_term": "GNT-275 other-source anatomical structure",
+                "synonyms": [],
+            }
+        )
+    snomed_path.write_text(json.dumps(snomed))
 
 
 def _member_context() -> MemberContext:

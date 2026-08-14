@@ -209,6 +209,8 @@ class _ChartLLM:
         self,
         messages: Sequence[BaseMessage],
         tools: Sequence[BaseTool],
+        *,
+        require_tool_call: bool = False,
     ) -> object:
         if not self._tool_called:
             render_chart = next(tool for tool in tools if tool.name == "render_chart")

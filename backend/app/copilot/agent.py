@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import date
 from typing import Annotated, Any, Literal, Protocol, cast
@@ -349,7 +349,11 @@ def _build_graph(
             *state["messages"],
         )
         try:
-            response = llm.invoke(messages, member_tools)
+            response = llm.invoke(
+                messages,
+                member_tools,
+                require_tool_call=not _has_current_turn_retrieval(state["messages"]),
+            )
         except Exception:  # noqa: BLE001 - every LLM adapter failure degrades here.
             return fallback(state)
         if not isinstance(response, AIMessage) or response.invalid_tool_calls:
@@ -625,9 +629,11 @@ def _final_answer(messages: Sequence[AnyMessage]) -> AIMessage:
     raise RuntimeError("The copilot turn has no final answer.")
 
 
-def _sources(messages: Iterable[AnyMessage]) -> tuple[CopilotSource, ...]:
+def _sources(messages: Sequence[AnyMessage]) -> tuple[CopilotSource, ...]:
     sources: list[CopilotSource] = []
-    for message in messages:
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage):
+            break
         if (
             not isinstance(message, ToolMessage)
             or message.name is None
@@ -641,7 +647,7 @@ def _sources(messages: Iterable[AnyMessage]) -> tuple[CopilotSource, ...]:
             node_id for node_id in raw_node_ids if isinstance(node_id, str)
         )
         sources.append(CopilotSource(tool=message.name, node_ids=node_ids))
-    return tuple(sources)
+    return tuple(reversed(sources))
 
 
 def _has_current_turn_retrieval(messages: Sequence[AnyMessage]) -> bool:

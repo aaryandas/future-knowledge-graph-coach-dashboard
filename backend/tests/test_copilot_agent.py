@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from typing import Literal, cast
@@ -11,16 +12,19 @@ from app.copilot.testing import (
     JsonValue,
     MemberGoalsResult,
     copilot_response,
+    get_morning_brief,
     open_postgres_checkpointer,
     replay_copilot_history,
     run_copilot_turn,
     run_quick_prompt,
 )
-from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.tools import StructuredTool
+from app.graph import ingest_kg2
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.checkpoint.memory import InMemorySaver
 
 MEMBER_ID = "test-member-copilot"
+SEED_MEMBER_ID = "mbr_01HX9JORDAN"
 type _ChartKind = Literal["sleep_week"]
 type _ChartWindow = Literal["7-days"]
 
@@ -64,7 +68,6 @@ def test_copilot_tool_loop_persists_follow_ups_and_replays_sources() -> None:
         {"tool": "get_member_goals", "node_ids": [MEMBER_ID, "goal:strength"]}
     ]
     assert second_sources == [
-        {"tool": "get_member_goals", "node_ids": [MEMBER_ID, "goal:strength"]},
         {"tool": "get_member_profile", "node_ids": [MEMBER_ID]},
     ]
     assert [
@@ -81,6 +84,37 @@ def test_copilot_tool_loop_persists_follow_ups_and_replays_sources() -> None:
     ]
     assert history[1].data_parts == first_turn.data_parts
     assert history[3].data_parts == second_turn.data_parts
+
+
+def test_each_follow_up_requires_a_current_turn_tool_call() -> None:
+    checkpointer = InMemorySaver()
+    llm = _CurrentTurnRetrievalLLM()
+    retrieval_tools = (_goals_tool(),)
+
+    first_turn = run_copilot_turn(
+        MEMBER_ID,
+        "What is the priority goal?",
+        checkpointer=checkpointer,
+        llm=llm,
+        message_id="current-retrieval-user-1",
+        retrieval_tools=retrieval_tools,
+        tone_fact_reader=_no_tone_facts,
+    )
+    second_turn = run_copilot_turn(
+        MEMBER_ID,
+        "What is the priority goal?",
+        checkpointer=checkpointer,
+        llm=llm,
+        message_id="current-retrieval-user-2",
+        retrieval_tools=retrieval_tools,
+        tone_fact_reader=_no_tone_facts,
+    )
+
+    assert isinstance(first_turn, CopilotTurn)
+    assert isinstance(second_turn, CopilotTurn)
+    assert first_turn.text == "Jordan's priority goal is strength."
+    assert second_turn.text == "Jordan's priority goal is strength."
+    assert llm.require_tool_calls == [True, False, True, False]
 
 
 def test_copilot_stops_after_five_retrieval_tool_rounds() -> None:
@@ -218,6 +252,41 @@ def test_copilot_emits_chart_data_only_from_the_render_chart_tool() -> None:
     assert [part.type for part in turn.data_parts] == ["data-sources"]
 
 
+def test_churn_risk_answer_emits_graph_built_barriers_with_evidence() -> None:
+    ingest_kg2()
+    turn = run_copilot_turn(
+        SEED_MEMBER_ID,
+        "What is Jordan's churn risk?",
+        checkpointer=InMemorySaver(),
+        llm=FakeCopilotLLM(
+            (
+                _tool_call("brief-1", name="get_morning_brief"),
+                AIMessage(content="Jordan's churn risk is elevated."),
+            )
+        ),
+        as_of=date(2026, 6, 4),
+        retrieval_tools=(get_morning_brief,),
+        tone_fact_reader=_no_tone_facts,
+    )
+
+    assert isinstance(turn, CopilotTurn)
+    assert [part.type for part in turn.data_parts] == [
+        "data-sources",
+        "data-brief",
+    ]
+    brief = turn.data_parts[1].data
+    assert isinstance(brief, dict)
+    raw_barriers = brief.get("barriers")
+    assert isinstance(raw_barriers, list)
+    assert all(isinstance(barrier, dict) for barrier in raw_barriers)
+    barriers = cast("list[dict[str, object]]", raw_barriers)
+    assert {barrier["kind"] for barrier in barriers} == {
+        "adherence-decline",
+        "work-fatigue",
+    }
+    assert all(barrier["evidence_node_ids"] for barrier in barriers)
+
+
 def test_copilot_thread_and_data_parts_replay_after_restart() -> None:
     chart = CopilotDataPart(type="data-chart", data=_chart_data())
     llm = FakeCopilotLLM(
@@ -280,6 +349,23 @@ def _tool_call(
             }
         ],
     )
+
+
+class _CurrentTurnRetrievalLLM:
+    def __init__(self) -> None:
+        self.require_tool_calls: list[bool] = []
+
+    def invoke(
+        self,
+        messages: Sequence[BaseMessage],
+        tools: Sequence[BaseTool],
+        *,
+        require_tool_call: bool = False,
+    ) -> object:
+        self.require_tool_calls.append(require_tool_call)
+        if require_tool_call:
+            return _tool_call(f"current-retrieval-{len(self.require_tool_calls)}")
+        return AIMessage(content="Jordan's priority goal is strength.")
 
 
 @dataclass(frozen=True)

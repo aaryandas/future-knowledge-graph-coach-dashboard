@@ -222,10 +222,20 @@ export interface PackingTraceEvent {
   wasAttributedTo: "graph";
 }
 
+export interface AgentTraceEvent {
+  kind: "agent";
+  action: "annotation";
+  reason: string;
+  used: string[];
+  wasGeneratedBy: "annotate";
+  wasAttributedTo: "agent";
+}
+
 export type TraceEvent =
   | ResolutionTraceEvent
   | VerdictTraceEvent
-  | PackingTraceEvent;
+  | PackingTraceEvent
+  | AgentTraceEvent;
 
 export interface DataTracePart {
   type: "data-trace";
