@@ -1,6 +1,7 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
   "deploy": {
+    "preDeployCommand": "uv run python -m app.graph.seed",
     "startCommand": "uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT",
     "healthcheckPath": "/api/health"
   }
