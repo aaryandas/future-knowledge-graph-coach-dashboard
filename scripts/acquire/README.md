@@ -39,5 +39,26 @@ The script sends one string per concept through LangChain `Embeddings` to OpenRo
 string contains the concept name and its aliases, including SNOMED synonyms. It uses
 `qwen/qwen3-embedding-4b` in batches and writes one committed JSON file per vocabulary under
 `data/resolver-embeddings/`. Review and commit those artifacts after each intentional
-vocabulary or model update. Runtime queries must use the same model. Tests use the small
-committed fixtures under `backend/tests/fixtures/` and never call OpenRouter.
+vocabulary or model update. A resolver query that uses vector embeddings must use the same
+model. Tests use the small committed fixtures under `backend/tests/fixtures/` and never call
+OpenRouter.
+
+Railway supplies `OPENROUTER_API_KEY` to the deployed backend from the backend service
+variables. The artifact build uses the key to create the committed concept vectors. An acceptance
+check can also use the key to embed query text. That run must
+configure the vocabulary with the matching embedding artifact and an OpenRouter embedding
+provider.
+
+The deployed generation runtime does not configure an embedding artifact or provider. It
+runs the exact and fuzzy passes without vector embeddings and does not make vector queries.
+For a local live check with a configured resolver, read the variable with the logged-in Railway
+CLI from the linked project:
+
+```sh
+export OPENROUTER_API_KEY="$(railway variables --service backend --json | jq -r .OPENROUTER_API_KEY)"
+```
+
+Do not print or commit the value. CI deliberately leaves this variable empty and does not
+call OpenRouter. When a vocabulary has no embedding provider, `resolve(text, vocab)` runs the
+exact and fuzzy passes, skips the vector pass, and returns a `Resolution` value instead of
+raising an exception. The artifact build command above still requires the key.
