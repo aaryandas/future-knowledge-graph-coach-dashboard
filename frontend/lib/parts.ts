@@ -362,14 +362,70 @@ export interface MemberSnapshotPart {
   journey_stage: JourneyStageSnapshot;
 }
 
+export interface Barrier {
+  node_id: string;
+  kind: string;
+  copper_id: string;
+  reason: string;
+  risk_level: string;
+  evidence_node_ids: string[];
+}
+
+export interface CoachTask {
+  node_id: string;
+  generated_for: string;
+  type: string;
+  text: string;
+  status: string;
+  addressed_node_ids: string[];
+}
+
+export interface DataBrief {
+  generated_for: string;
+  churn_risk_level: string;
+  churn_risk_reasons: string[];
+  barriers: Barrier[];
+  coach_tasks: CoachTask[];
+}
+
+export interface DataBriefPart {
+  type: "data-brief";
+  data: DataBrief;
+}
+
+export interface SendMemberMessage {
+  kind: "send-member-message";
+  message: string;
+  coach_task_id?: string | null;
+}
+
+export interface UpdateBriefTask {
+  kind: "update-brief-task";
+  coach_task_id: string;
+  status: "open" | "completed" | "dismissed";
+  text?: string | null;
+}
+
+export type CoachAction = SendMemberMessage | UpdateBriefTask;
+
+export interface DataAction {
+  action_id: string;
+  status: "pending" | "confirmed" | "discarded" | "failed";
+  action: CoachAction;
+}
+
+export interface DataActionPart {
+  type: "data-action";
+  data: DataAction;
+}
+
 export type ChatDataParts = {
   plan: Plan;
   trace: TraceEvent[];
   constraints: ConstraintsData;
   sources: DataSources;
-  chart: JsonValue;
-  brief: JsonValue;
-  action: JsonValue;
+  brief: DataBrief;
+  action: DataAction;
 };
 
 export type DashboardMessage = UIMessage<unknown, ChatDataParts>;
@@ -381,4 +437,6 @@ export type TypedDataPart =
   | DataSourcesPart
   | GraphNeighborhoodPart
   | MemberSnapshotPart
+  | DataBriefPart
+  | DataActionPart
   | DataPart;
