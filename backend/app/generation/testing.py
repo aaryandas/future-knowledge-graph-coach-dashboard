@@ -1,9 +1,11 @@
 """Test adapters for the checkpointed generation session."""
 
-from collections.abc import Iterator
+import pickle
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any
 
+from langchain_core.messages import BaseMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 
@@ -23,7 +25,9 @@ from app.generation._model import (
     ResolvedMention,
 )
 from app.generation._safety import evaluate_generation_safety
+from app.generation._trace import AgentTraceEvent, TraceEvent
 from app.generation.graph import (
+    AnnotationTraceRecorder,
     CatalogReader,
     GenerationTurn,
     MemberContextReader,
@@ -39,6 +43,7 @@ from app.generation.intent import (
     interpret,
 )
 from app.generation.llm import (
+    AnnotationLLM,
     FakeLLM,
     IntentLLM,
     LLMProviderError,
@@ -48,6 +53,38 @@ from app.resolver import Resolution
 from app.safety import Verdict, WalkedPath
 
 
+class _PickleSerializer:
+    def dumps_typed(self, obj: Any) -> tuple[str, bytes]:
+        return "pickle", pickle.dumps(obj)
+
+    def loads_typed(self, data: tuple[str, bytes]) -> Any:
+        _, value = data
+        return pickle.loads(value)
+
+
+class FakeAnnotationLLM:
+    def __init__(self, parts: Iterable[object | LLMProviderError]) -> None:
+        self._parts = tuple(parts)
+        self._calls: list[tuple[BaseMessage, ...]] = []
+        self._parts_requested = 0
+
+    @property
+    def calls(self) -> tuple[tuple[BaseMessage, ...], ...]:
+        return tuple(self._calls)
+
+    @property
+    def parts_requested(self) -> int:
+        return self._parts_requested
+
+    def stream(self, messages: Sequence[BaseMessage]) -> Iterator[object]:
+        self._calls.append(tuple(messages))
+        for part in self._parts:
+            self._parts_requested += 1
+            if isinstance(part, LLMProviderError):
+                raise part
+            yield part
+
+
 @contextmanager
 def generation_test_adapters(
     *,
@@ -55,9 +92,11 @@ def generation_test_adapters(
     catalog_reader: CatalogReader,
     member_context_reader: MemberContextReader,
     verdict_evaluator: VerdictEvaluator,
-) -> Iterator[None]:
-    checkpointer = InMemorySaver()
+    annotation_llm: AnnotationLLM | None = None,
+) -> Iterator[InMemorySaver]:
+    checkpointer = InMemorySaver(serde=_PickleSerializer())
     test_llm = llm
+    test_annotation_llm = annotation_llm
     test_catalog_reader = catalog_reader
     test_member_context_reader = member_context_reader
     test_verdict_evaluator = verdict_evaluator
@@ -79,12 +118,20 @@ def generation_test_adapters(
         *,
         checkpointer: BaseCheckpointSaver[Any],
         llm: IntentLLM | None = None,
+        annotation_llm: AnnotationLLM | None = None,
         message_id: str | None = None,
         catalog_reader: CatalogReader = read_catalog_exercises,
         member_context_reader: MemberContextReader = read_generation_member_context,
         verdict_evaluator: VerdictEvaluator = evaluate_generation_safety,
+        annotation_trace_recorder: AnnotationTraceRecorder | None = None,
     ) -> GenerationTurn:
-        del llm, catalog_reader, member_context_reader, verdict_evaluator
+        del (
+            llm,
+            annotation_llm,
+            catalog_reader,
+            member_context_reader,
+            verdict_evaluator,
+        )
         return _run_checkpointed_generation_session(
             member_id,
             coach_message,
@@ -92,25 +139,29 @@ def generation_test_adapters(
             thread_id,
             checkpointer=checkpointer,
             llm=test_llm,
+            annotation_llm=test_annotation_llm,
             message_id=message_id,
             catalog_reader=test_catalog_reader,
             member_context_reader=test_member_context_reader,
             verdict_evaluator=test_verdict_evaluator,
+            annotation_trace_recorder=annotation_trace_recorder,
         )
 
     _generation_service.open_postgres_checkpointer = open_in_memory_checkpointer
     # ty cannot prove that a local replacement matches the imported function.
     _generation_service.run_checkpointed_session = run_with_test_adapters  # ty: ignore[invalid-assignment]
     try:
-        yield
+        yield checkpointer
     finally:
         _generation_service.open_postgres_checkpointer = stored_checkpointer_factory
         _generation_service.run_checkpointed_session = stored_runner
 
 
 __all__ = [
+    "AgentTraceEvent",
     "CatalogExercise",
     "ConstraintSet",
+    "FakeAnnotationLLM",
     "FakeLLM",
     "GenerationMemberContext",
     "InMemorySaver",
@@ -124,6 +175,7 @@ __all__ = [
     "Resolution",
     "ResolvedIntent",
     "ResolvedMention",
+    "TraceEvent",
     "Verdict",
     "WalkedPath",
     "build_intent_llm",
