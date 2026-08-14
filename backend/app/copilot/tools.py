@@ -30,6 +30,9 @@ from app.graph import (
     get_member_injuries as read_member_injuries,
 )
 from app.graph import (
+    get_member_node_id as read_member_node_id,
+)
+from app.graph import (
     get_member_profile as read_member_profile,
 )
 from app.graph import (
@@ -210,13 +213,16 @@ class MemberProfileResult(_JsonToolResult):
 @tool
 def get_observations(member_id: str, as_of: date | None = None) -> ObservationsResult:
     """Read current `Member -[:observed]-> Observation` values and latest labs, newest first."""
+    member_node_id = read_member_node_id(member_id)
+    if member_node_id is None:
+        return ObservationsResult(observations=(), node_ids=())
     observations = read_observations(member_id, as_of=as_of)
     return ObservationsResult(
         observations=tuple(
             _observation_data(observation) for observation in observations
         ),
         node_ids=_node_ids(
-            member_id, (observation.node_id for observation in observations)
+            member_node_id, (observation.node_id for observation in observations)
         ),
     )
 
@@ -226,13 +232,16 @@ def get_workout_sessions(
     member_id: str, as_of: date | None = None
 ) -> WorkoutSessionsResult:
     """Read current-adherence-window `Member -[:performed]-> WorkoutSession -[:included]-> Exercise`."""
+    member_node_id = read_member_node_id(member_id)
+    if member_node_id is None:
+        return WorkoutSessionsResult(workout_sessions=(), node_ids=())
     workout_sessions = read_workout_sessions(member_id, as_of=as_of)
     return WorkoutSessionsResult(
         workout_sessions=tuple(
             _workout_session_data(workout) for workout in workout_sessions
         ),
         node_ids=_node_ids(
-            member_id,
+            member_node_id,
             (workout.node_id for workout in workout_sessions),
             (
                 exercise_node_id
@@ -246,11 +255,14 @@ def get_workout_sessions(
 @tool
 def get_chat_messages(member_id: str, as_of: date | None = None) -> ChatMessagesResult:
     """Read `Member -[:said|received]-> ChatMessage`, newest first; chat has no relevance window."""
+    member_node_id = read_member_node_id(member_id)
+    if member_node_id is None:
+        return ChatMessagesResult(chat_messages=(), node_ids=())
     chat_messages = read_chat_messages(member_id)
     return ChatMessagesResult(
         chat_messages=tuple(_chat_message_data(message) for message in chat_messages),
         node_ids=_node_ids(
-            member_id,
+            member_node_id,
             (message.node_id for message in chat_messages),
         ),
     )
@@ -259,11 +271,14 @@ def get_chat_messages(member_id: str, as_of: date | None = None) -> ChatMessages
 @tool
 def get_member_goals(member_id: str, as_of: date | None = None) -> MemberGoalsResult:
     """Read current `Member -[:pursues]-> Goal` records, highest priority first."""
+    member_node_id = read_member_node_id(member_id)
+    if member_node_id is None:
+        return MemberGoalsResult(goals=(), node_ids=())
     goals = read_member_goals(member_id)
     return MemberGoalsResult(
         goals=tuple(_goal_data(goal) for goal in goals),
         node_ids=_node_ids(
-            member_id,
+            member_node_id,
             (goal.node_id for goal in goals),
         ),
     )
@@ -274,11 +289,14 @@ def get_member_injuries(
     member_id: str, as_of: date | None = None
 ) -> MemberInjuriesResult:
     """Read current `Member -[:has]-> MemberInjury -[:exactMatch]-> ClinicalFinding` records."""
+    member_node_id = read_member_node_id(member_id)
+    if member_node_id is None:
+        return MemberInjuriesResult(injuries=(), node_ids=())
     injuries = read_member_injuries(member_id)
     return MemberInjuriesResult(
         injuries=tuple(_member_injury_data(injury) for injury in injuries),
         node_ids=_node_ids(
-            member_id,
+            member_node_id,
             (injury.node_id for injury in injuries),
             (
                 finding_node_id
@@ -292,13 +310,16 @@ def get_member_injuries(
 @tool
 def get_morning_brief(member_id: str, as_of: date | None = None) -> MorningBriefResult:
     """Read the current-adherence-window brief through `addresses` and `evidencedBy`."""
+    member_node_id = read_member_node_id(member_id)
+    if member_node_id is None:
+        return MorningBriefResult(morning_brief=None, node_ids=())
     morning_brief = read_morning_brief(member_id, as_of=as_of)
     if morning_brief is None:
-        return MorningBriefResult(morning_brief=None, node_ids=(member_id,))
+        return MorningBriefResult(morning_brief=None, node_ids=(member_node_id,))
     return MorningBriefResult(
         morning_brief=_morning_brief_data(morning_brief),
         node_ids=_node_ids(
-            member_id,
+            member_node_id,
             (task.node_id for task in morning_brief.coach_tasks),
             (
                 addressed_node_id

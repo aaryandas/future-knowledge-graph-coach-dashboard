@@ -152,6 +152,30 @@ def test_each_retrieval_tool_applies_its_relevance_window(
     assert result.node_ids[0] == MEMBER_ID
 
 
+@pytest.mark.parametrize(
+    "retrieval_tool",
+    [
+        get_observations,
+        get_workout_sessions,
+        get_chat_messages,
+        get_member_goals,
+        get_member_injuries,
+        get_morning_brief,
+        get_member_profile,
+    ],
+)
+def test_each_retrieval_tool_returns_no_node_ids_for_unknown_member(
+    retrieval_tool: Any,
+) -> None:
+    ingest_kg2()
+
+    result = retrieval_tool.invoke(
+        {"member_id": "unknown-member", "as_of": date(2026, 12, 10)}
+    )
+
+    assert result.node_ids == ()
+
+
 def test_copilot_context_exposes_two_labeled_tone_facts() -> None:
     ingest_kg2()
 

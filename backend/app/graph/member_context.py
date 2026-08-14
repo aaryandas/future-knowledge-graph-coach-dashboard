@@ -185,6 +185,15 @@ def get_member_profile(member_id: str) -> MemberProfile | None:
         return _read_member_profile(session, member_id)
 
 
+def get_member_node_id(member_id: str) -> str | None:
+    with neo4j_session() as session:
+        record = session.run(
+            "MATCH (member:Member {id: $member_id}) RETURN member.id AS node_id",
+            member_id=member_id,
+        ).single()
+    return None if record is None else cast(str, record["node_id"])
+
+
 def get_member_goals(member_id: str) -> tuple[GoalView, ...]:
     with neo4j_session() as session:
         return _read_member_goals(session, member_id)
