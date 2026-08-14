@@ -58,6 +58,15 @@ docs use these words and no synonyms.
   dip, …) identified for this member; must be evidenced, never asserted bare.
 - **CoachTask** — an actionable item on the coach's morning brief (celebrate, check-in),
   after COPPER's ActionPlan pattern.
+- **Journey stage** — a derived read of where the member is on their journey: **new**,
+  **building**, or **recovering**. Computed on load from tenure, history, and injury
+  status; never stored, never authored. Orthogonal to churn risk, which is its own
+  dimension (Barrier, CoachTask).
+- **Relevance window** — the per-Observation-kind period in which a value counts as
+  current (nightly kinds have short windows; lab kinds have none and are always the
+  latest value).
+- **Stale** — outside the relevance window. A stale value is never silently used: any
+  surface that shows or reasons over it must show its age.
 
 ## KG2 edge types
 

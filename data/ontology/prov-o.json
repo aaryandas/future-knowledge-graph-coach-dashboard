@@ -1,0 +1,74 @@
+{
+  "artifact_id": "ontology:prov-o",
+  "schema_version": 1,
+  "version": "2013-04-30",
+  "source": {
+    "standard": "PROV-O",
+    "url": "https://www.w3.org/TR/prov-o/"
+  },
+  "context": {
+    "prov": "http://www.w3.org/ns/prov#"
+  },
+  "terms": [
+    {
+      "id": "prov:Entity",
+      "kind": "class",
+      "preferred_term": "Entity",
+      "iri": "http://www.w3.org/ns/prov#Entity"
+    },
+    {
+      "id": "prov:Activity",
+      "kind": "class",
+      "preferred_term": "Activity",
+      "iri": "http://www.w3.org/ns/prov#Activity"
+    },
+    {
+      "id": "prov:Agent",
+      "kind": "class",
+      "preferred_term": "Agent",
+      "iri": "http://www.w3.org/ns/prov#Agent"
+    },
+    {
+      "id": "prov:SoftwareAgent",
+      "kind": "class",
+      "preferred_term": "SoftwareAgent",
+      "iri": "http://www.w3.org/ns/prov#SoftwareAgent"
+    },
+    {
+      "id": "prov:used",
+      "kind": "property",
+      "preferred_term": "used",
+      "iri": "http://www.w3.org/ns/prov#used"
+    },
+    {
+      "id": "prov:wasGeneratedBy",
+      "kind": "property",
+      "preferred_term": "wasGeneratedBy",
+      "iri": "http://www.w3.org/ns/prov#wasGeneratedBy"
+    },
+    {
+      "id": "prov:wasDerivedFrom",
+      "kind": "property",
+      "preferred_term": "wasDerivedFrom",
+      "iri": "http://www.w3.org/ns/prov#wasDerivedFrom"
+    },
+    {
+      "id": "prov:wasAssociatedWith",
+      "kind": "property",
+      "preferred_term": "wasAssociatedWith",
+      "iri": "http://www.w3.org/ns/prov#wasAssociatedWith"
+    },
+    {
+      "id": "prov:startedAtTime",
+      "kind": "property",
+      "preferred_term": "startedAtTime",
+      "iri": "http://www.w3.org/ns/prov#startedAtTime"
+    },
+    {
+      "id": "prov:endedAtTime",
+      "kind": "property",
+      "preferred_term": "endedAtTime",
+      "iri": "http://www.w3.org/ns/prov#endedAtTime"
+    }
+  ]
+}
