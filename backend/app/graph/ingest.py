@@ -124,7 +124,7 @@ def ingest_kg2(data_directory: Path = DEFAULT_DATA_DIRECTORY) -> KG2Counts:
 
     with neo4j_session() as session:
         _ensure_constraints(session)
-        session.execute_write(_merge_payload, payload, ingested_at)
+        session.execute_write(_merge_and_reconcile_kg2_payload, payload, ingested_at)
         return _read_kg2_counts(session)
 
 
@@ -1261,6 +1261,34 @@ def _merge_payload(
             ),
             rows=[asdict(edge) for edge in batch.rows],
             ingested_at=ingested_at,
+        ).consume()
+
+
+def _merge_and_reconcile_kg2_payload(
+    transaction: ManagedTransaction,
+    payload: KG2Payload,
+    ingested_at: str,
+) -> None:
+    _merge_payload(transaction, payload, ingested_at)
+    seed_sources = sorted(
+        {
+            cast(str, node.properties["source"])
+            for batch in payload.nodes
+            for node in batch.rows
+        }
+    )
+    for batch in payload.nodes:
+        transaction.run(
+            _cypher(
+                f"""
+            MATCH (node:`{batch.label}`)
+            WHERE node.source IN $seed_sources
+              AND NOT node.id IN $current_ids
+            DETACH DELETE node
+            """
+            ),
+            seed_sources=seed_sources,
+            current_ids=[node.id for node in batch.rows],
         ).consume()
 
 
