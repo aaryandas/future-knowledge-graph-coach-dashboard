@@ -58,6 +58,38 @@ class ChartAxes:
 
 
 @dataclass(frozen=True)
+class AdherenceTrendChartInput:
+    kind: Literal["adherence_trend"]
+    window: ChartWindow
+
+
+@dataclass(frozen=True)
+class SleepWeekChartInput:
+    kind: Literal["sleep_week"]
+    window: SleepWeekWindow
+
+
+@dataclass(frozen=True)
+class MessagePatternChartInput:
+    kind: Literal["message_pattern"]
+    window: ChartWindow
+
+
+@dataclass(frozen=True)
+class FourWeekComparisonChartInput:
+    kind: Literal["four_week_comparison"]
+    window: FourWeekComparisonWindow
+
+
+type ChartInput = (
+    AdherenceTrendChartInput
+    | SleepWeekChartInput
+    | MessagePatternChartInput
+    | FourWeekComparisonChartInput
+)
+
+
+@dataclass(frozen=True)
 class AdherenceTrendPoint:
     observed_at: str
     completion_percent: ChartNumber
@@ -146,12 +178,12 @@ class RenderChartResult:
 @tool
 def render_chart(
     member_id: str,
-    kind: ChartKind,
-    window: ChartWindow,
+    chart: ChartInput,
     as_of: date | None = None,
 ) -> RenderChartResult:
-    """Build one chart from `Member -[:observed]-> Observation`; supply only kind and window."""
-    _validate_window(kind, window)
+    """Build one chart from `Member -[:observed]-> Observation`; select one typed chart input."""
+    kind = chart.kind
+    window = chart.window
     member_node_id = get_member_node_id(member_id)
     read_date = as_of or datetime.now(UTC).date()
     observations = (
@@ -195,13 +227,6 @@ def render_chart(
         data=data,
         node_ids=_node_ids(member_node_id, data.observation_node_ids),
     )
-
-
-def _validate_window(kind: ChartKind, window: ChartWindow) -> None:
-    if kind == "sleep_week" and window != "7-days":
-        raise ValueError("sleep_week requires window 7-days")
-    if kind == "four_week_comparison" and window != "28-days":
-        raise ValueError("four_week_comparison requires window 28-days")
 
 
 def _chart_observations(

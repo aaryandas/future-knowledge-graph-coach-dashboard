@@ -3,8 +3,7 @@ from datetime import date
 from typing import cast
 
 import pytest
-from app.copilot.agent import run_copilot_turn
-from app.copilot.context import CopilotToneFact
+from app.copilot import CopilotTurn, run_copilot_turn
 from app.graph import ingest_kg2
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.tools import BaseTool
@@ -156,26 +155,39 @@ def test_registered_render_chart_uses_graph_owned_seven_day_window(
     assert [_point_date(point) for point in series] == expected_dates
 
 
-@pytest.mark.parametrize(
-    ("kind", "window", "message"),
-    [
-        ("sleep_week", "28-days", "sleep_week requires window 7-days"),
-        (
-            "four_week_comparison",
-            "7-days",
-            "four_week_comparison requires window 28-days",
-        ),
-    ],
-)
-def test_registered_render_chart_rejects_contradictory_kind_window_metadata(
-    kind: str,
-    window: str,
-    message: str,
-) -> None:
+def test_registered_render_chart_exposes_only_valid_kind_window_inputs() -> None:
     ingest_kg2()
+    llm = _ChartLLM("sleep_week", "7-days")
 
-    with pytest.raises(ValueError, match=message):
-        _run_chart_turn(MEMBER_ID, kind, window)
+    run_copilot_turn(
+        MEMBER_ID,
+        "Draw a chart",
+        checkpointer=InMemorySaver(),
+        llm=llm,
+        as_of=AS_OF,
+    )
+
+    assert llm.render_chart_schema is not None
+    properties = cast(
+        "dict[str, dict[str, object]]", llm.render_chart_schema["properties"]
+    )
+    assert set(properties) == {"chart"}
+    chart_input = _schema_definition(
+        llm.render_chart_schema, properties["chart"].get("$ref")
+    )
+    variants = cast("list[dict[str, object]]", chart_input["anyOf"])
+    assert {
+        kind: windows
+        for variant in variants
+        for kind, windows in (
+            _kind_windows(llm.render_chart_schema, variant.get("$ref")),
+        )
+    } == {
+        "adherence_trend": ("7-days", "28-days"),
+        "sleep_week": ("7-days",),
+        "message_pattern": ("7-days", "28-days"),
+        "four_week_comparison": ("28-days",),
+    }
 
 
 def test_registered_render_chart_emits_empty_payload_for_unknown_member() -> None:
@@ -191,6 +203,7 @@ class _ChartLLM:
         self._kind = kind
         self._window = window
         self._tool_called = False
+        self.render_chart_schema: dict[str, object] | None = None
 
     def invoke(
         self,
@@ -198,14 +211,24 @@ class _ChartLLM:
         tools: Sequence[BaseTool],
     ) -> object:
         if not self._tool_called:
-            assert any(tool.name == "render_chart" for tool in tools)
+            render_chart = next(tool for tool in tools if tool.name == "render_chart")
+            self.render_chart_schema = cast(
+                "dict[str, object]", render_chart.args_schema
+            )
+            properties = self.render_chart_schema.get("properties")
+            nested_input = isinstance(properties, dict) and "chart" in properties
+            args = (
+                {"chart": {"kind": self._kind, "window": self._window}}
+                if nested_input
+                else {"kind": self._kind, "window": self._window}
+            )
             self._tool_called = True
             return AIMessage(
                 content="",
                 tool_calls=[
                     {
                         "name": "render_chart",
-                        "args": {"kind": self._kind, "window": self._window},
+                        "args": args,
                         "id": "render-chart-1",
                         "type": "tool_call",
                     }
@@ -231,14 +254,13 @@ def _render(
     return cast("dict[str, object]", chart_part.data), sources_part.data
 
 
-def _run_chart_turn(member_id: str, kind: str, window: str):
+def _run_chart_turn(member_id: str, kind: str, window: str) -> CopilotTurn:
     return run_copilot_turn(
         member_id,
         "Draw a chart",
         checkpointer=InMemorySaver(),
         llm=_ChartLLM(kind, window),
         as_of=AS_OF,
-        tone_fact_reader=_no_tone_facts,
     )
 
 
@@ -246,9 +268,28 @@ def _point_date(point: dict[str, object]) -> object:
     return point.get("observed_at") or point.get("date") or point.get("week_of")
 
 
-def _no_tone_facts(
-    member_id: str,
-    *,
-    as_of: date | None = None,
-) -> tuple[CopilotToneFact, ...]:
-    return ()
+def _kind_windows(
+    schema: dict[str, object],
+    variant_ref: object,
+) -> tuple[str, tuple[str, ...]]:
+    variant = _schema_definition(schema, variant_ref)
+    properties = cast("dict[str, dict[str, object]]", variant["properties"])
+    kind = properties["kind"].get("const")
+    window = _schema_definition(schema, properties["window"].get("$ref"))
+    allowed = window.get("enum", (window.get("const"),))
+    assert isinstance(kind, str)
+    assert isinstance(allowed, list | tuple)
+    assert all(isinstance(value, str) for value in allowed)
+    return kind, tuple(cast("list[str] | tuple[str, ...]", allowed))
+
+
+def _schema_definition(
+    schema: dict[str, object],
+    reference: object,
+) -> dict[str, object]:
+    assert isinstance(reference, str)
+    definitions = schema.get("$defs")
+    assert isinstance(definitions, dict)
+    definition = definitions.get(reference.removeprefix("#/$defs/"))
+    assert isinstance(definition, dict)
+    return cast("dict[str, object]", definition)

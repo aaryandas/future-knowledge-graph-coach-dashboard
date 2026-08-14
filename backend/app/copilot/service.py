@@ -1,4 +1,7 @@
 from datetime import date
+from typing import Any
+
+from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from app.copilot.agent import (
     CopilotHistoryMessage,
@@ -10,6 +13,7 @@ from app.copilot.agent import (
 from app.copilot.agent import (
     run_copilot_turn as run_checkpointed_turn,
 )
+from app.copilot.llm import CopilotLLM
 from app.copilot.persistence import open_postgres_checkpointer
 
 
@@ -19,12 +23,24 @@ def run_copilot_turn(
     *,
     message_id: str | None = None,
     as_of: date | None = None,
+    checkpointer: BaseCheckpointSaver[Any] | None = None,
+    llm: CopilotLLM | None = None,
 ) -> CopilotTurn:
-    with open_postgres_checkpointer() as checkpointer:
+    if checkpointer is not None:
         return run_checkpointed_turn(
             member_id,
             message,
             checkpointer=checkpointer,
+            llm=llm,
+            message_id=message_id,
+            as_of=as_of,
+        )
+    with open_postgres_checkpointer() as production_checkpointer:
+        return run_checkpointed_turn(
+            member_id,
+            message,
+            checkpointer=production_checkpointer,
+            llm=llm,
             message_id=message_id,
             as_of=as_of,
         )
