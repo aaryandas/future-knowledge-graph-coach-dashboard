@@ -1,3 +1,5 @@
+name: future-knowledge-graph-coach-dashboard
+
 services:
   api:
     build:
