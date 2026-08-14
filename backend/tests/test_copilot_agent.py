@@ -11,16 +11,19 @@ from app.copilot.testing import (
     JsonValue,
     MemberGoalsResult,
     copilot_response,
+    get_morning_brief,
     open_postgres_checkpointer,
     replay_copilot_history,
     run_copilot_turn,
     run_quick_prompt,
 )
+from app.graph import ingest_kg2
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import StructuredTool
 from langgraph.checkpoint.memory import InMemorySaver
 
 MEMBER_ID = "test-member-copilot"
+SEED_MEMBER_ID = "mbr_01HX9JORDAN"
 type _ChartKind = Literal["sleep_week"]
 type _ChartWindow = Literal["7-days"]
 
@@ -216,6 +219,41 @@ def test_copilot_emits_chart_data_only_from_the_render_chart_tool() -> None:
 
     assert isinstance(turn, CopilotTurn)
     assert [part.type for part in turn.data_parts] == ["data-sources"]
+
+
+def test_churn_risk_answer_emits_graph_built_barriers_with_evidence() -> None:
+    ingest_kg2()
+    turn = run_copilot_turn(
+        SEED_MEMBER_ID,
+        "What is Jordan's churn risk?",
+        checkpointer=InMemorySaver(),
+        llm=FakeCopilotLLM(
+            (
+                _tool_call("brief-1", name="get_morning_brief"),
+                AIMessage(content="Jordan's churn risk is elevated."),
+            )
+        ),
+        as_of=date(2026, 6, 4),
+        retrieval_tools=(get_morning_brief,),
+        tone_fact_reader=_no_tone_facts,
+    )
+
+    assert isinstance(turn, CopilotTurn)
+    assert [part.type for part in turn.data_parts] == [
+        "data-sources",
+        "data-brief",
+    ]
+    brief = turn.data_parts[1].data
+    assert isinstance(brief, dict)
+    raw_barriers = brief.get("barriers")
+    assert isinstance(raw_barriers, list)
+    assert all(isinstance(barrier, dict) for barrier in raw_barriers)
+    barriers = cast("list[dict[str, object]]", raw_barriers)
+    assert {barrier["kind"] for barrier in barriers} == {
+        "adherence-decline",
+        "work-fatigue",
+    }
+    assert all(barrier["evidence_node_ids"] for barrier in barriers)
 
 
 def test_copilot_thread_and_data_parts_replay_after_restart() -> None:
