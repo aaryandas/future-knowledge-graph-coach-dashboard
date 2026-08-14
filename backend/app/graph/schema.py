@@ -6,6 +6,7 @@ type NodeLabel = Literal[
     "Joint",
     "MovementPattern",
     "Equipment",
+    "Injury",
     "AnatomicalStructure",
     "ClinicalFinding",
 ]
@@ -17,6 +18,7 @@ type EdgeType = Literal[
     "findingSite",
     "isA",
     "exactMatch",
+    "contraindicates",
 ]
 type TaxonomyField = tuple[str, NodeLabel, EdgeType, str]
 
@@ -26,6 +28,7 @@ NODE_LABELS: tuple[NodeLabel, ...] = (
     "Joint",
     "MovementPattern",
     "Equipment",
+    "Injury",
     "AnatomicalStructure",
     "ClinicalFinding",
 )
@@ -38,6 +41,7 @@ EDGE_TYPES: tuple[EdgeType, ...] = (
     "findingSite",
     "isA",
     "exactMatch",
+    "contraindicates",
 )
 
 EXERCISE_TAXONOMIES: tuple[TaxonomyField, ...] = (

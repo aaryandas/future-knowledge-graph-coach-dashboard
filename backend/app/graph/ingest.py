@@ -7,6 +7,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, LiteralString, cast
 
+from app.graph.conditions import CONDITIONS_SOURCE, AuthoredConditions, load_conditions
 from app.graph.schema import (
     EDGE_TYPES,
     EXERCISE_TAXONOMIES,
@@ -83,17 +84,22 @@ def _load_kg1(data_directory: Path) -> KG1Payload:
     ontology_directory = data_directory / "ontology"
     snomed = _read_object(ontology_directory / "snomed-ct.json")
     mappings = _read_object(ontology_directory / "skos-mappings.json")
+    conditions = load_conditions(data_directory / "conditions.json")
 
     node_batches, exercise_edge_batches = _catalog_batches(exercises, catalog_version)
     snomed_node_batches, snomed_edge_batches, concept_labels = _snomed_batches(snomed)
-    mapping_edge_batches = _mapping_batches(mappings, concept_labels)
+    condition_node_batches, condition_edge_batches, injury_findings = (
+        _condition_batches(conditions, node_batches, concept_labels)
+    )
+    mapping_edge_batches = _mapping_batches(mappings, concept_labels, injury_findings)
 
     return KG1Payload(
-        nodes=[*node_batches, *snomed_node_batches],
+        nodes=[*node_batches, *snomed_node_batches, *condition_node_batches],
         edges=[
             *exercise_edge_batches,
             *snomed_edge_batches,
             *mapping_edge_batches,
+            *condition_edge_batches,
         ],
     )
 
@@ -228,25 +234,39 @@ def _snomed_batches(
 
 
 def _mapping_batches(
-    artifact: JsonObject, concept_labels: dict[str, NodeLabel]
+    artifact: JsonObject,
+    concept_labels: dict[str, NodeLabel],
+    injury_findings: dict[str, str],
 ) -> list[EdgeBatch]:
     source, version = _artifact_stamp(artifact)
     mappings = artifact.get("mappings")
     if not isinstance(mappings, list):
         raise TypeError("SKOS artifact must contain mappings")
 
-    rows_by_target: dict[NodeLabel, list[Edge]] = defaultdict(list)
+    rows_by_labels: dict[tuple[NodeLabel, NodeLabel], list[Edge]] = defaultdict(list)
+    mapped_injuries: set[str] = set()
     for value in mappings:
         mapping = _object(value, "SKOS mapping")
         source_id = _required_string(mapping, "source_id")
         if source_id.startswith("fkg:injury/"):
-            continue
-        if not source_id.startswith("fkg:joint/"):
+            source_label: NodeLabel = "Injury"
+            expected_target_id = injury_findings.get(source_id)
+            if expected_target_id is None:
+                raise ValueError(f"Unknown authored Injury mapping source: {source_id}")
+            mapped_injuries.add(source_id)
+        elif source_id.startswith("fkg:joint/"):
+            source_label = "Joint"
+            expected_target_id = None
+        else:
             raise ValueError(f"Unsupported exactMatch source: {source_id}")
         predicate = _required_string(mapping, "predicate")
         if predicate != "skos:exactMatch":
             raise ValueError(f"Unsupported SKOS predicate: {predicate}")
         target_id = _required_string(mapping, "target_id")
+        if expected_target_id is not None and target_id != expected_target_id:
+            raise ValueError(
+                f"Authored Injury {source_id} must exactMatch {expected_target_id}"
+            )
         target_label = _concept_label(concept_labels, target_id)
         properties = {
             key: item
@@ -254,7 +274,7 @@ def _mapping_batches(
             if key not in {"id", "source_id", "target_id"}
         }
         properties.update(source=source, version=version)
-        rows_by_target[target_label].append(
+        rows_by_labels[(source_label, target_label)].append(
             Edge(
                 id=_required_string(mapping, "id"),
                 source_id=source_id,
@@ -263,10 +283,82 @@ def _mapping_batches(
             )
         )
 
+    missing_mappings = injury_findings.keys() - mapped_injuries
+    if missing_mappings:
+        missing = ", ".join(sorted(missing_mappings))
+        raise ValueError(f"Authored Injuries lack exactMatch mappings: {missing}")
+
     return [
-        EdgeBatch("Joint", "exactMatch", target_label, rows)
-        for target_label, rows in rows_by_target.items()
+        EdgeBatch(source_label, "exactMatch", target_label, rows)
+        for (source_label, target_label), rows in rows_by_labels.items()
     ]
+
+
+def _condition_batches(
+    artifact: AuthoredConditions,
+    catalog_node_batches: list[NodeBatch],
+    concept_labels: dict[str, NodeLabel],
+) -> tuple[list[NodeBatch], list[EdgeBatch], dict[str, str]]:
+    catalog_ids = {
+        batch.label: {node.id for node in batch.rows} for batch in catalog_node_batches
+    }
+    injury_nodes: dict[str, Node] = {}
+    injury_findings: dict[str, str] = {}
+    edge_rows: dict[NodeLabel, list[Edge]] = defaultdict(list)
+
+    for row in artifact.rows:
+        if concept_labels.get(row.clinical_finding_id) != "ClinicalFinding":
+            raise ValueError(
+                f"Authored Injury {row.injury_id} references unknown ClinicalFinding: "
+                f"{row.clinical_finding_id}"
+            )
+        if row.target_id not in catalog_ids.get(row.target_kind, set()):
+            raise ValueError(
+                f"Authored Injury {row.injury_id} references unknown "
+                f"{row.target_kind}: {row.target_id}"
+            )
+
+        existing_finding = injury_findings.get(row.injury_id)
+        if existing_finding is not None and existing_finding != row.clinical_finding_id:
+            raise ValueError(
+                f"Authored Injury {row.injury_id} has conflicting ClinicalFindings"
+            )
+        existing_node = injury_nodes.get(row.injury_id)
+        if existing_node is not None and existing_node.properties["name"] != row.name:
+            raise ValueError(f"Authored Injury {row.injury_id} has conflicting names")
+
+        injury_findings[row.injury_id] = row.clinical_finding_id
+        injury_nodes[row.injury_id] = Node(
+            id=row.injury_id,
+            properties={
+                "name": row.name,
+                "clinical_finding_id": row.clinical_finding_id,
+                "source": CONDITIONS_SOURCE,
+                "version": artifact.version,
+            },
+        )
+        edge_rows[row.target_kind].append(
+            Edge(
+                id=f"{row.injury_id}:contraindicates:{row.target_id}",
+                source_id=row.injury_id,
+                target_id=row.target_id,
+                properties={
+                    "verdict": row.verdict,
+                    "note": row.note,
+                    "citation": row.citation,
+                    "citation_url": row.citation_url,
+                    "source": CONDITIONS_SOURCE,
+                    "version": artifact.version,
+                },
+            )
+        )
+
+    nodes = [NodeBatch("Injury", list(injury_nodes.values()))]
+    edges = [
+        EdgeBatch("Injury", "contraindicates", target_label, rows)
+        for target_label, rows in edge_rows.items()
+    ]
+    return nodes, edges, injury_findings
 
 
 def _artifact_stamp(artifact: JsonObject) -> tuple[str, str]:
