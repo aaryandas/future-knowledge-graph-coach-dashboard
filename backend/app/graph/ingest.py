@@ -523,16 +523,19 @@ def _append_workout_sessions(
             stamp,
             edge_rows,
         )
-        _append_bridge_edges(
-            session_id,
-            "WorkoutSession",
-            "included",
-            "Exercise",
-            exercise_mentions,
-            exercise_vocab,
-            stamp,
-            edge_rows,
-        )
+        for position, mention in enumerate(exercise_mentions):
+            resolution = _exact_resolution(mention, exercise_vocab)
+            if resolution is None:
+                continue
+            _append_edge(
+                session_id,
+                "WorkoutSession",
+                "included",
+                cast(str, resolution.concept_id),
+                "Exercise",
+                {**_bridge_properties(stamp, resolution), "position": position},
+                edge_rows,
+            )
     return sessions
 
 
@@ -1418,12 +1421,18 @@ def _merge_payload(
         legacy_property_cleanup = (
             "REMOVE edge.verdict" if batch.edge_type == "contraindicates" else ""
         )
+        preserve_confirmed_session_plan = (
+            "WHERE source.source <> $coach_action_source "
+            if batch.source_label == "WorkoutSession" and batch.edge_type == "included"
+            else ""
+        )
         transaction.run(
             _cypher(
                 f"""
             UNWIND $rows AS row
             MATCH (source:`{batch.source_label}` {{id: row.source_id}})
             MATCH (target:`{batch.target_label}` {{id: row.target_id}})
+            {preserve_confirmed_session_plan}
             MERGE (source)-[edge:`{batch.edge_type}` {{id: row.id}}]->(target)
             SET edge += row.properties
             SET edge.ingested_at = coalesce(edge.ingested_at, datetime($ingested_at))
@@ -1432,6 +1441,7 @@ def _merge_payload(
             ),
             rows=[asdict(edge) for edge in batch.rows],
             ingested_at=ingested_at,
+            coach_action_source=COACH_ACTION_SOURCE,
         ).consume()
 
 

@@ -28,10 +28,14 @@ from app.copilot.actions import (
     CoachAction,
     CoachActionWriter,
     SendMemberMessage,
+    SessionPlanReader,
+    SessionPlanVerdictEvaluator,
+    WriteSessionPlan,
     coach_action_decision,
     coach_action_from_payload,
     coach_action_from_tool_call,
     coach_action_payload,
+    prepare_coach_action,
     write_coach_action,
 )
 from app.copilot.context import CopilotToneFact, get_copilot_tone_facts
@@ -168,6 +172,8 @@ def run_copilot_turn(
     retrieval_tools: Sequence[BaseTool] = RETRIEVAL_TOOLS,
     tone_fact_reader: CopilotToneFactReader = get_copilot_tone_facts,
     action_writer: CoachActionWriter = write_coach_action,
+    session_plan_reader: SessionPlanReader | None = None,
+    verdict_evaluator: SessionPlanVerdictEvaluator | None = None,
 ) -> CopilotTurnResult:
     """Run one checkpointed copilot turn for the member's single thread."""
     user_text = message.strip()
@@ -186,6 +192,8 @@ def run_copilot_turn(
         checkpointer,
         member_id,
         action_writer,
+        session_plan_reader,
+        verdict_evaluator,
     )
     if graph.get_state(_thread_config(member_id)).interrupts:
         return CopilotConflict(
@@ -229,6 +237,8 @@ def resume_copilot_action(
         checkpointer,
         member_id,
         action_writer,
+        None,
+        None,
     )
     snapshot = graph.get_state(_thread_config(member_id))
     if not snapshot.interrupts:
@@ -327,6 +337,8 @@ def _build_graph(
     checkpointer: BaseCheckpointSaver[Any],
     member_id: str,
     action_writer: CoachActionWriter,
+    session_plan_reader: SessionPlanReader | None,
+    verdict_evaluator: SessionPlanVerdictEvaluator | None,
 ) -> Any:
     tool_by_name = {tool.name: tool for tool in member_tools}
 
@@ -430,13 +442,41 @@ def _build_graph(
     def propose_action(state: _CopilotState) -> dict[str, object]:
         response = cast("AIMessage", state["messages"][-1])
         tool_call = response.tool_calls[0]
-        action = coach_action_from_tool_call(
+        request = coach_action_from_tool_call(
             tool_call.get("id") or "",
             tool_call["name"],
             tool_call.get("args", {}),
         )
-        if action is None:
+        if request is None:
             raise RuntimeError("A routed coach action must be valid.")
+        proposal = (
+            prepare_coach_action(member_id, request)
+            if session_plan_reader is None or verdict_evaluator is None
+            else prepare_coach_action(
+                member_id,
+                request,
+                session_plan_reader=session_plan_reader,
+                verdict_evaluator=verdict_evaluator,
+            )
+        )
+        action = proposal.action
+        if proposal.status != "pending":
+            return {
+                "messages": [
+                    ToolMessage(
+                        content="The coach action cannot be confirmed.",
+                        name=tool_call["name"],
+                        tool_call_id=action.action_id,
+                        additional_kwargs={"coach_action": True},
+                    ),
+                    _coach_action_message(
+                        action,
+                        proposal.status,
+                        _sources(state["messages"]),
+                    ),
+                ],
+                "pending_action": None,
+            }
         return {
             "messages": [
                 ToolMessage(
@@ -453,9 +493,12 @@ def _build_graph(
             ],
             "pending_action": cast(
                 "dict[str, JsonValue]",
-                coach_action_payload(action, "pending"),
+                _json_value(coach_action_payload(action, "pending")),
             ),
         }
+
+    def route_after_proposal(state: _CopilotState) -> Literal["gate", "__end__"]:
+        return "gate" if state["pending_action"] is not None else "__end__"
 
     def gate_action(state: _CopilotState) -> dict[str, object]:
         pending_action_payload = state["pending_action"]
@@ -542,7 +585,11 @@ def _build_graph(
         },
     )
     builder.add_edge("tools", "agent")
-    builder.add_edge("propose_action", "gate_action")
+    builder.add_conditional_edges(
+        "propose_action",
+        route_after_proposal,
+        {"gate": "gate_action", "__end__": END},
+    )
     builder.add_edge("gate_action", END)
     builder.add_edge("limit", END)
     return builder.compile(checkpointer=checkpointer)
@@ -674,19 +721,23 @@ def _fallback_message(
 
 def _coach_action_message(
     action: CoachAction,
-    status: Literal["pending", "confirmed", "discarded", "failed"],
+    status: Literal["pending", "confirmed", "discarded", "failed", "blocked"],
     sources: tuple[CopilotSource, ...],
     *,
     morning_brief: MorningBrief | None = None,
 ) -> AIMessage:
     if status == "pending":
         text = "Review this proposed coach action."
+    elif status == "blocked":
+        text = "The session plan contains an excluded row. Nothing was changed."
     elif status == "discarded":
         text = "Action discarded."
     elif status == "failed":
         text = "The action target no longer exists. Nothing was changed."
     elif isinstance(action, SendMemberMessage):
         text = "Message sent."
+    elif isinstance(action, WriteSessionPlan):
+        text = "Session plan updated."
     else:
         text = "Morning brief updated."
     parts = [_sources_part(sources)]
@@ -700,7 +751,7 @@ def _coach_action_message(
     parts.append(
         CopilotDataPart(
             type="data-action",
-            data=cast("JsonValue", coach_action_payload(action, status)),
+            data=_json_value(coach_action_payload(action, status)),
         )
     )
     data_parts = _ordered_data_parts(tuple(parts))
