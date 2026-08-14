@@ -407,9 +407,9 @@ def _append_workout_sessions(
     workouts = _object_list(
         member.get("workout_history"), f"Member {member_id} workout_history"
     )
-    for index, workout in enumerate(workouts):
+    for workout in workouts:
         workout_date = _required_string(workout, "date")
-        session_id = f"{member_id}:workout:{workout_date}:{index:02d}"
+        session_id = f"{member_id}:workout:{workout_date}"
         exercise_mentions = _string_list(
             workout.get("exercises"), f"WorkoutSession {session_id} exercises"
         )
@@ -754,14 +754,16 @@ def _append_coach_tasks(
         if completed_sessions
         else None
     )
-    for index, task in enumerate(tasks):
+    for task in tasks:
         task_type = _required_string(task, "type")
-        task_id = f"{member_id}:coach-task:{generated_for}:{index:02d}"
+        task_text = _required_string(task, "text")
+        digest = sha256(f"{task_type}\0{task_text}".encode()).hexdigest()[:12]
+        task_id = f"{member_id}:coach-task:{generated_for}:{digest}"
         properties = {
             "member_id": member_id,
             "generated_for": generated_for,
             "type": task_type,
-            "text": _required_string(task, "text"),
+            "text": task_text,
             "status": "open",
             **stamp,
         }

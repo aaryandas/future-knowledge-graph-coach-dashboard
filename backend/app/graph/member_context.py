@@ -113,7 +113,7 @@ class CoachTaskView:
 
 
 @dataclass(frozen=True)
-class MemberBrief:
+class MorningBrief:
     generated_for: str
     churn_risk_level: str
     churn_risk_reasons: tuple[str, ...]
@@ -129,7 +129,7 @@ class MemberContext:
     workout_sessions: tuple[WorkoutSessionView, ...]
     observations: tuple[ObservationView, ...]
     chat_messages: tuple[ChatMessageView, ...]
-    brief: MemberBrief
+    morning_brief: MorningBrief
 
 
 def get_member_context(member_id: str) -> MemberContext | None:
@@ -137,9 +137,9 @@ def get_member_context(member_id: str) -> MemberContext | None:
         profile = _read_member_profile(session, member_id)
         if profile is None:
             return None
-        brief = _read_member_brief(session, member_id)
-        if brief is None:
-            raise RuntimeError(f"Member {member_id} has no brief")
+        morning_brief = _read_morning_brief(session, member_id)
+        if morning_brief is None:
+            raise RuntimeError(f"Member {member_id} has no morning brief")
         return MemberContext(
             profile=profile,
             goals=_read_member_goals(session, member_id),
@@ -147,7 +147,7 @@ def get_member_context(member_id: str) -> MemberContext | None:
             workout_sessions=_read_workout_sessions(session, member_id),
             observations=_read_observations(session, member_id),
             chat_messages=_read_chat_messages(session, member_id),
-            brief=brief,
+            morning_brief=morning_brief,
         )
 
 
@@ -181,9 +181,9 @@ def get_chat_messages(member_id: str) -> tuple[ChatMessageView, ...]:
         return _read_chat_messages(session, member_id)
 
 
-def get_member_brief(member_id: str) -> MemberBrief | None:
+def get_morning_brief(member_id: str) -> MorningBrief | None:
     with neo4j_session() as session:
-        return _read_member_brief(session, member_id)
+        return _read_morning_brief(session, member_id)
 
 
 def _read_member_profile(session: Session, member_id: str) -> MemberProfile | None:
@@ -278,7 +278,7 @@ def _read_chat_messages(
     return tuple(_chat_message(record) for record in records)
 
 
-def _read_member_brief(session: Session, member_id: str) -> MemberBrief | None:
+def _read_morning_brief(session: Session, member_id: str) -> MorningBrief | None:
     member = session.run(
         "MATCH (member:Member {id: $member_id}) "
         "RETURN properties(member) AS properties",
@@ -305,7 +305,7 @@ def _read_member_brief(session: Session, member_id: str) -> MemberBrief | None:
         "ORDER BY sort_generated_for DESC, node_id",
         member_id=member_id,
     )
-    return MemberBrief(
+    return MorningBrief(
         generated_for=_string(properties, "brief_generated_for"),
         churn_risk_level=_string(properties, "churn_risk_level"),
         churn_risk_reasons=_strings(properties, "churn_risk_reasons"),
