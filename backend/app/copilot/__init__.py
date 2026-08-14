@@ -1,11 +1,31 @@
-"""Read the Member Context Graph through typed retrieval tools."""
+"""Run the checkpointed copilot and read KG2 through retrieval tools."""
 
+from app.copilot.agent import (
+    MAX_TOOL_ROUNDS,
+    QUICK_PROMPTS,
+    CopilotHistoryMessage,
+    CopilotSource,
+    CopilotTurn,
+    QuickPrompt,
+    QuickPromptId,
+    replay_copilot_history,
+    run_copilot_turn,
+    run_quick_prompt,
+)
 from app.copilot.context import (
     COPILOT_TONE_FACT_LABELS,
     CopilotToneFact,
     CopilotToneFactLabel,
     get_copilot_tone_facts,
 )
+from app.copilot.llm import (
+    CopilotLLM,
+    CopilotLLMCall,
+    FakeCopilotLLM,
+    LLMProviderError,
+    build_copilot_llm,
+)
+from app.copilot.persistence import open_postgres_checkpointer
 from app.copilot.tools import (
     RETRIEVAL_TOOLS,
     BarrierData,
@@ -36,14 +56,23 @@ from app.copilot.tools import (
 
 __all__ = [
     "COPILOT_TONE_FACT_LABELS",
+    "MAX_TOOL_ROUNDS",
+    "QUICK_PROMPTS",
     "RETRIEVAL_TOOLS",
     "BarrierData",
     "ChatMessageData",
     "ChatMessagesResult",
     "CoachTaskData",
+    "CopilotHistoryMessage",
+    "CopilotLLM",
+    "CopilotLLMCall",
+    "CopilotSource",
     "CopilotToneFact",
     "CopilotToneFactLabel",
+    "CopilotTurn",
+    "FakeCopilotLLM",
     "GoalData",
+    "LLMProviderError",
     "MemberGoalsResult",
     "MemberInjuriesResult",
     "MemberInjuryData",
@@ -54,8 +83,11 @@ __all__ = [
     "ObservationData",
     "ObservationMeasurement",
     "ObservationsResult",
+    "QuickPrompt",
+    "QuickPromptId",
     "WorkoutSessionData",
     "WorkoutSessionsResult",
+    "build_copilot_llm",
     "get_chat_messages",
     "get_copilot_tone_facts",
     "get_member_goals",
@@ -64,4 +96,8 @@ __all__ = [
     "get_morning_brief",
     "get_observations",
     "get_workout_sessions",
+    "open_postgres_checkpointer",
+    "replay_copilot_history",
+    "run_copilot_turn",
+    "run_quick_prompt",
 ]
