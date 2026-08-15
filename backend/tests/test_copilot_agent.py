@@ -19,7 +19,7 @@ from app.copilot.testing import (
     run_quick_prompt,
 )
 from app.graph import ingest_kg2
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.checkpoint.memory import InMemorySaver
 
@@ -75,6 +75,19 @@ def test_copilot_tool_loop_persists_follow_ups_and_replays_sources() -> None:
         for message in llm.calls[3].messages
         if isinstance(message, HumanMessage)
     ] == ["What is the priority goal?", "How does that fit Jordan?"]
+    assert not any(
+        isinstance(message, ToolMessage) for message in llm.calls[2].messages
+    )
+    prior_answers = [
+        message for message in llm.calls[2].messages if isinstance(message, AIMessage)
+    ]
+    assert len(prior_answers) == 1
+    assert prior_answers[0].content == "Jordan's priority goal is strength."
+    assert prior_answers[0].additional_kwargs == {}
+    current_tool_messages = [
+        message for message in llm.calls[3].messages if isinstance(message, ToolMessage)
+    ]
+    assert [message.name for message in current_tool_messages] == ["get_member_profile"]
     history = replay_copilot_history(MEMBER_ID, checkpointer=checkpointer)
     assert [(message.role, message.text) for message in history] == [
         ("user", "What is the priority goal?"),
