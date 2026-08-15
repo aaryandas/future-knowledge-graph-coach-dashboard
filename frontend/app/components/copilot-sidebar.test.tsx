@@ -78,6 +78,7 @@ function renderSidebar(initialMessages: DashboardMessage[]) {
     <CopilotSidebar
       memberId="mbr_01HX9JORDAN"
       memberName="Jordan"
+      coachTasks={[]}
       composerValue=""
       composerRef={createRef<HTMLInputElement>()}
       hasPlan={false}
