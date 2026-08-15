@@ -6,8 +6,12 @@ from .coach_actions import (
     CoachActionWriteStatus,
     CoachTaskStatus,
     SendMemberMessageWrite,
+    SessionPlan,
+    SessionPlanRow,
     UpdateBriefTaskWrite,
+    WriteSessionPlanWrite,
     confirm_coach_action,
+    get_session_plan,
 )
 from .constants import ObservationKind
 from .exercise_taxonomy import get_exercise_movement_pattern_ids
@@ -81,8 +85,11 @@ __all__ = [
     "ObservationView",
     "RelevanceWindowName",
     "SendMemberMessageWrite",
+    "SessionPlan",
+    "SessionPlanRow",
     "UpdateBriefTaskWrite",
     "WorkoutSessionView",
+    "WriteSessionPlanWrite",
     "confirm_coach_action",
     "get_chat_messages",
     "get_exercise_movement_pattern_ids",
@@ -94,6 +101,7 @@ __all__ = [
     "get_member_profile",
     "get_morning_brief",
     "get_observations",
+    "get_session_plan",
     "get_workout_sessions",
     "ingest_kg1",
     "ingest_kg2",
