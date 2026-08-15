@@ -365,11 +365,22 @@ def _resolved_exclusions(
         and mention.resolution.concept_id is not None
     )
     movement_pattern_ids = frozenset(
-        mention.resolution.concept_id
+        concept_id
         for mention in mentions
         if mention.enforced
-        and mention.vocabulary == "MovementPattern"
-        and mention.resolution.concept_id is not None
+        for concept_id in (
+            (
+                mention.derived_exclusion_rule.concept_id
+                if mention.derived_exclusion_rule is not None
+                else None
+            ),
+            (
+                mention.resolution.concept_id
+                if mention.vocabulary == "MovementPattern"
+                else None
+            ),
+        )
+        if concept_id is not None
     )
     return exercise_ids, movement_pattern_ids
 

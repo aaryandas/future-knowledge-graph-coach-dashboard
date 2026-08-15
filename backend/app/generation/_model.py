@@ -31,12 +31,19 @@ type GenerationFailureReason = Literal[
 
 
 @dataclass(frozen=True)
+class DerivedExclusionRule:
+    vocabulary: Literal["MovementPattern"]
+    concept_id: str
+
+
+@dataclass(frozen=True)
 class ResolvedMention:
     purpose: ResolutionPurpose
     vocabulary: ResolutionVocabulary
     resolution: Resolution
     enforced: bool
     message: str | None = None
+    derived_exclusion_rule: DerivedExclusionRule | None = None
 
 
 @dataclass(frozen=True)

@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import cast
 
 from app.generation._model import (
     ConstraintSet,
+    DerivedExclusionRule,
     ResolutionPurpose,
     ResolutionVocabulary,
     ResolvedIntent,
@@ -16,6 +15,7 @@ from app.generation._model import (
 )
 from app.generation._trace import ResolutionTraceEvent
 from app.generation.intent import Intent
+from app.graph import get_exercise_movement_pattern_ids
 from app.resolver import (
     ArtifactVocabulary,
     Resolution,
@@ -33,7 +33,6 @@ class _GenerationVocabulary:
     _token_aliases: tuple[TokenAlias, ...]
     _kind_by_concept_id: dict[str, ResolutionVocabulary]
     _unresolved_kind: ResolutionVocabulary
-    _movement_pattern_ids_by_exercise_id: dict[str, frozenset[str]]
 
     def concepts(self) -> Iterable[VocabularyConcept]:
         return self._concepts
@@ -49,13 +48,15 @@ class _GenerationVocabulary:
             return self._unresolved_kind
         return self._kind_by_concept_id[resolution.concept_id]
 
-    def movement_pattern_resolution(self, resolution: Resolution) -> Resolution:
+    def derived_exclusion_rule(
+        self, resolution: Resolution
+    ) -> DerivedExclusionRule | None:
         if (
             resolution.concept_id is None
             or resolution.pass_ == "exact"
             or self.kind_for(resolution) != "Exercise"
         ):
-            return resolution
+            return None
 
         exercise_ids = (
             resolution.concept_id,
@@ -67,19 +68,18 @@ class _GenerationVocabulary:
             ),
         )
         movement_pattern_sets = tuple(
-            self._movement_pattern_ids_by_exercise_id.get(exercise_id, frozenset())
+            get_exercise_movement_pattern_ids(exercise_id)
             for exercise_id in exercise_ids
         )
         if len(movement_pattern_sets) < 2 or not all(movement_pattern_sets):
-            return resolution
+            return None
 
         shared_movement_pattern_ids = frozenset.intersection(*movement_pattern_sets)
         if len(shared_movement_pattern_ids) != 1:
-            return resolution
-        return replace(
-            resolution,
+            return None
+        return DerivedExclusionRule(
+            vocabulary="MovementPattern",
             concept_id=next(iter(shared_movement_pattern_ids)),
-            candidates=(),
         )
 
 
@@ -160,10 +160,6 @@ def load_generation_vocabularies() -> GenerationVocabularies:
         exclusions=_combine(
             (exercise, movement_pattern),
             unresolved_kind="Exercise",
-            movement_pattern_ids_by_exercise_id=_movement_pattern_ids_by_exercise_id(
-                exercises_path,
-                movement_pattern[1],
-            ),
         ),
         session_injuries=_combine(
             (clinical_finding, joint, anatomical_structure),
@@ -189,7 +185,6 @@ def _combine(
     vocabularies: tuple[tuple[ResolutionVocabulary, ArtifactVocabulary], ...],
     *,
     unresolved_kind: ResolutionVocabulary,
-    movement_pattern_ids_by_exercise_id: dict[str, frozenset[str]] | None = None,
 ) -> _GenerationVocabulary:
     concepts: list[VocabularyConcept] = []
     token_aliases: list[TokenAlias] = []
@@ -204,33 +199,7 @@ def _combine(
         _token_aliases=tuple(dict.fromkeys(token_aliases)),
         _kind_by_concept_id=kind_by_concept_id,
         _unresolved_kind=unresolved_kind,
-        _movement_pattern_ids_by_exercise_id=(
-            movement_pattern_ids_by_exercise_id or {}
-        ),
     )
-
-
-def _movement_pattern_ids_by_exercise_id(
-    exercises_path: Path,
-    movement_pattern_vocabulary: ArtifactVocabulary,
-) -> dict[str, frozenset[str]]:
-    movement_pattern_id_by_term = {
-        concept.preferred_term: concept.concept_id
-        for concept in movement_pattern_vocabulary.concepts()
-    }
-    records = cast(list[dict[str, object]], json.loads(exercises_path.read_text()))
-    result: dict[str, frozenset[str]] = {}
-    for record in records:
-        exercise_id = record.get("id")
-        movement_patterns = record.get("movement_patterns")
-        if not isinstance(exercise_id, str) or not isinstance(movement_patterns, list):
-            raise TypeError("Exercise movement pattern data is invalid")
-        if not all(isinstance(pattern, str) for pattern in movement_patterns):
-            raise TypeError("Exercise movement pattern data is invalid")
-        result[exercise_id] = frozenset(
-            movement_pattern_id_by_term[pattern] for pattern in movement_patterns
-        )
-    return result
 
 
 def _resolve_mentions(
@@ -244,8 +213,11 @@ def _resolve_mentions(
     events: list[ResolutionTraceEvent] = []
     for mention in mentions:
         resolution = resolve(mention, vocabulary)
-        if purpose == "exclusion":
-            resolution = vocabulary.movement_pattern_resolution(resolution)
+        derived_exclusion_rule = (
+            vocabulary.derived_exclusion_rule(resolution)
+            if purpose == "exclusion"
+            else None
+        )
         resolution_kind = vocabulary.kind_for(resolution)
         enforced = enforce_matches and resolution.concept_id is not None
         message = _resolution_message(purpose, resolution, enforced)
@@ -256,6 +228,7 @@ def _resolve_mentions(
                 resolution=resolution,
                 enforced=enforced,
                 message=message,
+                derived_exclusion_rule=derived_exclusion_rule,
             )
         )
         events.append(

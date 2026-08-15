@@ -252,12 +252,16 @@ def test_natural_movement_pattern_adjustment_excludes_matching_exercises() -> No
         _DEADLIFT_IDS
     )
     assert adjusted.resolved_intent is not None
-    movement_pattern_exclusion = adjusted.resolved_intent.constraints.exclusions[0]
-    assert movement_pattern_exclusion.vocabulary == "MovementPattern"
-    assert (
-        movement_pattern_exclusion.resolution.concept_id
-        == _HIP_HINGE_MOVEMENT_PATTERN_ID
-    )
+    exclusion = adjusted.resolved_intent.constraints.exclusions[0]
+    assert exclusion.vocabulary == "Exercise"
+    assert exclusion.resolution.concept_id == _BARBELL_DEADLIFT_ID
+    assert exclusion.resolution.pass_ == "fuzzy"
+    assert {
+        candidate.concept_id for candidate in exclusion.resolution.candidates
+    }.issuperset({_DUMBBELL_ROMANIAN_DEADLIFT_ID, _KETTLEBELL_ROMANIAN_DEADLIFT_ID})
+    assert exclusion.derived_exclusion_rule is not None
+    assert exclusion.derived_exclusion_rule.vocabulary == "MovementPattern"
+    assert exclusion.derived_exclusion_rule.concept_id == _HIP_HINGE_MOVEMENT_PATTERN_ID
 
 
 def test_failed_adjustment_does_not_emit_previous_incompatible_plan() -> None:
