@@ -15,6 +15,7 @@ import type {
   DataPlanPart,
   DataSourcesPart,
 } from "@/lib/parts";
+import { CopilotChart } from "./copilot-chart";
 
 const quickPrompts = [
   {
@@ -193,20 +194,36 @@ export function CopilotSidebar({
   );
 }
 
-function CopilotMessage({ message }: { message: DashboardMessage }) {
+export function CopilotMessage({ message }: { message: DashboardMessage }) {
   const textParts = message.parts.filter((part) => part.type === "text");
+  const chartParts = message.parts.filter(
+    (part) => part.type === "data-chart",
+  );
   const sourceParts = message.parts.filter(
     (part) => part.type === "data-sources",
   );
-  if (textParts.length === 0 && sourceParts.length === 0) {
+  if (
+    textParts.length === 0 &&
+    chartParts.length === 0 &&
+    sourceParts.length === 0
+  ) {
     return null;
   }
 
   return (
     <article className="copilot-message" data-role={message.role}>
-      <div className="copilot-message-body">
+      <div
+        className="copilot-message-body"
+        data-has-chart={chartParts.length > 0 ? "" : undefined}
+      >
         {textParts.map((part, index) => (
           <p key={index}>{part.text}</p>
+        ))}
+        {chartParts.map((part, index) => (
+          <CopilotChart
+            key={index}
+            part={{ type: "data-chart", data: part.data }}
+          />
         ))}
         {sourceParts.map((part, index) => (
           <SourceChips
