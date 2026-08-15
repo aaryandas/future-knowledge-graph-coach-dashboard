@@ -14,6 +14,7 @@ from .coach_actions import (
     get_session_plan,
 )
 from .constants import ObservationKind
+from .exercise_taxonomy import get_exercise_movement_pattern_ids
 from .graph_neighborhood import (
     GraphEdge,
     GraphEdgeKind,
@@ -91,6 +92,7 @@ __all__ = [
     "WriteSessionPlanWrite",
     "confirm_coach_action",
     "get_chat_messages",
+    "get_exercise_movement_pattern_ids",
     "get_graph_neighborhood",
     "get_member_context",
     "get_member_goals",

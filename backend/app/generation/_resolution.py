@@ -7,6 +7,7 @@ from pathlib import Path
 
 from app.generation._model import (
     ConstraintSet,
+    DerivedExclusionRule,
     ResolutionPurpose,
     ResolutionVocabulary,
     ResolvedIntent,
@@ -14,6 +15,7 @@ from app.generation._model import (
 )
 from app.generation._trace import ResolutionTraceEvent
 from app.generation.intent import Intent
+from app.graph import get_exercise_movement_pattern_ids
 from app.resolver import (
     ArtifactVocabulary,
     Resolution,
@@ -45,6 +47,40 @@ class _GenerationVocabulary:
         if resolution.concept_id is None:
             return self._unresolved_kind
         return self._kind_by_concept_id[resolution.concept_id]
+
+    def derived_exclusion_rule(
+        self, resolution: Resolution
+    ) -> DerivedExclusionRule | None:
+        if (
+            resolution.concept_id is None
+            or resolution.pass_ == "exact"
+            or self.kind_for(resolution) != "Exercise"
+        ):
+            return None
+
+        exercise_ids = (
+            resolution.concept_id,
+            *(
+                candidate.concept_id
+                for candidate in resolution.candidates
+                if candidate.confidence == resolution.confidence
+                and self._kind_by_concept_id[candidate.concept_id] == "Exercise"
+            ),
+        )
+        movement_pattern_sets = tuple(
+            get_exercise_movement_pattern_ids(exercise_id)
+            for exercise_id in exercise_ids
+        )
+        if len(movement_pattern_sets) < 2 or not all(movement_pattern_sets):
+            return None
+
+        shared_movement_pattern_ids = frozenset.intersection(*movement_pattern_sets)
+        if len(shared_movement_pattern_ids) != 1:
+            return None
+        return DerivedExclusionRule(
+            vocabulary="MovementPattern",
+            concept_id=next(iter(shared_movement_pattern_ids)),
+        )
 
 
 @dataclass(frozen=True)
@@ -177,6 +213,11 @@ def _resolve_mentions(
     events: list[ResolutionTraceEvent] = []
     for mention in mentions:
         resolution = resolve(mention, vocabulary)
+        derived_exclusion_rule = (
+            vocabulary.derived_exclusion_rule(resolution)
+            if purpose == "exclusion"
+            else None
+        )
         resolution_kind = vocabulary.kind_for(resolution)
         enforced = enforce_matches and resolution.concept_id is not None
         message = _resolution_message(purpose, resolution, enforced)
@@ -187,6 +228,7 @@ def _resolve_mentions(
                 resolution=resolution,
                 enforced=enforced,
                 message=message,
+                derived_exclusion_rule=derived_exclusion_rule,
             )
         )
         events.append(
