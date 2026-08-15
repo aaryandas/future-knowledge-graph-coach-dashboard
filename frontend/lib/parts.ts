@@ -454,6 +454,11 @@ export type ChatDataParts = {
 
 export type DashboardMessage = UIMessage<unknown, ChatDataParts>;
 
+export interface CopilotHistory {
+  id: string;
+  messages: DashboardMessage[];
+}
+
 export type TypedDataPart =
   | DataPlanPart
   | DataTracePart
