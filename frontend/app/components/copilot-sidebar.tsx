@@ -11,6 +11,7 @@ import {
 } from "./icons";
 import type {
   DashboardMessage,
+  DataConstraintsPart,
   DataPlanPart,
   DataSourcesPart,
 } from "@/lib/parts";
@@ -41,6 +42,7 @@ interface CopilotSidebarProps {
   composerRef: RefObject<HTMLInputElement | null>;
   hasPlan: boolean;
   onComposerChange(value: string): void;
+  onConstraints(part: DataConstraintsPart): void;
   onPlan(part: DataPlanPart): void;
 }
 
@@ -51,6 +53,7 @@ export function CopilotSidebar({
   composerRef,
   hasPlan,
   onComposerChange,
+  onConstraints,
   onPlan,
 }: CopilotSidebarProps) {
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -81,6 +84,9 @@ export function CopilotSidebar({
       onData(part) {
         if (part.type === "data-plan") {
           onPlan({ type: "data-plan", data: part.data });
+        }
+        if (part.type === "data-constraints") {
+          onConstraints({ type: "data-constraints", data: part.data });
         }
       },
     });

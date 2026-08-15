@@ -13,6 +13,7 @@ import type {
   Verdict,
 } from "@/lib/parts";
 import { useCopilotSidebar } from "./copilot-sidebar-context";
+import { GenerationNotices } from "./generation-notices";
 import {
   GripIcon,
   PencilIcon,
@@ -65,7 +66,7 @@ export function MemberDashboard({
 }: {
   part: MemberSnapshotPart | null;
 }) {
-  const { planPart, prefillMessage } = useCopilotSidebar();
+  const { planPart, constraintsPart, prefillMessage } = useCopilotSidebar();
   const [planEntries, setPlanEntries] = useState<PlanEntry[]>(() =>
     planEntriesFromPart(planPart),
   );
@@ -206,6 +207,8 @@ export function MemberDashboard({
           Send note
         </button>
       </section>
+
+      <GenerationNotices part={constraintsPart} />
 
       <section
         className="session-card"
