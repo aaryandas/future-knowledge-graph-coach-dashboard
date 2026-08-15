@@ -429,11 +429,81 @@ export interface UpdateBriefTask {
   text?: string | null;
 }
 
-export type CoachAction = SendMemberMessage | UpdateBriefTask;
+export interface SessionPlanActionRow {
+  row_id: string;
+  exercise_id: string;
+  section: PlanSectionName | null;
+  sets: number | null;
+  reps: number | null;
+  hold_minutes: number | null;
+  rest_minutes: number | null;
+  per_side: boolean | null;
+  supports_weight: boolean | null;
+  minutes: number | null;
+}
+
+export interface AddSessionPlanRow {
+  kind: "add";
+  row: SessionPlanActionRow;
+  position: number;
+}
+
+export interface EditSessionPlanRow {
+  kind: "edit";
+  row: SessionPlanActionRow;
+}
+
+export interface ReorderSessionPlanRow {
+  kind: "reorder";
+  row_id: string;
+  position: number;
+}
+
+export interface RemoveSessionPlanRow {
+  kind: "remove";
+  row_id: string;
+}
+
+export type SessionPlanEdit =
+  | AddSessionPlanRow
+  | EditSessionPlanRow
+  | ReorderSessionPlanRow
+  | RemoveSessionPlanRow;
+
+export interface SessionPlanVerdict {
+  exercise_id: string;
+  status: Verdict;
+  trace: VerdictTraceEvent[];
+}
+
+export interface SessionPlanEditFailure {
+  reason:
+    | "session-not-found"
+    | "row-not-found"
+    | "duplicate-row-id"
+    | "position-out-of-range";
+  edit_index: number | null;
+  row_id: string | null;
+}
+
+export interface WriteSessionPlan {
+  kind: "write-session-plan";
+  session_id: string;
+  edits: SessionPlanEdit[];
+  old_rows: SessionPlanActionRow[];
+  new_rows: SessionPlanActionRow[];
+  verdicts: SessionPlanVerdict[];
+  failure: SessionPlanEditFailure | null;
+}
+
+export type CoachAction =
+  | SendMemberMessage
+  | UpdateBriefTask
+  | WriteSessionPlan;
 
 export interface DataAction {
   action_id: string;
-  status: "pending" | "confirmed" | "discarded" | "failed";
+  status: "pending" | "confirmed" | "discarded" | "failed" | "blocked";
   action: CoachAction;
 }
 
@@ -446,6 +516,7 @@ export type ChatDataParts = {
   plan: Plan;
   trace: TraceEvent[];
   constraints: ConstraintsData;
+  chart: DataChart;
   sources: DataSources;
   brief: DataBrief;
   action: DataAction;
@@ -453,16 +524,113 @@ export type ChatDataParts = {
 
 export type DashboardMessage = UIMessage<unknown, ChatDataParts>;
 
+export interface CopilotHistory {
+  id: string;
+  messages: DashboardMessage[];
+}
+
 export type TypedDataPart =
   | DataPlanPart
   | DataTracePart
   | DataConstraintsPart
+  | DataChartPart
   | DataSourcesPart
   | GraphNeighborhoodPart
   | MemberSnapshotPart
   | DataBriefPart
   | DataActionPart
   | DataPart;
+
+export type ChartKind =
+  | "adherence_trend"
+  | "sleep_week"
+  | "message_pattern"
+  | "four_week_comparison";
+
+export type ChartWindow = "7-days" | "28-days";
+
+export interface CategoryAxis {
+  label: string;
+  values: string[];
+}
+
+export interface NumericAxis {
+  label: string;
+  unit: string;
+  minimum: number;
+  maximum: number;
+  ticks: number[];
+}
+
+export interface ChartAxes {
+  x: CategoryAxis;
+  y: NumericAxis;
+}
+
+export interface AdherenceTrendPoint {
+  observed_at: string;
+  completion_percent: number;
+  observation_node_id: string;
+}
+
+export interface SleepWeekPoint {
+  observed_at: string;
+  hours: number;
+  observation_node_id: string;
+}
+
+export interface MessagePatternPoint {
+  date: string;
+  member_count: number;
+  coach_count: number;
+  observation_node_id: string;
+}
+
+export interface FourWeekComparisonPoint {
+  week_of: string;
+  completion_percent: number;
+  observation_node_id: string;
+}
+
+interface ChartBase {
+  axes: ChartAxes;
+  observation_node_ids: string[];
+}
+
+export interface AdherenceTrendChart extends ChartBase {
+  kind: "adherence_trend";
+  window: ChartWindow;
+  series: AdherenceTrendPoint[];
+}
+
+export interface SleepWeekChart extends ChartBase {
+  kind: "sleep_week";
+  window: "7-days";
+  series: SleepWeekPoint[];
+}
+
+export interface MessagePatternChart extends ChartBase {
+  kind: "message_pattern";
+  window: ChartWindow;
+  series: MessagePatternPoint[];
+}
+
+export interface FourWeekComparisonChart extends ChartBase {
+  kind: "four_week_comparison";
+  window: "28-days";
+  series: FourWeekComparisonPoint[];
+}
+
+export type DataChart =
+  | AdherenceTrendChart
+  | SleepWeekChart
+  | MessagePatternChart
+  | FourWeekComparisonChart;
+
+export interface DataChartPart {
+  type: "data-chart";
+  data: DataChart;
+}
 
 export interface OmissionChip {
   raw_text: string;

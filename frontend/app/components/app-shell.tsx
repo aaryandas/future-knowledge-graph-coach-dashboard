@@ -12,6 +12,7 @@ import {
 } from "react";
 import { formatInjury } from "@/lib/member-format";
 import type {
+  DashboardMessage,
   DataConstraintsPart,
   DataPlanPart,
   DataTracePart,
@@ -49,9 +50,11 @@ const member = {
 export function AppShell({
   children,
   memberSnapshot,
+  initialCopilotMessages,
 }: {
   children: ReactNode;
   memberSnapshot: MemberSnapshotPart | null;
+  initialCopilotMessages: DashboardMessage[];
 }) {
   const pathname = usePathname();
   const activeTab: WorkspaceTab = pathname.startsWith("/graph")
@@ -228,6 +231,10 @@ export function AppShell({
                   <CopilotSidebar
                     memberId={member.id}
                     memberName={memberName}
+                    initialMessages={initialCopilotMessages}
+                    coachTasks={
+                      memberSnapshot?.morning_brief.coach_tasks ?? []
+                    }
                     composerValue={composerValue}
                     composerRef={composerRef}
                     hasPlan={planPart !== null}
@@ -276,6 +283,10 @@ export function AppShell({
                   <CopilotSidebar
                     memberId={member.id}
                     memberName={memberName}
+                    initialMessages={initialCopilotMessages}
+                    coachTasks={
+                      memberSnapshot?.morning_brief.coach_tasks ?? []
+                    }
                     composerValue={composerValue}
                     composerRef={composerRef}
                     hasPlan={planPart !== null}

@@ -16,12 +16,16 @@ import {
   ShieldIcon,
 } from "./icons";
 import type {
+  CoachTaskSnapshot,
   DashboardMessage,
+  DataActionPart,
   DataConstraintsPart,
   DataPlanPart,
   DataSourcesPart,
   DataTracePart,
 } from "@/lib/parts";
+import { CoachActionCard } from "./coach-action-card";
+import { CopilotChart } from "./copilot-chart";
 
 const quickPrompts = [
   {
@@ -44,6 +48,8 @@ const quickPrompts = [
 interface CopilotSidebarProps {
   memberId: string;
   memberName: string;
+  initialMessages: DashboardMessage[];
+  coachTasks: ReadonlyArray<CoachTaskSnapshot>;
   composerValue: string;
   composerRef: RefObject<HTMLInputElement | null>;
   hasPlan: boolean;
@@ -58,6 +64,8 @@ interface CopilotSidebarProps {
 export function CopilotSidebar({
   memberId,
   memberName,
+  initialMessages,
+  coachTasks,
   composerValue,
   composerRef,
   hasPlan,
@@ -92,6 +100,7 @@ export function CopilotSidebar({
   const { messages, sendMessage, status, error, clearError } =
     useChat<DashboardMessage>({
       id: memberId,
+      messages: initialMessages,
       transport,
       onData(part) {
         if (part.type === "data-plan") {
@@ -106,6 +115,26 @@ export function CopilotSidebar({
       },
     });
   const isBusy = status === "submitted" || status === "streaming";
+  const currentCoachTasks = useMemo(() => {
+    const tasks = new Map(
+      coachTasks.map((task) => [task.id, task] as const),
+    );
+    for (const message of messages) {
+      for (const part of message.parts) {
+        if (part.type !== "data-brief") {
+          continue;
+        }
+        for (const task of part.data.coach_tasks) {
+          tasks.set(task.node_id, {
+            id: task.node_id,
+            text: task.text,
+            status: task.status,
+          });
+        }
+      }
+    }
+    return tasks;
+  }, [coachTasks, messages]);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ block: "nearest" });
@@ -159,7 +188,11 @@ export function CopilotSidebar({
           </div>
         ) : (
           messages.map((message) => (
-            <CopilotMessage key={message.id} message={message} />
+            <CopilotMessage
+              key={message.id}
+              message={message}
+              currentCoachTasks={currentCoachTasks}
+            />
           ))
         )}
         {isBusy ? (
@@ -222,28 +255,80 @@ export function CopilotSidebar({
   );
 }
 
-function CopilotMessage({ message }: { message: DashboardMessage }) {
+export function CopilotMessage({
+  message,
+  currentCoachTasks,
+}: {
+  message: DashboardMessage;
+  currentCoachTasks?: ReadonlyMap<string, CoachTaskSnapshot>;
+}) {
   const textParts = message.parts.filter((part) => part.type === "text");
+  const chartParts = message.parts.filter(
+    (part) => part.type === "data-chart",
+  );
   const sourceParts = message.parts.filter(
     (part) => part.type === "data-sources",
   );
-  if (textParts.length === 0 && sourceParts.length === 0) {
+  const actionParts = message.parts.filter(
+    (part) => part.type === "data-action",
+  );
+  if (
+    textParts.length === 0 &&
+    chartParts.length === 0 &&
+    sourceParts.length === 0 &&
+    actionParts.length === 0
+  ) {
     return null;
   }
 
   return (
-    <article className="copilot-message" data-role={message.role}>
-      <div className="copilot-message-body">
-        {textParts.map((part, index) => (
-          <p key={index}>{part.text}</p>
-        ))}
-        {sourceParts.map((part, index) => (
-          <SourceChips
-            key={index}
-            part={{ type: "data-sources", data: part.data }}
+    <article
+      className="copilot-message"
+      data-message-id={message.id}
+      data-role={message.role}
+    >
+      {textParts.length === 0 &&
+      chartParts.length === 0 &&
+      sourceParts.length === 0 ? null : (
+        <div
+          className="copilot-message-body"
+          data-has-chart={chartParts.length > 0 ? "" : undefined}
+        >
+          {textParts.map((part, index) => (
+            <p key={index}>{part.text}</p>
+          ))}
+          {chartParts.map((part, index) => (
+            <CopilotChart
+              key={index}
+              part={{ type: "data-chart", data: part.data }}
+            />
+          ))}
+          {sourceParts.map((part, index) => (
+            <SourceChips
+              key={index}
+              part={{ type: "data-sources", data: part.data }}
+            />
+          ))}
+        </div>
+      )}
+      {actionParts.map((part) => {
+        const actionPart: DataActionPart = {
+          type: "data-action",
+          data: part.data,
+        };
+        const action = actionPart.data.action;
+        const currentCoachTask =
+          action.kind === "update-brief-task"
+            ? (currentCoachTasks?.get(action.coach_task_id) ?? null)
+            : null;
+        return (
+          <CoachActionCard
+            key={actionPart.data.action_id}
+            part={actionPart}
+            currentCoachTask={currentCoachTask}
           />
-        ))}
-      </div>
+        );
+      })}
     </article>
   );
 }
