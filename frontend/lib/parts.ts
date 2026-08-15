@@ -442,6 +442,7 @@ export type ChatDataParts = {
   plan: Plan;
   trace: TraceEvent[];
   constraints: ConstraintsData;
+  chart: DataChart;
   sources: DataSources;
   brief: DataBrief;
   action: DataAction;
@@ -453,9 +454,106 @@ export type TypedDataPart =
   | DataPlanPart
   | DataTracePart
   | DataConstraintsPart
+  | DataChartPart
   | DataSourcesPart
   | GraphNeighborhoodPart
   | MemberSnapshotPart
   | DataBriefPart
   | DataActionPart
   | DataPart;
+
+export type ChartKind =
+  | "adherence_trend"
+  | "sleep_week"
+  | "message_pattern"
+  | "four_week_comparison";
+
+export type ChartWindow = "7-days" | "28-days";
+
+export interface CategoryAxis {
+  label: string;
+  values: string[];
+}
+
+export interface NumericAxis {
+  label: string;
+  unit: string;
+  minimum: number;
+  maximum: number;
+  ticks: number[];
+}
+
+export interface ChartAxes {
+  x: CategoryAxis;
+  y: NumericAxis;
+}
+
+export interface AdherenceTrendPoint {
+  observed_at: string;
+  completion_percent: number;
+  observation_node_id: string;
+}
+
+export interface SleepWeekPoint {
+  observed_at: string;
+  hours: number;
+  observation_node_id: string;
+}
+
+export interface MessagePatternPoint {
+  date: string;
+  member_count: number;
+  coach_count: number;
+  observation_node_id: string;
+}
+
+export interface FourWeekComparisonPoint {
+  week_of: string;
+  completion_percent: number;
+  observation_node_id: string;
+}
+
+interface ChartBase {
+  axes: ChartAxes;
+  observation_node_ids: string[];
+}
+
+export interface AdherenceTrendChart extends ChartBase {
+  kind: "adherence_trend";
+  window: ChartWindow;
+  series: AdherenceTrendPoint[];
+}
+
+export interface SleepWeekChart extends ChartBase {
+  kind: "sleep_week";
+  window: "7-days";
+  series: SleepWeekPoint[];
+}
+
+export interface MessagePatternChart extends ChartBase {
+  kind: "message_pattern";
+  window: ChartWindow;
+  series: MessagePatternPoint[];
+}
+
+export interface FourWeekComparisonChart extends ChartBase {
+  kind: "four_week_comparison";
+  window: "28-days";
+  series: FourWeekComparisonPoint[];
+}
+
+export type DataChart =
+  | AdherenceTrendChart
+  | SleepWeekChart
+  | MessagePatternChart
+  | FourWeekComparisonChart;
+
+export interface DataChartPart {
+  type: "data-chart";
+  data: DataChart;
+}
+
+export interface CopilotHistory {
+  id: string;
+  messages: DashboardMessage[];
+}
