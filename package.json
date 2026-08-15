@@ -8,7 +8,7 @@
     "dev:web": "pnpm --dir frontend dev",
     "lint": "uv run --project backend ruff check backend && uv run --project backend ruff format --check backend && uv run --directory backend ty check && pnpm --dir frontend lint",
     "seed": "uv run --directory backend python -m app.graph.seed",
-    "test": "uv run --directory backend pytest"
+    "test": "uv run --directory backend pytest && pnpm --dir frontend test"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

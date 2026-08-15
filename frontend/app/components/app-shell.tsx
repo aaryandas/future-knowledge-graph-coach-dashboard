@@ -14,6 +14,7 @@ import { formatInjury } from "@/lib/member-format";
 import type {
   DataConstraintsPart,
   DataPlanPart,
+  DataTracePart,
   MemberSnapshotPart,
 } from "@/lib/parts";
 import { CopilotSidebar } from "./copilot-sidebar";
@@ -62,8 +63,13 @@ export function AppShell({
   const [isNarrow, setIsNarrow] = useState(false);
   const [composerValue, setComposerValue] = useState("");
   const [planPart, setPlanPart] = useState<DataPlanPart | null>(null);
+  const [tracePart, setTracePart] = useState<DataTracePart | null>(null);
   const [constraintsPart, setConstraintsPart] =
     useState<DataConstraintsPart | null>(null);
+  const [adjustmentBusy, setAdjustmentBusy] = useState(false);
+  const adjustmentSubmitterRef = useRef<((message: string) => void) | null>(
+    null,
+  );
   const composerRef = useRef<HTMLInputElement>(null);
   const copilotToggleRef = useRef<HTMLButtonElement>(null);
   const copilotCloseRef = useRef<HTMLButtonElement>(null);
@@ -101,14 +107,27 @@ export function AppShell({
   const goal = identity?.goals[0] ?? null;
   const acceptPlan = useCallback((part: DataPlanPart) => {
     setConstraintsPart(null);
+    setTracePart(null);
     setPlanPart(part);
   }, []);
+  const submitAdjustment = useCallback((message: string) => {
+    adjustmentSubmitterRef.current?.(message);
+  }, []);
+  const registerAdjustmentSubmitter = useCallback(
+    (submitter: ((message: string) => void) | null) => {
+      adjustmentSubmitterRef.current = submitter;
+    },
+    [],
+  );
 
   return (
     <CopilotSidebarProvider
       planPart={planPart}
+      tracePart={tracePart}
       constraintsPart={constraintsPart}
+      adjustmentBusy={adjustmentBusy}
       prefillMessage={prefillMessage}
+      submitAdjustment={submitAdjustment}
     >
       <Dialog.Root
         open={isNarrow && mobileCopilotOpen}
@@ -214,7 +233,10 @@ export function AppShell({
                     hasPlan={planPart !== null}
                     onComposerChange={setComposerValue}
                     onConstraints={setConstraintsPart}
+                    onBusyChange={setAdjustmentBusy}
                     onPlan={acceptPlan}
+                    onSubmitterChange={registerAdjustmentSubmitter}
+                    onTrace={setTracePart}
                   />
                 </div>
               </aside>
@@ -259,7 +281,10 @@ export function AppShell({
                     hasPlan={planPart !== null}
                     onComposerChange={setComposerValue}
                     onConstraints={setConstraintsPart}
+                    onBusyChange={setAdjustmentBusy}
                     onPlan={acceptPlan}
+                    onSubmitterChange={registerAdjustmentSubmitter}
+                    onTrace={setTracePart}
                   />
                 </div>
               </Dialog.Popup>
