@@ -235,7 +235,8 @@ export type TraceEvent =
   | ResolutionTraceEvent
   | VerdictTraceEvent
   | PackingTraceEvent
-  | AgentTraceEvent;
+  | AgentTraceEvent
+  | SubstitutionTraceEvent;
 
 export interface DataTracePart {
   type: "data-trace";
@@ -245,6 +246,9 @@ export interface DataTracePart {
 export interface ConstraintsData {
   targets: ResolvedMention[];
   constraints: ConstraintSet;
+  omissions: OmissionChip[];
+  not_enforced: NotEnforcedFlag[];
+  session_injury_persistence_suggestions: SessionInjuryPersistenceSuggestion[];
   failure: GenerationFailure | null;
 }
 
@@ -459,3 +463,39 @@ export type TypedDataPart =
   | DataBriefPart
   | DataActionPart
   | DataPart;
+
+export interface OmissionChip {
+  raw_text: string;
+  purpose: "target" | "exclusion" | "equipment override";
+  candidates: ResolutionCandidate[];
+  message: string;
+}
+
+export interface NotEnforcedFlag {
+  raw_text: string;
+  purpose: "session injury";
+  candidates: ResolutionCandidate[];
+  message: string;
+}
+
+export interface SessionInjuryPersistenceSuggestion {
+  raw_text: string;
+  concept_id: string;
+  vocabulary: "Joint" | "AnatomicalStructure" | "ClinicalFinding";
+  action: "persist session injury";
+  requires_confirmation: true;
+  message: string;
+}
+
+export interface SubstitutionTraceEvent {
+  kind: "substitution";
+  dropped_exercise_id: string;
+  replacement_exercise_id: string;
+  basis: "movement pattern" | "muscle overlap";
+  shared_movement_pattern_ids: string[];
+  shared_muscle_group_ids: string[];
+  reason: string;
+  used: string[];
+  wasGeneratedBy: "pair_substitutions";
+  wasAttributedTo: "graph";
+}
