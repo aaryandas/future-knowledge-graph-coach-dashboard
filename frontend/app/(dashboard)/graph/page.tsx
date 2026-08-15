@@ -11,11 +11,12 @@ export const metadata: Metadata = {
 
 export default function GraphPage() {
   return (
-    <div className="workspace-enter mx-auto max-w-[1100px]">
-      <header className="mb-2.5">
-        <h1 className="text-[19px] font-semibold tracking-[-0.02em]">
-          Graph view
-        </h1>
+    <div className="graph-page workspace-enter">
+      <header>
+        <h1 className="page-heading">Graph</h1>
+        <p className="page-subheading">
+          See how Jordan’s context connects to movement and clinical knowledge.
+        </p>
       </header>
       <Suspense fallback={<GraphSkeleton />}>
         <GraphNeighborhood />

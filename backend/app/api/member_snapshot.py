@@ -104,6 +104,16 @@ class JourneyStageSnapshot(BaseModel):
     evidence: JourneyStageEvidenceSnapshot
 
 
+class LatestSessionSnapshot(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    title: str
+    date: str
+    duration_min: int
+    rpe: int | float | None
+    exercises: list[str]
+
+
 class MemberSnapshotPart(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -111,6 +121,7 @@ class MemberSnapshotPart(BaseModel):
     member_id: str
     identity: MemberIdentity
     stats: MemberSnapshotStats
+    latest_session: LatestSessionSnapshot | None
     morning_brief: MorningBriefSnapshot
     journey_stage: JourneyStageSnapshot
 
@@ -145,6 +156,11 @@ def create_member_snapshot_router(
 
 def _member_snapshot_part(context: MemberContext, *, as_of: date) -> MemberSnapshotPart:
     evidence = context.journey_stage.evidence
+    latest_session = max(
+        context.workout_sessions,
+        key=lambda workout: workout.date,
+        default=None,
+    )
     injury = next(
         (
             value
@@ -197,6 +213,17 @@ def _member_snapshot_part(context: MemberContext, *, as_of: date) -> MemberSnaps
                 trend_text=(f"{len(context.morning_brief.churn_risk_reasons)} signals"),
                 source=brief_source,
             ),
+        ),
+        latest_session=(
+            None
+            if latest_session is None
+            else LatestSessionSnapshot(
+                title=latest_session.title,
+                date=latest_session.date,
+                duration_min=latest_session.duration_min,
+                rpe=latest_session.rpe,
+                exercises=list(latest_session.exercise_mentions),
+            )
         ),
         morning_brief=MorningBriefSnapshot(
             generated_for=context.morning_brief.generated_for,

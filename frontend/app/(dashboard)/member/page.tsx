@@ -1,20 +1,17 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import {
-  MemberSnapshot,
-  MemberSnapshotSkeleton,
-} from "@/app/components/member-snapshot";
+import { MemberDashboard } from "@/app/components/member-dashboard";
 import { getMemberSnapshot } from "@/lib/member-snapshot";
 
 const memberId = "mbr_01HX9JORDAN";
 
 export const metadata: Metadata = {
-  title: "Member",
+  title: "Dashboard",
 };
 
 export default function MemberPage() {
   return (
-    <Suspense fallback={<MemberSnapshotSkeleton />}>
+    <Suspense fallback={<MemberDashboard part={null} />}>
       <MemberOverview />
     </Suspense>
   );
@@ -22,5 +19,5 @@ export default function MemberPage() {
 
 async function MemberOverview() {
   const part = await getMemberSnapshot(memberId);
-  return <MemberSnapshot part={part} />;
+  return <MemberDashboard part={part} />;
 }

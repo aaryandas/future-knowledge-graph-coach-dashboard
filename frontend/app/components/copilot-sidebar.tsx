@@ -3,8 +3,12 @@
 import { useEffect, useMemo, useRef, type RefObject } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { SendIcon } from "./icons";
-import { buttonVariants } from "@/lib/theme";
+import {
+  AdjustIcon,
+  ExplainIcon,
+  SendIcon,
+  ShieldIcon,
+} from "./icons";
 import type {
   DashboardMessage,
   DataPlanPart,
@@ -12,10 +16,21 @@ import type {
 } from "@/lib/parts";
 
 const quickPrompts = [
-  { label: "Adherence", message: "How's adherence trending?" },
-  { label: "Sleep", message: "Sleep this week" },
-  { label: "Messages", message: "Summarize recent messages" },
-  { label: "4 weeks", message: "What changed in the last 4 weeks?" },
+  {
+    label: "Adjust",
+    message: "Adjust today’s session",
+    Icon: AdjustIcon,
+  },
+  {
+    label: "Explain",
+    message: "Explain the choices in today’s session",
+    Icon: ExplainIcon,
+  },
+  {
+    label: "Constraints",
+    message: "Check today’s session against the member’s constraints",
+    Icon: ShieldIcon,
+  },
 ] as const;
 
 interface CopilotSidebarProps {
@@ -96,26 +111,7 @@ export function CopilotSidebar({
   }
 
   return (
-    <div className="copilot-panel flex flex-col px-[18px] pt-[18px] pb-6">
-      <div className="mb-3 flex items-baseline gap-2">
-        <h2 className="text-[15px] font-semibold">Copilot</h2>
-        <span className="text-xs text-foreground-subtle">{memberName}</span>
-      </div>
-
-      <div className="mb-4 flex flex-wrap gap-1.5" aria-label="Quick prompts">
-        {quickPrompts.map((prompt) => (
-          <button
-            key={prompt.label}
-            type="button"
-            className="press rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-            disabled={isBusy}
-            onClick={() => submitMessage(prompt.message)}
-          >
-            {prompt.label}
-          </button>
-        ))}
-      </div>
-
+    <div className="copilot-workspace">
       <div
         className="copilot-log"
         role="log"
@@ -124,8 +120,7 @@ export function CopilotSidebar({
       >
         {messages.length === 0 ? (
           <div className="copilot-empty">
-            <p>Ask about {memberName.split(" ")[0]}</p>
-            <span>Plan a session or read member context.</span>
+            <p>What can I help with today?</p>
           </div>
         ) : (
           messages.map((message) => (
@@ -146,34 +141,48 @@ export function CopilotSidebar({
         <div ref={logEndRef} />
       </div>
 
-      <form
-        className="flex gap-2 pt-3"
-        onSubmit={(event) => {
-          event.preventDefault();
-          submitMessage(composerValue);
-        }}
-      >
-        <label htmlFor="copilot-composer" className="sr-only">
-          Message copilot
-        </label>
-        <input
-          ref={composerRef}
-          id="copilot-composer"
-          className="min-w-0 flex-1 rounded-[14px] border border-border-strong bg-surface-input px-3.5 py-2.5 text-foreground outline-none placeholder:text-foreground-subtle"
-          placeholder="Plan a session · ask about Jordan"
-          autoComplete="off"
-          value={composerValue}
-          onChange={(event) => onComposerChange(event.target.value)}
-        />
-        <button
-          type="submit"
-          className={buttonVariants({ size: "icon" })}
-          aria-label="Send message"
-          disabled={isBusy || composerValue.trim().length === 0}
+      <div className="copilot-controls">
+        <div className="copilot-quick-actions" aria-label="Copilot quick actions">
+          {quickPrompts.map(({ label, message, Icon }) => (
+            <button
+              key={label}
+              type="button"
+              className="copilot-chip"
+              disabled={isBusy}
+              onClick={() => submitMessage(message)}
+            >
+              <Icon className="size-[18px]" />
+              {label}
+            </button>
+          ))}
+        </div>
+        <form
+          className="copilot-composer"
+          onSubmit={(event) => {
+            event.preventDefault();
+            submitMessage(composerValue);
+          }}
         >
-          <SendIcon className="size-4" />
-        </button>
-      </form>
+          <label htmlFor="copilot-composer" className="sr-only">
+            Ask Copilot about this session
+          </label>
+          <input
+            ref={composerRef}
+            id="copilot-composer"
+            placeholder={`Ask about ${memberName}…`}
+            autoComplete="off"
+            value={composerValue}
+            onChange={(event) => onComposerChange(event.target.value)}
+          />
+          <button
+            type="submit"
+            aria-label="Send message"
+            disabled={isBusy || composerValue.trim().length === 0}
+          >
+            <SendIcon className="size-5" />
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

@@ -1,136 +1,296 @@
 "use client";
 
+import { Dialog } from "@base-ui/react/dialog";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useRef, useState, type ReactNode } from "react";
-import { buttonVariants, cx } from "@/lib/theme";
-import type { DataPlanPart } from "@/lib/parts";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { formatInjury } from "@/lib/member-format";
+import type { DataPlanPart, MemberSnapshotPart } from "@/lib/parts";
 import { CopilotSidebar } from "./copilot-sidebar";
 import { CopilotSidebarProvider } from "./copilot-sidebar-context";
-import { PanelIcon, SignOutIcon } from "./icons";
-import { RidgelineMark } from "./ridgeline-mark";
-import { SessionPlan } from "./session-plan";
+import {
+  CloseIcon,
+  DumbbellIcon,
+  GoalIcon,
+  KneeIcon,
+  PanelIcon,
+  PersonIcon,
+  TrendIcon,
+} from "./icons";
+import { JourneyStageChip } from "./journey-stage-chip";
 
-type WorkspaceTab = "member" | "graph";
+type WorkspaceTab = "dashboard" | "members" | "graph";
 
-const tabs: ReadonlyArray<{ label: string; value: WorkspaceTab; href: string }> = [
-  { label: "Member", value: "member", href: "/member" },
+const tabs: ReadonlyArray<{
+  label: string;
+  value: WorkspaceTab;
+  href: string;
+}> = [
+  { label: "Dashboard", value: "dashboard", href: "/member" },
+  { label: "Members", value: "members", href: "/members" },
   { label: "Graph", value: "graph", href: "/graph" },
 ];
 
 const member = {
   id: "mbr_01HX9JORDAN",
-  name: "Jordan Rivera",
-  initials: "JR",
 } as const;
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  memberSnapshot,
+}: {
+  children: ReactNode;
+  memberSnapshot: MemberSnapshotPart | null;
+}) {
   const pathname = usePathname();
   const activeTab: WorkspaceTab = pathname.startsWith("/graph")
     ? "graph"
-    : "member";
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+    : pathname.startsWith("/members")
+      ? "members"
+      : "dashboard";
+  const [mobileCopilotOpen, setMobileCopilotOpen] = useState(false);
+  const [isNarrow, setIsNarrow] = useState(false);
   const [composerValue, setComposerValue] = useState("");
   const [planPart, setPlanPart] = useState<DataPlanPart | null>(null);
   const composerRef = useRef<HTMLInputElement>(null);
-  const prefillMessage = useCallback((message: string) => {
-    setSidebarOpen(true);
-    setComposerValue(message);
-    window.requestAnimationFrame(() => composerRef.current?.focus());
+  const copilotToggleRef = useRef<HTMLButtonElement>(null);
+  const copilotCloseRef = useRef<HTMLButtonElement>(null);
+  const focusComposerOnOpenRef = useRef(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 980px)");
+    const update = () => setIsNarrow(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
   }, []);
 
+  const prefillMessage = useCallback(
+    (message: string) => {
+      if (isNarrow) {
+        focusComposerOnOpenRef.current = true;
+        setMobileCopilotOpen(true);
+      }
+      setComposerValue(message);
+      if (!isNarrow) {
+        window.requestAnimationFrame(() => composerRef.current?.focus());
+      }
+    },
+    [isNarrow],
+  );
+
+  const identity = memberSnapshot?.identity ?? null;
+  const memberName = identity?.name ?? "Member";
+  const injury = identity?.injury ?? null;
+  const adherence = memberSnapshot?.stats.adherence ?? null;
+  const sleep = memberSnapshot?.stats.sleep ?? null;
+  const sessions = memberSnapshot?.stats.sessions ?? null;
+  const churnRisk = memberSnapshot?.stats.churn_risk ?? null;
+  const goal = identity?.goals[0] ?? null;
+
   return (
-    <CopilotSidebarProvider prefillMessage={prefillMessage}>
-      <div className="screen-enter min-h-svh">
-        <header className="topbar sticky top-0 z-30 flex h-[var(--header-height)] items-center gap-3.5 px-[18px]">
-          <Link href="/member" aria-label="Ridgeline member workspace">
-            <RidgelineMark className="size-[26px] text-xs" />
-          </Link>
-
-          <nav
-            aria-label="Workspace"
-            className="shell-tabs rounded-full border border-border bg-surface p-[3px]"
-            data-active-tab={activeTab}
-          >
-            <span className="shell-tab-indicator" aria-hidden="true" />
-            {tabs.map((tab) => (
+    <CopilotSidebarProvider planPart={planPart} prefillMessage={prefillMessage}>
+      <Dialog.Root
+        open={isNarrow && mobileCopilotOpen}
+        onOpenChange={setMobileCopilotOpen}
+        onOpenChangeComplete={(open) => {
+          if (open) {
+            focusComposerOnOpenRef.current = false;
+          }
+        }}
+      >
+        <div className="app-frame screen-enter">
+          <header className="app-header">
+            <div className="global-nav-row">
               <Link
-                key={tab.value}
-                href={tab.href}
-                aria-current={activeTab === tab.value ? "page" : undefined}
-                className={cx(
-                  "press relative z-10 rounded-full px-3.5 py-1 text-[13px] font-medium transition-colors",
-                  activeTab === tab.value
-                    ? "text-foreground"
-                    : "text-foreground-muted hover:text-foreground",
-                )}
+                className="future-wordmark"
+                href="/member"
+                aria-label="Future Coach dashboard"
               >
-                {tab.label}
+                Future Coach
               </Link>
-            ))}
-          </nav>
+              <nav className="global-nav" aria-label="Workspace">
+                {tabs.map((tab) => (
+                  <Link
+                    key={tab.value}
+                    href={tab.href}
+                    aria-current={activeTab === tab.value ? "page" : undefined}
+                    className="global-nav-link"
+                  >
+                    {tab.label}
+                  </Link>
+                ))}
+              </nav>
+              <Dialog.Trigger
+                ref={copilotToggleRef}
+                className="mobile-copilot-toggle"
+                aria-controls="copilot-panel"
+              >
+                <PanelIcon className="size-4" />
+                Copilot
+              </Dialog.Trigger>
+            </div>
 
-          <button
-            type="button"
-            className="press flex items-center gap-2 rounded-full border border-border bg-surface py-1 pr-3.5 pl-1"
-            aria-label="Select member"
-          >
-            <span className="grid size-[25px] place-items-center rounded-full bg-accent-muted text-[10.5px] font-semibold text-accent">
-              {member.initials}
-            </span>
-            <span className="shell-member-name text-[13px] font-semibold">
-              {member.name} <span className="text-foreground-subtle">⌄</span>
-            </span>
-          </button>
+            <div
+              className="member-context-strip"
+              aria-label={`${memberName} context`}
+            >
+              <div className="member-context-item" data-tone="identity">
+                <PersonIcon className="member-context-icon" />
+                <span>
+                  {identity === null
+                    ? "Member unavailable"
+                    : `${identity.name} · ${identity.age}`}
+                </span>
+              </div>
+              <div className="member-context-item" data-tone="attention">
+                <KneeIcon className="member-context-icon" />
+                <span>{formatInjury(injury)}</span>
+                {memberSnapshot === null ? null : (
+                  <JourneyStageChip journeyStage={memberSnapshot.journey_stage} />
+                )}
+              </div>
+              <div className="member-context-item" data-tone="attention">
+                <DumbbellIcon className="member-context-icon" />
+                <span>No barbell</span>
+              </div>
+              <div className="member-context-item" data-tone="snapshot">
+                <TrendIcon className="member-context-icon" />
+                <div className="member-context-stats">
+                  <span>{formatAdherence(adherence)}</span>
+                  <span>{formatStat("Sleep", sleep)}</span>
+                  <span>{formatStat("Sessions", sessions)}</span>
+                  <span>{formatStat("Churn risk", churnRisk)}</span>
+                </div>
+              </div>
+              <div className="member-context-item" data-tone="goal">
+                <GoalIcon className="member-context-icon" />
+                <span>
+                  {goal === null ? "Goal unavailable" : `Goal · ${goal.text}`}
+                </span>
+              </div>
+            </div>
+          </header>
 
-          <div className="ml-auto flex items-center gap-2">
-            <button
-              type="button"
-              aria-controls="copilot-sidebar"
-              aria-expanded={sidebarOpen}
-              aria-label={sidebarOpen ? "Hide copilot" : "Show copilot"}
-              className={buttonVariants({ intent: "icon", size: "icon" })}
-              onClick={() => setSidebarOpen((open) => !open)}
-            >
-              <PanelIcon className="size-4" />
-            </button>
-            <Link
-              href="/"
-              aria-label="Sign out"
-              className={buttonVariants({ intent: "icon", size: "icon" })}
-            >
-              <SignOutIcon className="size-4" />
-            </Link>
+          <div className="workspace-split">
+            <main className="dashboard-canvas">{children}</main>
+            {isNarrow ? null : (
+              <aside
+                id="copilot-panel"
+                className="copilot-pane"
+                aria-labelledby="copilot-title"
+              >
+                <div className="copilot-pane-inner">
+                  <div className="copilot-heading-row">
+                    <h2 id="copilot-title" className="display-title copilot-title">
+                      Copilot
+                    </h2>
+                  </div>
+                  <CopilotSidebar
+                    memberId={member.id}
+                    memberName={memberName}
+                    composerValue={composerValue}
+                    composerRef={composerRef}
+                    hasPlan={planPart !== null}
+                    onComposerChange={setComposerValue}
+                    onPlan={setPlanPart}
+                  />
+                </div>
+              </aside>
+            )}
           </div>
-        </header>
 
-        <div
-          className="shell-columns"
-          data-sidebar-state={sidebarOpen ? "open" : "closed"}
-        >
-          <main className="min-w-0 px-5 pt-[22px] pb-14 sm:px-[26px]">
-            {children}
-            {planPart === null ? null : <SessionPlan part={planPart} />}
-          </main>
-          <aside
-            id="copilot-sidebar"
-            data-slot="copilot-sidebar"
-            aria-hidden={!sidebarOpen}
-            inert={!sidebarOpen}
-            className="copilot-slot"
-          >
-            <CopilotSidebar
-              memberId={member.id}
-              memberName={member.name}
-              composerValue={composerValue}
-              composerRef={composerRef}
-              hasPlan={planPart !== null}
-              onComposerChange={setComposerValue}
-              onPlan={setPlanPart}
-            />
-          </aside>
+          {isNarrow ? (
+            <Dialog.Portal>
+              <Dialog.Backdrop className="copilot-backdrop" />
+              <Dialog.Popup
+                id="copilot-panel"
+                className="copilot-pane"
+                aria-labelledby="copilot-title"
+                initialFocus={() =>
+                  focusComposerOnOpenRef.current
+                    ? composerRef.current
+                    : copilotCloseRef.current
+                }
+                finalFocus={copilotToggleRef}
+              >
+                <div className="copilot-pane-inner">
+                  <div className="copilot-heading-row">
+                    <Dialog.Title
+                      id="copilot-title"
+                      className="display-title copilot-title"
+                    >
+                      Copilot
+                    </Dialog.Title>
+                    <Dialog.Close
+                      ref={copilotCloseRef}
+                      className="copilot-close"
+                      aria-label="Close Copilot"
+                    >
+                      <CloseIcon className="size-5" />
+                    </Dialog.Close>
+                  </div>
+                  <CopilotSidebar
+                    memberId={member.id}
+                    memberName={memberName}
+                    composerValue={composerValue}
+                    composerRef={composerRef}
+                    hasPlan={planPart !== null}
+                    onComposerChange={setComposerValue}
+                    onPlan={setPlanPart}
+                  />
+                </div>
+              </Dialog.Popup>
+            </Dialog.Portal>
+          ) : null}
         </div>
-      </div>
+      </Dialog.Root>
     </CopilotSidebarProvider>
   );
+}
+
+function formatAdherence(
+  adherence: MemberSnapshotPart["stats"]["adherence"] | null,
+): string {
+  if (adherence?.value === null || adherence === null) {
+    return "Adherence unavailable";
+  }
+  const value = `${adherence.value}${adherence.suffix ?? ""}`;
+  const age = adherence.source?.stale
+    ? ` · ${formatAge(adherence.source.age_days)} old`
+    : "";
+  return `Adherence ${value} · ${adherence.trend_text}${age}`;
+}
+
+function formatStat(
+  label: string,
+  stat: MemberSnapshotPart["stats"][keyof MemberSnapshotPart["stats"]] | null,
+): string {
+  if (stat?.value === null || stat === null) {
+    return `${label} unavailable`;
+  }
+  const value = `${stat.value}${stat.suffix ?? ""}`;
+  const age = stat.source?.stale
+    ? ` · ${formatAge(stat.source.age_days)} old`
+    : "";
+  return `${label} ${value} · ${stat.trend_text}${age}`;
+}
+
+function formatAge(days: number): string {
+  if (days < 14) {
+    return `${days}d`;
+  }
+  if (days < 60) {
+    return `${Math.floor(days / 7)}w`;
+  }
+  if (days < 730) {
+    return `${Math.floor(days / 30.4375)}mo`;
+  }
+  return `${Math.floor(days / 365.25)}y`;
 }

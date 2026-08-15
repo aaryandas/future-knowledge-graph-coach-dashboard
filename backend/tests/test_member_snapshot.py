@@ -44,7 +44,17 @@ def _member_context(member_id: str) -> MemberContext | None:
         ),
     )
     workouts = (
-        _workout("2026-06-03", completed=True),
+        _workout(
+            "2026-06-03",
+            completed=True,
+            title="Lower Body - Bands & DB",
+            duration_min=28,
+            exercises=(
+                "Goblet Squat (box-supported)",
+                "Hip Thrust",
+                "Banded Lateral Walk",
+            ),
+        ),
         _workout("2026-06-01", completed=True),
         _workout("2026-05-29", completed=False),
         _workout("2026-05-27", completed=True),
@@ -157,16 +167,23 @@ def _observation(
     )
 
 
-def _workout(observed_at: str, *, completed: bool) -> WorkoutSessionView:
+def _workout(
+    observed_at: str,
+    *,
+    completed: bool,
+    title: str = "Workout",
+    duration_min: int | None = None,
+    exercises: tuple[str, ...] = (),
+) -> WorkoutSessionView:
     return WorkoutSessionView(
         node_id=f"{MEMBER_ID}:workout:{observed_at}",
         date=observed_at,
-        title="Workout",
+        title=title,
         planned=True,
         completed=completed,
-        duration_min=30 if completed else 0,
+        duration_min=(30 if completed else 0) if duration_min is None else duration_min,
         rpe=6 if completed else None,
-        exercise_mentions=(),
+        exercise_mentions=exercises,
         exercise_ids=(),
     )
 
@@ -253,6 +270,17 @@ def test_member_snapshot_returns_identity_stats_brief_and_journey_stage() -> Non
                 "stale": True,
             },
         },
+    }
+    assert part["latest_session"] == {
+        "title": "Lower Body - Bands & DB",
+        "date": "2026-06-03",
+        "duration_min": 28,
+        "rpe": 6,
+        "exercises": [
+            "Goblet Squat (box-supported)",
+            "Hip Thrust",
+            "Banded Lateral Walk",
+        ],
     }
     assert len(part["morning_brief"]["coach_tasks"]) == 2
     assert part["morning_brief"]["source"]["age_days"] == 70

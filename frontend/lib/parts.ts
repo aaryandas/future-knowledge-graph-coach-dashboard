@@ -363,11 +363,20 @@ export interface JourneyStageSnapshot {
   evidence: JourneyStageEvidence;
 }
 
+export interface LatestSessionSnapshot {
+  title: string;
+  date: string;
+  duration_min: number;
+  rpe: number | null;
+  exercises: string[];
+}
+
 export interface MemberSnapshotPart {
   type: "data-member-snapshot";
   member_id: string;
   identity: MemberIdentity;
   stats: MemberSnapshotStats;
+  latest_session: LatestSessionSnapshot | null;
   morning_brief: MorningBriefSnapshot;
   journey_stage: JourneyStageSnapshot;
 }
