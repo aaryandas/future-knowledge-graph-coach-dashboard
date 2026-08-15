@@ -121,7 +121,10 @@ def test_confirm_uses_the_edited_message_once_and_replaces_the_pending_card() ->
     ]
     assert isinstance(turn, CopilotTurn)
     assert turn.text == "Message sent."
-    assert _action_payload(turn)["status"] == "confirmed"
+    confirmed_action = _action_payload(turn)
+    assert confirmed_action["status"] == "confirmed"
+    assert confirmed_action["actor"] == "coach-1"
+    assert confirmed_action["timestamp"] == "2026-06-04T09:00:00+00:00"
     history = replay_copilot_history(MEMBER_ID, checkpointer=checkpointer)
     assert len(history) == 2
     assert history[1].data_parts == turn.data_parts

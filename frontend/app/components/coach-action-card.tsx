@@ -1,4 +1,9 @@
+"use client";
+
+import { useRef, useState } from "react";
 import type {
+  CoachAction,
+  CoachActionResolution,
   CoachTaskSnapshot,
   DataAction,
   DataActionPart,
@@ -9,6 +14,7 @@ import type {
 interface CoachActionCardProps {
   part: DataActionPart;
   currentCoachTask?: CoachTaskSnapshot | null;
+  onResolve?(resolution: CoachActionResolution): Promise<void> | void;
 }
 
 interface DiffField {
@@ -50,9 +56,56 @@ const sessionPlanRowFields: ReadonlyArray<{
 export function CoachActionCard({
   part,
   currentCoachTask = null,
+  onResolve,
 }: CoachActionCardProps) {
   const { action, status } = part.data;
   const title = actionTitle(action.kind);
+  const [isEditing, setIsEditing] = useState(false);
+  const [messageDraft, setMessageDraft] = useState(
+    action.kind === "send-member-message" ? action.message : "",
+  );
+  const [taskTextDraft, setTaskTextDraft] = useState(
+    action.kind === "update-brief-task" ? (action.text ?? "") : "",
+  );
+  const [taskStatusDraft, setTaskStatusDraft] = useState<
+    "open" | "completed" | "dismissed"
+  >(action.kind === "update-brief-task" ? action.status : "open");
+  const [isResolving, setIsResolving] = useState(false);
+  const [resolutionError, setResolutionError] = useState(false);
+  const resolutionInFlight = useRef(false);
+
+  function editedAction(): CoachAction | undefined {
+    if (action.kind === "send-member-message") {
+      return {
+        ...action,
+        message: messageDraft,
+      };
+    }
+    if (action.kind === "update-brief-task") {
+      return {
+        ...action,
+        status: taskStatusDraft,
+        text: taskTextDraft.trim().length === 0 ? null : taskTextDraft,
+      };
+    }
+    return undefined;
+  }
+
+  async function resolveAction(resolution: CoachActionResolution) {
+    if (onResolve === undefined || resolutionInFlight.current) {
+      return;
+    }
+    resolutionInFlight.current = true;
+    setIsResolving(true);
+    setResolutionError(false);
+    try {
+      await onResolve(resolution);
+    } catch {
+      resolutionInFlight.current = false;
+      setIsResolving(false);
+      setResolutionError(true);
+    }
+  }
 
   return (
     <section
@@ -66,7 +119,15 @@ export function CoachActionCard({
         <span className="coach-action-status">{statusLabels[status]}</span>
       </header>
 
-      {action.kind === "send-member-message" ? (
+      {action.kind === "send-member-message" && isEditing ? (
+        <label className="coach-action-editor">
+          <span>Message to send</span>
+          <textarea
+            value={messageDraft}
+            onChange={(event) => setMessageDraft(event.target.value)}
+          />
+        </label>
+      ) : action.kind === "send-member-message" ? (
         <div className="coach-action-message">
           <span>Full message</span>
           <blockquote>{action.message}</blockquote>
@@ -80,25 +141,105 @@ export function CoachActionCard({
         <SessionPlanDiff action={action} />
       )}
 
+      {action.kind === "update-brief-task" && isEditing ? (
+        <div className="coach-action-task-editor">
+          <label>
+            <span>Task text</span>
+            <input
+              value={taskTextDraft}
+              placeholder={currentCoachTask?.text ?? "Leave unchanged"}
+              onChange={(event) => setTaskTextDraft(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>Task status</span>
+            <select
+              value={taskStatusDraft}
+              onChange={(event) =>
+                setTaskStatusDraft(
+                  event.target.value as "open" | "completed" | "dismissed",
+                )
+              }
+            >
+              <option value="open">Open</option>
+              <option value="completed">Completed</option>
+              <option value="dismissed">Dismissed</option>
+            </select>
+          </label>
+        </div>
+      ) : null}
+
+      {status === "pending" && action.kind === "write-session-plan" ? (
+        <p className="coach-action-session-edit">
+          Edit the session table to compose a new proposal for review.
+          <a href="#session-title">Edit in session table</a>
+        </p>
+      ) : null}
+
+      {status === "confirmed" && part.data.timestamp !== null ? (
+        <dl className="coach-action-execution">
+          <div>
+            <dt>Confirmed by</dt>
+            <dd>{part.data.actor ?? "Unknown coach"}</dd>
+          </div>
+          <div>
+            <dt>Confirmed at</dt>
+            <dd>
+              <time dateTime={part.data.timestamp}>{part.data.timestamp}</time>
+            </dd>
+          </div>
+        </dl>
+      ) : null}
+
       {status === "pending" ? (
         <footer
           className="coach-action-controls"
           aria-label={`${title} controls`}
         >
-          <button type="button" aria-label={`Edit ${title.toLowerCase()}`}>
-            Edit
-          </button>
-          <button type="button" aria-label={`Discard ${title.toLowerCase()}`}>
+          {action.kind === "write-session-plan" ? null : (
+            <button
+              type="button"
+              aria-label={`${isEditing ? "Finish editing" : "Edit"} ${title.toLowerCase()}`}
+              disabled={isResolving}
+              onClick={() => setIsEditing((editing) => !editing)}
+            >
+              {isEditing ? "Done" : "Edit"}
+            </button>
+          )}
+          <button
+            type="button"
+            aria-label={`Discard ${title.toLowerCase()}`}
+            disabled={isResolving}
+            onClick={() => void resolveAction({ decision: "discard" })}
+          >
             Discard
           </button>
           <button
             type="button"
             className="coach-action-confirm"
             aria-label={`Confirm ${title.toLowerCase()}`}
+            disabled={
+              isResolving ||
+              (action.kind === "send-member-message" &&
+                messageDraft.trim().length === 0)
+            }
+            onClick={() =>
+              void resolveAction({
+                decision: "confirm",
+                ...(editedAction() === undefined
+                  ? {}
+                  : { action: editedAction() }),
+              })
+            }
           >
-            Confirm
+            {isResolving ? "Resolving…" : "Confirm"}
           </button>
         </footer>
+      ) : null}
+      {resolutionError ? (
+        <p className="coach-action-error" role="alert">
+          The coach action could not be resolved. Try again.
+        </p>
       ) : null}
     </section>
   );

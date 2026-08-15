@@ -505,11 +505,18 @@ export interface DataAction {
   action_id: string;
   status: "pending" | "confirmed" | "discarded" | "failed" | "blocked";
   action: CoachAction;
+  actor: string | null;
+  timestamp: string | null;
 }
 
 export interface DataActionPart {
   type: "data-action";
   data: DataAction;
+}
+
+export interface CoachActionResolution {
+  decision: "confirm" | "discard";
+  action?: CoachAction;
 }
 
 export type ChatDataParts = {
