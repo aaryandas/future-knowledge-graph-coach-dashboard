@@ -42,57 +42,6 @@ type EditablePlanEntryField =
   | "rest"
   | "notes";
 
-const seededPlanEntries: PlanEntry[] = [
-  {
-    id: "box-squat",
-    section: null,
-    sectionMinutes: null,
-    verdict: null,
-    exercise: "Box squat",
-    sets: "3",
-    reps: "8",
-    load: "Bodyweight",
-    rest: "90s",
-    notes: "Comfortable range",
-  },
-  {
-    id: "supported-split-squat",
-    section: null,
-    sectionMinutes: null,
-    verdict: null,
-    exercise: "Supported split squat",
-    sets: "3",
-    reps: "8 per side",
-    load: "—",
-    rest: "90s",
-    notes: "Use support",
-  },
-  {
-    id: "seated-hamstring-curl",
-    section: null,
-    sectionMinutes: null,
-    verdict: null,
-    exercise: "Seated hamstring curl",
-    sets: "3",
-    reps: "12",
-    load: "Light",
-    rest: "60s",
-    notes: "Smooth control",
-  },
-  {
-    id: "bike",
-    section: null,
-    sectionMinutes: null,
-    verdict: null,
-    exercise: "Bike",
-    sets: "1",
-    reps: "10 min",
-    load: "Easy",
-    rest: "—",
-    notes: "Easy pace",
-  },
-];
-
 const verdictLabels: Record<Verdict, string> = {
   clear: "Clear",
   caution: "Caution",
@@ -124,6 +73,14 @@ export function MemberDashboard({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
+  const latestSession = part?.latest_session ?? null;
+  const hasGeneratedPlan = planPart !== null;
+  const sessionEntries = hasGeneratedPlan
+    ? planEntries
+    : sessionEntriesFromSnapshot(part);
+  const sessionTitle = hasGeneratedPlan
+    ? "Today’s session"
+    : (latestSession?.title ?? "Latest session");
   const coachTask =
     part?.morning_brief.coach_tasks.find(({ status }) => status === "open") ??
     part?.morning_brief.coach_tasks[0] ??
@@ -250,13 +207,22 @@ export function MemberDashboard({
         </button>
       </section>
 
-      <section className="session-card" aria-labelledby="session-title">
+      <section
+        className="session-card"
+        aria-labelledby="session-title"
+        data-generated-plan={hasGeneratedPlan}
+      >
         <div className="session-card-body">
           <div className="session-heading">
             <h2 id="session-title" className="display-title session-title">
-              Today’s session
+              {sessionTitle}
             </h2>
-            {planPart === null ? null : (
+            {planPart === null && latestSession !== null ? (
+              <div className="session-plan-timing" aria-label="Session details">
+                <strong>{formatMinutes(latestSession.duration_min)}</strong>
+                <span>{latestSession.date}</span>
+              </div>
+            ) : planPart === null ? null : (
               <div className="session-plan-timing" aria-label="Session timing">
                 <strong>{formatMinutes(planPart.data.packed_minutes)} packed</strong>
                 <span>{formatMinutes(planPart.data.requested_minutes)} requested</span>
@@ -267,27 +233,32 @@ export function MemberDashboard({
           <div
             className="session-table"
             role="table"
-            aria-label="Today’s session exercises"
+            aria-label={`${sessionTitle} exercises`}
+            data-generated-plan={hasGeneratedPlan}
           >
             <div className="session-table-header" role="row">
-              <span aria-hidden="true" />
-              {planEntryFields.map(({ label }) => (
+              {hasGeneratedPlan ? <span aria-hidden="true" /> : null}
+              {planEntryFields
+                .filter(({ key }) => hasGeneratedPlan || key === "exercise")
+                .map(({ label }) => (
                 <span key={label} role="columnheader">
                   {label}
                 </span>
               ))}
-              <span className="sr-only" role="columnheader">
-                Actions
-              </span>
+              {hasGeneratedPlan ? (
+                <span className="sr-only" role="columnheader">
+                  Actions
+                </span>
+              ) : null}
             </div>
 
             <div className="session-table-body" role="rowgroup">
-              {planEntries.map((entry, index) => {
+              {sessionEntries.map((entry, index) => {
                 const editing = entry.id === editingId;
                 const section = entry.section;
                 const startsSection =
                   section !== null &&
-                  planEntries[index - 1]?.section !== section;
+                  sessionEntries[index - 1]?.section !== section;
                 return (
                   <Fragment key={entry.id}>
                     {startsSection && section !== null ? (
@@ -313,81 +284,87 @@ export function MemberDashboard({
                       onDragOver={(event) => event.preventDefault()}
                       onDrop={(event) => handleDrop(event, entry.id)}
                     >
-                      <button
-                        type="button"
-                        className="row-grabber"
-                        draggable={!editing}
-                        aria-label={`Move ${entry.exercise}. Use arrow keys to reorder.`}
-                        onDragStart={(event) => {
-                          setDraggingId(entry.id);
-                          event.dataTransfer.setData("text/plain", entry.id);
-                          event.dataTransfer.effectAllowed = "move";
-                        }}
-                        onDragEnd={() => setDraggingId(null)}
-                        onKeyDown={(event) => handleReorderKey(event, entry.id)}
-                      >
-                        <GripIcon className="size-5" />
-                      </button>
-
-                      {planEntryFields.map(({ key, label }) => (
-                        <div
-                          key={key}
-                          className={
-                            key === "exercise"
-                              ? "session-cell session-exercise-cell"
-                              : "session-cell"
-                          }
-                          role="cell"
-                          data-label={label}
+                      {hasGeneratedPlan ? (
+                        <button
+                          type="button"
+                          className="row-grabber"
+                          draggable={!editing}
+                          aria-label={`Move ${entry.exercise}. Use arrow keys to reorder.`}
+                          onDragStart={(event) => {
+                            setDraggingId(entry.id);
+                            event.dataTransfer.setData("text/plain", entry.id);
+                            event.dataTransfer.effectAllowed = "move";
+                          }}
+                          onDragEnd={() => setDraggingId(null)}
+                          onKeyDown={(event) => handleReorderKey(event, entry.id)}
                         >
-                          {key === "exercise" && entry.verdict !== null ? (
-                            <span
-                              className="session-verdict"
-                              data-verdict={entry.verdict}
-                            >
-                              {verdictLabels[entry.verdict]}
-                            </span>
-                          ) : null}
-                          {editing ? (
-                            <input
-                              aria-label={`${label} for ${entry.exercise}`}
-                              value={entry[key]}
-                              onChange={(event) =>
-                                updatePlanEntry(entry.id, key, event.target.value)
-                              }
-                            />
-                          ) : (
-                            <span>{entry[key]}</span>
-                          )}
+                          <GripIcon className="size-5" />
+                        </button>
+                      ) : null}
+
+                      {planEntryFields
+                        .filter(({ key }) => hasGeneratedPlan || key === "exercise")
+                        .map(({ key, label }) => (
+                          <div
+                            key={key}
+                            className={
+                              key === "exercise"
+                                ? "session-cell session-exercise-cell"
+                                : "session-cell"
+                            }
+                            role="cell"
+                            data-label={label}
+                          >
+                            {key === "exercise" && entry.verdict !== null ? (
+                              <span
+                                className="session-verdict"
+                                data-verdict={entry.verdict}
+                              >
+                                {verdictLabels[entry.verdict]}
+                              </span>
+                            ) : null}
+                            {editing ? (
+                              <input
+                                aria-label={`${label} for ${entry.exercise}`}
+                                value={entry[key]}
+                                onChange={(event) =>
+                                  updatePlanEntry(entry.id, key, event.target.value)
+                                }
+                              />
+                            ) : (
+                              <span>{entry[key]}</span>
+                            )}
+                          </div>
+                        ))}
+
+                      {hasGeneratedPlan ? (
+                        <div className="session-row-actions" role="cell">
+                          <button
+                            type="button"
+                            className="row-action"
+                            aria-label={
+                              editing
+                                ? `Finish editing ${entry.exercise}`
+                                : `Edit ${entry.exercise}`
+                            }
+                            onClick={() => setEditingId(editing ? null : entry.id)}
+                          >
+                            {editing ? (
+                              <span>Done</span>
+                            ) : (
+                              <PencilIcon className="size-[18px]" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            className="row-action"
+                            aria-label={`Remove ${entry.exercise}`}
+                            onClick={() => removePlanEntry(entry.id)}
+                          >
+                            <TrashIcon className="size-[18px]" />
+                          </button>
                         </div>
-                      ))}
-
-                      <div className="session-row-actions" role="cell">
-                        <button
-                          type="button"
-                          className="row-action"
-                          aria-label={
-                            editing
-                              ? `Finish editing ${entry.exercise}`
-                              : `Edit ${entry.exercise}`
-                          }
-                          onClick={() => setEditingId(editing ? null : entry.id)}
-                        >
-                          {editing ? (
-                            <span>Done</span>
-                          ) : (
-                            <PencilIcon className="size-[18px]" />
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          className="row-action"
-                          aria-label={`Remove ${entry.exercise}`}
-                          onClick={() => removePlanEntry(entry.id)}
-                        >
-                          <TrashIcon className="size-[18px]" />
-                        </button>
-                      </div>
+                      ) : null}
                     </div>
                   </Fragment>
                 );
@@ -395,25 +372,29 @@ export function MemberDashboard({
             </div>
           </div>
 
-          <button type="button" className="add-exercise" onClick={addPlanEntry}>
-            <PlusIcon className="size-[18px]" />
-            Add exercise
-          </button>
+          {hasGeneratedPlan ? (
+            <button type="button" className="add-exercise" onClick={addPlanEntry}>
+              <PlusIcon className="size-[18px]" />
+              Add exercise
+            </button>
+          ) : null}
         </div>
 
-        <footer className="session-footer">
-          <span className="sr-only" role="status" aria-live="polite">
-            {confirmed ? "Session confirmed" : "Session has unconfirmed changes"}
-          </span>
-          <button
-            type="button"
-            className="confirm-session"
-            disabled={confirmed}
-            onClick={() => setConfirmed(true)}
-          >
-            {confirmed ? "Confirmed" : "Confirm session"}
-          </button>
-        </footer>
+        {hasGeneratedPlan ? (
+          <footer className="session-footer">
+            <span className="sr-only" role="status" aria-live="polite">
+              {confirmed ? "Session confirmed" : "Session has unconfirmed changes"}
+            </span>
+            <button
+              type="button"
+              className="confirm-session"
+              disabled={confirmed}
+              onClick={() => setConfirmed(true)}
+            >
+              {confirmed ? "Confirmed" : "Confirm session"}
+            </button>
+          </footer>
+        ) : null}
       </section>
     </div>
   );
@@ -421,7 +402,7 @@ export function MemberDashboard({
 
 function planEntriesFromPart(part: DataPlanPart | null): PlanEntry[] {
   if (part === null) {
-    return seededPlanEntries;
+    return [];
   }
   const sections = [part.data.warm_up, part.data.main, part.data.cool_down];
   return sections.flatMap(({ entries, minutes, section }) =>
@@ -441,6 +422,21 @@ function planEntriesFromPart(part: DataPlanPart | null): PlanEntry[] {
       notes: entry.caution_note ?? "",
     })),
   );
+}
+
+function sessionEntriesFromSnapshot(part: MemberSnapshotPart | null): PlanEntry[] {
+  return (part?.latest_session?.exercises ?? []).map((exercise, index) => ({
+    id: `latest-session:${index}`,
+    section: null,
+    sectionMinutes: null,
+    verdict: null,
+    exercise,
+    sets: "",
+    reps: "",
+    load: "",
+    rest: "",
+    notes: "",
+  }));
 }
 
 function sectionLabel(section: PlanSectionName): string {

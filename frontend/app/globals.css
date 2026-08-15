@@ -569,6 +569,10 @@ input:focus-visible {
   padding: 35px 28px 0;
 }
 
+.session-card[data-generated-plan="false"] .session-card-body {
+  padding-bottom: 28px;
+}
+
 .session-heading {
   display: flex;
   align-items: end;
@@ -604,6 +608,10 @@ input:focus-visible {
 .session-table {
   --session-columns: 38px minmax(155px, 1.65fr) 0.55fr 0.75fr 0.9fr 0.66fr 1.34fr 82px;
   width: 100%;
+}
+
+.session-table[data-generated-plan="false"] {
+  --session-columns: minmax(0, 1fr);
 }
 
 .session-table-header,
@@ -711,6 +719,11 @@ input:focus-visible {
 }
 
 .session-row > .session-cell:nth-child(2) {
+  color: var(--foreground);
+  font-size: 15px;
+}
+
+.session-table[data-generated-plan="false"] .session-exercise-cell {
   color: var(--foreground);
   font-size: 15px;
 }
@@ -2245,6 +2258,14 @@ input:focus-visible {
     align-items: start;
     grid-template-columns: 28px repeat(3, minmax(0, 1fr)) 64px;
     padding: 12px 0;
+  }
+
+  .session-table[data-generated-plan="false"] .session-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .session-table[data-generated-plan="false"] .session-cell::before {
+    display: none;
   }
 
   .session-section-label {
