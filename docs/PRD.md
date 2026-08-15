@@ -54,7 +54,7 @@ Human body movement and the exercise catalog, **grounded in published ontologies
 
 - **Nodes:** exercises, muscles, joints / body regions, movement patterns, equipment, injuries / conditions.
 - **Edges:** `targets` (muscle), `stresses` (joint/region), `requires` (equipment), `part-of` (anatomy hierarchy — so "knee" also covers its sub-structures), `contraindicated-for` (injury → unsafe movements).
-- Map the catalog's taxonomy (the dataset has **19 muscle groups, 9 joints, 36 movement patterns, 32 equipment types**) onto ontology concepts with **SKOS** mappings, and record **why each exercise was selected** with **PROV-O** provenance.
+- Map the catalog's taxonomy (the dataset has **19 muscle groups, 9 joints, 37 movement patterns, 32 equipment types**) onto ontology concepts with **SKOS** mappings, and record **why each exercise was selected** with **PROV-O** provenance.
 
 ### KG 2 · Member Context graph
 
@@ -103,7 +103,7 @@ Document the **decisions and trade-offs** you made, and include the **architectu
 
 Everything is in `data/` and is **synthetic** — clearly fictional, no real person or PHI.
 
-- **`data/exercises.json`** — 50 exercises. Key fields: `muscle_groups`, `joints_loaded`, `movement_patterns`, `equipment_required`, `priority_tier`, `is_bilateral`, `bilateral_pair_id`.
+- **`data/exercises.json`** — 53 exercises. Key fields: `muscle_groups`, `joints_loaded`, `movement_patterns`, `equipment_required`, `priority_tier`, `is_bilateral`, `bilateral_pair_id`.
 - **`data/member-context.json`** — one rich sample member (Jordan Rivera): `profile`, `goals`, `preferences`, `equipment_available`, `injuries`, `workout_history`, `adherence`, `biomarkers`, `labs` (blood panel + DEXA), `chat_history`, and a `coach_brief` with morning tasks + churn risk. It is intentionally set up for the scenarios above — a recovering **left-knee** injury, **no barbell** at home, a **declining adherence** trend, and a workout to celebrate.
 
 **Generate any additional data yourself, synthetically. Never use real member or personal data.**

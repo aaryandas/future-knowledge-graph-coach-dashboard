@@ -2,10 +2,13 @@ from datetime import date
 
 from app.copilot.agent import (
     CopilotHistoryMessage,
-    CopilotTurn,
+    CopilotTurnResult,
 )
 from app.copilot.agent import (
     replay_copilot_history as replay_checkpointed_history,
+)
+from app.copilot.agent import (
+    resume_copilot_action as resume_checkpointed_action,
 )
 from app.copilot.agent import (
     run_copilot_turn as run_checkpointed_turn,
@@ -19,7 +22,7 @@ def run_copilot_turn(
     *,
     message_id: str | None = None,
     as_of: date | None = None,
-) -> CopilotTurn:
+) -> CopilotTurnResult:
     with open_postgres_checkpointer() as checkpointer:
         return run_checkpointed_turn(
             member_id,
@@ -35,3 +38,17 @@ def replay_copilot_history(
 ) -> tuple[CopilotHistoryMessage, ...]:
     with open_postgres_checkpointer() as checkpointer:
         return replay_checkpointed_history(member_id, checkpointer=checkpointer)
+
+
+def resume_copilot_action(
+    member_id: str,
+    action_id: str,
+    resolution: dict[str, object],
+) -> CopilotTurnResult:
+    with open_postgres_checkpointer() as checkpointer:
+        return resume_checkpointed_action(
+            member_id,
+            action_id,
+            resolution,
+            checkpointer=checkpointer,
+        )

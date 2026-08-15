@@ -1,6 +1,20 @@
 """Build and read the Movement/Clinical and Member Context Graphs."""
 
+from .coach_actions import (
+    CoachActionWrite,
+    CoachActionWriteResult,
+    CoachActionWriteStatus,
+    CoachTaskStatus,
+    SendMemberMessageWrite,
+    SessionPlan,
+    SessionPlanRow,
+    UpdateBriefTaskWrite,
+    WriteSessionPlanWrite,
+    confirm_coach_action,
+    get_session_plan,
+)
 from .constants import ObservationKind
+from .exercise_taxonomy import get_exercise_movement_pattern_ids
 from .graph_neighborhood import (
     GraphEdge,
     GraphEdgeKind,
@@ -39,10 +53,15 @@ from .member_context import (
     get_observations,
     get_workout_sessions,
 )
+from .relevance import RelevanceWindowName, scope_relevance_window
 
 __all__ = [
     "BarrierView",
     "ChatMessageView",
+    "CoachActionWrite",
+    "CoachActionWriteResult",
+    "CoachActionWriteStatus",
+    "CoachTaskStatus",
     "CoachTaskView",
     "GoalView",
     "GraphEdge",
@@ -64,8 +83,16 @@ __all__ = [
     "ObservationKind",
     "ObservationValue",
     "ObservationView",
+    "RelevanceWindowName",
+    "SendMemberMessageWrite",
+    "SessionPlan",
+    "SessionPlanRow",
+    "UpdateBriefTaskWrite",
     "WorkoutSessionView",
+    "WriteSessionPlanWrite",
+    "confirm_coach_action",
     "get_chat_messages",
+    "get_exercise_movement_pattern_ids",
     "get_graph_neighborhood",
     "get_member_context",
     "get_member_goals",
@@ -74,7 +101,9 @@ __all__ = [
     "get_member_profile",
     "get_morning_brief",
     "get_observations",
+    "get_session_plan",
     "get_workout_sessions",
     "ingest_kg1",
     "ingest_kg2",
+    "scope_relevance_window",
 ]

@@ -6,7 +6,7 @@
 
 The product is built around two knowledge graphs (movement/clinical reference data;
 per-member context). An obvious reading of "knowledge graph project" reaches for Neo4j or
-another graph database. The dataset is ~1,000 nodes total (50 exercises, ~100 taxonomy
+another graph database. The dataset is ~1,000 nodes total (53 exercises, ~100 taxonomy
 nodes, ~350 SNOMED snapshot concepts, one member's context), fully known at build time,
 with shallow traversals (2–4 hops). The PRD requires one-command local run, a ~5s AI
 latency budget, and unit-tested deterministic safety traversal.

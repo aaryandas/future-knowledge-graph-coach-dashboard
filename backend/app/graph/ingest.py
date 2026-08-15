@@ -10,6 +10,7 @@ from typing import Any, Literal, LiteralString, cast
 
 from neo4j import ManagedTransaction, Session
 
+from app.graph.coach_actions import COACH_ACTION_SOURCE
 from app.graph.conditions import CONDITIONS_SOURCE, AuthoredConditions, load_conditions
 from app.graph.schema import (
     EXERCISE_TAXONOMIES,
@@ -115,11 +116,15 @@ class _MovementPatternVocabulary:
     def token_aliases(self) -> Iterable[tuple[tuple[str, ...], tuple[str, ...]]]:
         return ()
 
+    def embeddings(self) -> None:
+        return None
+
 
 @dataclass(frozen=True)
 class KG1Payload:
     nodes: list[NodeBatch]
     edges: list[EdgeBatch]
+    seed_sources: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -146,7 +151,7 @@ def ingest_kg1(data_directory: Path = DEFAULT_DATA_DIRECTORY) -> KG1Counts:
 
     with neo4j_session() as session:
         _ensure_constraints(session)
-        session.execute_write(_merge_payload, payload, ingested_at)
+        session.execute_write(_merge_and_reconcile_kg1_payload, payload, ingested_at)
         return _read_kg1_counts(session)
 
 
@@ -186,6 +191,16 @@ def _load_kg1(data_directory: Path) -> KG1Payload:
             *mapping_edge_batches,
             *condition_edge_batches,
         ],
+        seed_sources=tuple(
+            sorted(
+                {
+                    CATALOG_SOURCE,
+                    CONDITIONS_SOURCE,
+                    _artifact_stamp(snomed)[0],
+                    _artifact_stamp(mappings)[0],
+                }
+            )
+        ),
     )
 
 
@@ -346,15 +361,16 @@ def _append_member(
         node_rows,
         edge_rows,
     )
+    messages = _append_chat_messages(member, member_id, stamp, node_rows, edge_rows)
     observations = _append_observations(
         member,
         member_id,
         _required_string(coach_brief, "generated_for"),
+        messages,
         stamp,
         node_rows,
         edge_rows,
     )
-    messages = _append_chat_messages(member, member_id, stamp, node_rows, edge_rows)
     barrier_ids = _append_barriers(
         churn_risk,
         member_id,
@@ -507,16 +523,19 @@ def _append_workout_sessions(
             stamp,
             edge_rows,
         )
-        _append_bridge_edges(
-            session_id,
-            "WorkoutSession",
-            "included",
-            "Exercise",
-            exercise_mentions,
-            exercise_vocab,
-            stamp,
-            edge_rows,
-        )
+        for position, mention in enumerate(exercise_mentions):
+            resolution = _exact_resolution(mention, exercise_vocab)
+            if resolution is None:
+                continue
+            _append_edge(
+                session_id,
+                "WorkoutSession",
+                "included",
+                cast(str, resolution.concept_id),
+                "Exercise",
+                {**_bridge_properties(stamp, resolution), "position": position},
+                edge_rows,
+            )
     return sessions
 
 
@@ -524,6 +543,7 @@ def _append_observations(
     member: JsonObject,
     member_id: str,
     generated_for: str,
+    messages: list[tuple[str, JsonObject]],
     stamp: JsonObject,
     node_rows: dict[NodeLabel, list[Node]],
     edge_rows: dict[tuple[NodeLabel, EdgeType, NodeLabel], list[Edge]],
@@ -580,6 +600,34 @@ def _append_observations(
             "sleep-night",
             observed_at,
             {"value": value, "unit": "hours"},
+            stamp,
+            observations,
+            node_rows,
+            edge_rows,
+        )
+
+    daily_message_counts: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"member": 0, "coach": 0}
+    )
+    for _, properties in messages:
+        observed_at = (
+            datetime.fromisoformat(cast(str, properties["timestamp"]))
+            .date()
+            .isoformat()
+        )
+        sender = cast(str, properties["sender"])
+        daily_message_counts[observed_at][sender] += 1
+    for observed_at, counts in sorted(daily_message_counts.items()):
+        _append_observation(
+            member_id,
+            "message-pattern-day",
+            observed_at,
+            {
+                "value": counts["member"] + counts["coach"],
+                "unit": "messages",
+                "member_count": counts["member"],
+                "coach_count": counts["coach"],
+            },
             stamp,
             observations,
             node_rows,
@@ -1357,17 +1405,26 @@ def _merge_payload(
                 f"""
             UNWIND $rows AS row
             MERGE (node:`{batch.label}` {{id: row.id}})
-            SET node += row.properties
+            SET node += CASE
+                WHEN node.source = $coach_action_source THEN {{}}
+                ELSE row.properties
+            END
             SET node.ingested_at = coalesce(node.ingested_at, datetime($ingested_at))
             """
             ),
             rows=[asdict(node) for node in batch.rows],
             ingested_at=ingested_at,
+            coach_action_source=COACH_ACTION_SOURCE,
         ).consume()
 
     for batch in payload.edges:
         legacy_property_cleanup = (
             "REMOVE edge.verdict" if batch.edge_type == "contraindicates" else ""
+        )
+        preserve_confirmed_session_plan = (
+            "WHERE source.source <> $coach_action_source "
+            if batch.source_label == "WorkoutSession" and batch.edge_type == "included"
+            else ""
         )
         transaction.run(
             _cypher(
@@ -1375,6 +1432,7 @@ def _merge_payload(
             UNWIND $rows AS row
             MATCH (source:`{batch.source_label}` {{id: row.source_id}})
             MATCH (target:`{batch.target_label}` {{id: row.target_id}})
+            {preserve_confirmed_session_plan}
             MERGE (source)-[edge:`{batch.edge_type}` {{id: row.id}}]->(target)
             SET edge += row.properties
             SET edge.ingested_at = coalesce(edge.ingested_at, datetime($ingested_at))
@@ -1383,6 +1441,7 @@ def _merge_payload(
             ),
             rows=[asdict(edge) for edge in batch.rows],
             ingested_at=ingested_at,
+            coach_action_source=COACH_ACTION_SOURCE,
         ).consume()
 
 
@@ -1411,6 +1470,36 @@ def _merge_and_reconcile_kg2_payload(
             ),
             seed_sources=seed_sources,
             current_ids=[node.id for node in batch.rows],
+        ).consume()
+
+
+def _merge_and_reconcile_kg1_payload(
+    transaction: ManagedTransaction,
+    payload: KG1Payload,
+    ingested_at: str,
+) -> None:
+    _merge_payload(transaction, payload, ingested_at)
+    current_ids = {
+        label: [
+            node.id
+            for batch in payload.nodes
+            if batch.label == label
+            for node in batch.rows
+        ]
+        for label in KG1_NODE_LABELS
+    }
+    for label in KG1_NODE_LABELS:
+        transaction.run(
+            _cypher(
+                f"""
+            MATCH (node:`{label}`)
+            WHERE node.source IN $seed_sources
+              AND NOT node.id IN $current_ids
+            DETACH DELETE node
+            """
+            ),
+            seed_sources=list(payload.seed_sources),
+            current_ids=current_ids[label],
         ).consume()
 
 

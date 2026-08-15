@@ -12,6 +12,17 @@ SafetyLayer: TypeAlias = Literal[
     "contraindication",
     "SNOMED anatomical fallback",
 ]
+SessionInjuryKind: TypeAlias = Literal[
+    "Joint",
+    "AnatomicalStructure",
+    "ClinicalFinding",
+]
+
+
+@dataclass(frozen=True)
+class SessionInjury:
+    concept_id: str
+    kind: SessionInjuryKind
 
 
 @dataclass(frozen=True)
@@ -60,8 +71,24 @@ type Decision = GraphDecision | AgentDecision
 
 
 @dataclass(frozen=True)
+class VerdictTraceEvent:
+    exercise_id: str
+    status: VerdictStatus
+    layer: SafetyLayer | None
+    reason: str
+    walked_path: WalkedPath
+    used: tuple[str, ...]
+    kind: Literal["verdict"] = field(default="verdict", init=False)
+    was_generated_by: Literal["evaluate_safety"] = field(
+        default="evaluate_safety", init=False
+    )
+    was_attributed_to: Literal["graph", "agent"] = "graph"
+
+
+@dataclass(frozen=True)
 class Verdict:
     exercise_id: str
     status: VerdictStatus
     walked_path: WalkedPath
     decisions: tuple[Decision, ...]
+    trace: tuple[VerdictTraceEvent, ...]

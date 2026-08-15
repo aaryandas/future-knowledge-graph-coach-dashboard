@@ -1,5 +1,6 @@
 from dataclasses import dataclass, replace
-from typing import Literal
+from itertools import combinations
+from typing import Literal, cast
 
 from app.generation._constants import (
     COOL_DOWN_HOLD_MINUTES,
@@ -32,8 +33,8 @@ from app.generation._ranking import (
     hard_filter_reason,
     rank_candidates,
 )
-from app.generation._trace import TraceEvent
-from app.generation.intent import Intent
+from app.generation._trace import PackingTraceEvent, TraceEvent
+from app.generation.intent import Focus, Intent
 
 type PackingFailureReason = Literal[
     "empty-section",
@@ -66,16 +67,25 @@ def pack(
     packed_by_section: dict[Section, list[_PackedEntry]] = {}
     split_by_section = dict(SECTION_SPLITS)
 
-    for section in SECTION_ORDER:
-        section_candidates = tuple(
+    for section_index, section_name in enumerate(SECTION_ORDER):
+        section = cast(Section, section_name)
+        available_candidates = tuple(
             candidate
-            for candidate in eligible_candidates(candidates, section, intent.focus)
+            for candidate in candidates
             if candidate.exercise_id not in used_exercise_ids
+        )
+        section_candidates = eligible_candidates(
+            available_candidates,
+            section,
+            intent.focus,
         )
         packed_entries, selection_events = _select_section(
             section_candidates,
             section,
             window * split_by_section[section],
+            available_candidates=available_candidates,
+            later_sections=SECTION_ORDER[section_index + 1 :],
+            focus=intent.focus,
         )
         if len(packed_entries) < MINIMUM_SECTION_ENTRIES:
             return PackingFailure(
@@ -151,7 +161,7 @@ def _hard_filter_events(candidates: tuple[Candidate, ...]) -> list[TraceEvent]:
         if reason is None:
             continue
         events.append(
-            TraceEvent(
+            PackingTraceEvent(
                 action="filtered",
                 section=None,
                 exercise_id=candidate.exercise_id,
@@ -163,7 +173,13 @@ def _hard_filter_events(candidates: tuple[Candidate, ...]) -> list[TraceEvent]:
 
 
 def _select_section(
-    candidates: tuple[Candidate, ...], section: Section, target_minutes: float
+    candidates: tuple[Candidate, ...],
+    section: Section,
+    target_minutes: float,
+    *,
+    available_candidates: tuple[Candidate, ...],
+    later_sections: tuple[Section, ...],
+    focus: Focus | None,
 ) -> tuple[list[_PackedEntry], list[TraceEvent]]:
     remaining = candidates
     selected: list[_PackedEntry] = []
@@ -173,10 +189,23 @@ def _select_section(
 
     while remaining and remaining_minutes > TIME_COMPARISON_TOLERANCE:
         ranked = rank_candidates(remaining, covered_muscle_groups)
+        reservable = tuple(
+            ranked_candidate
+            for ranked_candidate in ranked
+            if _can_reserve_later_sections(
+                tuple(
+                    candidate
+                    for candidate in available_candidates
+                    if candidate.exercise_id != ranked_candidate.candidate.exercise_id
+                ),
+                later_sections,
+                focus,
+            )
+        )
         fitting = next(
             (
                 ranked_candidate
-                for ranked_candidate in ranked
+                for ranked_candidate in reservable
                 if _entry(ranked_candidate.candidate, section).minutes
                 <= remaining_minutes + TIME_COMPARISON_TOLERANCE
             ),
@@ -185,7 +214,9 @@ def _select_section(
         if fitting is None:
             if selected:
                 break
-            fitting = next(iter(ranked))
+            fitting = next(iter(reservable), None)
+        if fitting is None:
+            break
 
         plan_entry = _entry(fitting.candidate, section)
         selected.append(
@@ -205,12 +236,44 @@ def _select_section(
             for candidate in remaining
             if candidate.exercise_id != fitting.candidate.exercise_id
         )
+        available_candidates = tuple(
+            candidate
+            for candidate in available_candidates
+            if candidate.exercise_id != fitting.candidate.exercise_id
+        )
 
     return selected, events
 
 
-def _selection_event(ranking: RankedCandidate, section: Section) -> TraceEvent:
-    return TraceEvent(
+def _can_reserve_later_sections(
+    candidates: tuple[Candidate, ...],
+    later_sections: tuple[Section, ...],
+    focus: Focus | None,
+) -> bool:
+    def reserve(section_index: int, used_exercise_ids: frozenset[str]) -> bool:
+        if section_index == len(later_sections):
+            return True
+        section = later_sections[section_index]
+        eligible = tuple(
+            candidate
+            for candidate in eligible_candidates(candidates, section, focus)
+            if candidate.exercise_id not in used_exercise_ids
+        )
+        return any(
+            reserve(
+                section_index + 1,
+                used_exercise_ids.union(
+                    candidate.exercise_id for candidate in selection
+                ),
+            )
+            for selection in combinations(eligible, MINIMUM_SECTION_ENTRIES)
+        )
+
+    return reserve(0, frozenset())
+
+
+def _selection_event(ranking: RankedCandidate, section: Section) -> PackingTraceEvent:
+    return PackingTraceEvent(
         action="selected",
         section=section,
         exercise_id=ranking.candidate.exercise_id,
@@ -336,7 +399,7 @@ def _drop_entries_until_fit(
     ):
         dropped = entries.pop()
         events.append(
-            TraceEvent(
+            PackingTraceEvent(
                 action="cut",
                 section=section,
                 exercise_id=dropped.candidate.exercise_id,
@@ -368,7 +431,7 @@ def _reduce_main_sets_until_fit(
         )
         main_entries[index] = replace(packed_entry, entry=reduced_entry)
         events.append(
-            TraceEvent(
+            PackingTraceEvent(
                 action="cut",
                 section="main",
                 exercise_id=packed_entry.candidate.exercise_id,

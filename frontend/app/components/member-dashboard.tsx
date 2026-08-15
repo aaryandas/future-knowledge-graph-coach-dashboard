@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type DragEvent, type KeyboardEvent } from "react";
+import type { MemberSnapshotPart } from "@/lib/parts";
 import { useCopilotSidebar } from "./copilot-sidebar-context";
 import {
   GripIcon,
@@ -71,12 +72,20 @@ const exerciseFields: ReadonlyArray<{
   { key: "notes", label: "Notes" },
 ];
 
-export function MemberDashboard() {
+export function MemberDashboard({
+  part,
+}: {
+  part: MemberSnapshotPart | null;
+}) {
   const { prefillMessage } = useCopilotSidebar();
   const [exercises, setExercises] = useState(initialExercises);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
+  const coachTask =
+    part?.morning_brief.coach_tasks.find(({ status }) => status === "open") ??
+    part?.morning_brief.coach_tasks[0] ??
+    null;
 
   function updateExercise(
     id: string,
@@ -166,11 +175,19 @@ export function MemberDashboard() {
       <section className="morning-brief" aria-labelledby="morning-brief-title">
         <StarIcon className="morning-brief-icon" />
         <h1 id="morning-brief-title">Morning brief</h1>
-        <p>Celebrate Jordan’s first pain-free squat</p>
+        <p>
+          {coachTask?.text ?? "No CoachTasks for today"}
+          {part?.morning_brief.source.stale ? (
+            <span className="morning-brief-age">
+              {formatAge(part.morning_brief.source.age_days)} old
+            </span>
+          ) : null}
+        </p>
         <button
           type="button"
+          disabled={coachTask === null}
           onClick={() =>
-            prefillMessage("Draft a note celebrating Jordan’s first pain-free squat")
+            prefillMessage(`Draft a note for this CoachTask: ${coachTask?.text ?? ""}`)
           }
         >
           Send note
@@ -287,4 +304,17 @@ export function MemberDashboard() {
       </section>
     </div>
   );
+}
+
+function formatAge(days: number): string {
+  if (days < 14) {
+    return `${days}d`;
+  }
+  if (days < 60) {
+    return `${Math.floor(days / 7)}w`;
+  }
+  if (days < 730) {
+    return `${Math.floor(days / 30.4375)}mo`;
+  }
+  return `${Math.floor(days / 365.25)}y`;
 }

@@ -1,6 +1,8 @@
 import json
 
+import pytest
 from app.api.copilot import (
+    DataChartPart,
     DataPart,
     DataSourcesPart,
     HistoryReader,
@@ -21,8 +23,8 @@ MEMBER_ID = "mbr_01HX9JORDAN"
 def test_copilot_stream_emits_data_parts_in_prescribed_order_before_text() -> None:
     sources_part = _sources_part()
     chart_part = _chart_part()
-    brief_part = CopilotDataPart(type="data-brief", data={"priority": "strength"})
-    action_part = CopilotDataPart(type="data-action", data={"kind": "send-message"})
+    brief_part = _brief_part()
+    action_part = _action_part()
 
     def run_turn(
         member_id: str,
@@ -123,10 +125,7 @@ def test_copilot_history_returns_replayable_data_parts() -> None:
                 "parts": [
                     {
                         "type": "data-chart",
-                        "data": {
-                            "kind": "sleep-week",
-                            "series": [{"day": "Mon", "hours": 7.5}],
-                        },
+                        "data": _chart_part().data,
                     },
                     {
                         "type": "data-sources",
@@ -154,6 +153,38 @@ def test_data_sources_part_is_a_frozen_typed_pydantic_contract() -> None:
     assert schema["$defs"]["DataSources"]["properties"]["sources"]["items"] == {
         "$ref": "#/$defs/Source"
     }
+
+
+def test_data_chart_part_is_a_frozen_discriminated_pydantic_contract() -> None:
+    assert DataChartPart.model_config["frozen"] is True
+    schema = DataChartPart.model_json_schema()
+    assert schema["properties"]["type"]["const"] == "data-chart"
+    assert schema["properties"]["data"] == {"$ref": "#/$defs/DataChart"}
+    assert set(schema["$defs"]["DataChart"]["discriminator"]["mapping"]) == {
+        "adherence_trend",
+        "sleep_week",
+        "message_pattern",
+        "four_week_comparison",
+    }
+    assert schema["$defs"]["SleepWeekWindow"] == {
+        "const": "7-days",
+        "type": "string",
+    }
+    assert schema["$defs"]["FourWeekComparisonWindow"] == {
+        "const": "28-days",
+        "type": "string",
+    }
+
+    chart = DataChartPart.model_validate({"data": _chart_part().data})
+    assert chart.data.kind == "sleep_week"
+    assert chart.model_dump()["data"]["series"][0]["hours"] == 7.5
+
+    chart_data = _chart_part().data
+    assert isinstance(chart_data, dict)
+    contradictory = dict(chart_data)
+    contradictory["window"] = "28-days"
+    with pytest.raises(ValueError):
+        DataChartPart.model_validate({"data": contradictory})
 
 
 def test_data_part_keeps_future_data_kinds_generic() -> None:
@@ -193,7 +224,56 @@ def _sources_part() -> CopilotDataPart:
 def _chart_part() -> CopilotDataPart:
     return CopilotDataPart(
         type="data-chart",
-        data={"kind": "sleep-week", "series": [{"day": "Mon", "hours": 7.5}]},
+        data={
+            "kind": "sleep_week",
+            "window": "7-days",
+            "axes": {
+                "x": {"label": "Night", "values": ["2026-06-03"]},
+                "y": {
+                    "label": "Sleep",
+                    "unit": "hours",
+                    "minimum": 0,
+                    "maximum": 9,
+                    "ticks": [0, 3, 6, 9],
+                },
+            },
+            "series": [
+                {
+                    "observed_at": "2026-06-03",
+                    "hours": 7.5,
+                    "observation_node_id": "observation:sleep:2026-06-03",
+                }
+            ],
+            "observation_node_ids": ["observation:sleep:2026-06-03"],
+        },
+    )
+
+
+def _brief_part() -> CopilotDataPart:
+    return CopilotDataPart(
+        type="data-brief",
+        data={
+            "generated_for": "2026-06-04",
+            "churn_risk_level": "elevated",
+            "churn_risk_reasons": [],
+            "barriers": [],
+            "coach_tasks": [],
+        },
+    )
+
+
+def _action_part() -> CopilotDataPart:
+    return CopilotDataPart(
+        type="data-action",
+        data={
+            "action_id": "action-1",
+            "status": "pending",
+            "action": {
+                "kind": "send-member-message",
+                "message": "Nice work!",
+                "coach_task_id": None,
+            },
+        },
     )
 
 

@@ -1,8 +1,9 @@
+import json
 from dataclasses import FrozenInstanceError
 
 import httpx
 import pytest
-from app.generation import (
+from app.generation.testing import (
     FakeLLM,
     Intent,
     InterpretationFailure,
@@ -111,6 +112,32 @@ def test_interpret_returns_visible_failure_for_empty_provider_choices() -> None:
         attempts=2,
     )
     assert len(requests) == 2
+
+
+def test_interpret_routes_to_the_lowest_latency_provider() -> None:
+    requests: list[httpx.Request] = []
+
+    def empty_choices(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"choices": []})
+
+    with httpx.Client(transport=httpx.MockTransport(empty_choices)) as http_client:
+        chat_model = ChatOpenAI(
+            api_key="test",
+            base_url="https://openrouter.test/api/v1",
+            model="test-model",
+            max_retries=0,
+            http_client=http_client,
+        )
+        llm = build_intent_llm(chat_model)
+        assert llm is not None
+        interpret("Build a workout", llm=llm)
+
+    assert len(requests) == 2
+    assert [json.loads(request.content)["provider"] for request in requests] == [
+        {"sort": "latency"},
+        {"sort": "latency"},
+    ]
 
 
 @pytest.mark.parametrize(

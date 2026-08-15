@@ -53,4 +53,9 @@ jobs:
           pnpm seed > "$RUNNER_TEMP/seed-first.json"
           pnpm seed > "$RUNNER_TEMP/seed-second.json"
           diff --unified "$RUNNER_TEMP/seed-first.json" "$RUNNER_TEMP/seed-second.json"
+      - name: Verify resolver and safety seams without provider keys
+        env:
+          OPENAI_API_KEY: ""
+          OPENROUTER_API_KEY: ""
+        run: uv run --directory backend pytest tests/test_resolver.py tests/test_safety.py
       - run: ./scripts/gate.sh api

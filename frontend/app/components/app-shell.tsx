@@ -7,24 +7,22 @@ import {
   useEffect,
   useRef,
   useState,
-  type ComponentType,
   type ReactNode,
 } from "react";
+import type { DataPlanPart, MemberSnapshotPart } from "@/lib/parts";
+import { CopilotSidebar } from "./copilot-sidebar";
 import { CopilotSidebarProvider } from "./copilot-sidebar-context";
 import {
-  AdjustIcon,
   CloseIcon,
   DumbbellIcon,
-  ExplainIcon,
   GoalIcon,
   KneeIcon,
   PanelIcon,
   PersonIcon,
-  SendIcon,
-  ShieldIcon,
   TrendIcon,
-  type IconProps,
 } from "./icons";
+import { JourneyStageChip } from "./journey-stage-chip";
+import { SessionPlan } from "./session-plan";
 
 type WorkspaceTab = "dashboard" | "members" | "graph";
 
@@ -38,49 +36,17 @@ const tabs: ReadonlyArray<{
   { label: "Graph", value: "graph", href: "/graph" },
 ];
 
-const memberFacts: ReadonlyArray<{
-  label: string;
-  tone: "identity" | "attention" | "goal";
-  Icon: ComponentType<IconProps>;
-}> = [
-  { label: "Jordan Rivera · 41", tone: "identity", Icon: PersonIcon },
-  {
-    label: "Left-knee PFPS · recovering",
-    tone: "attention",
-    Icon: KneeIcon,
-  },
-  { label: "No barbell", tone: "attention", Icon: DumbbellIcon },
-  {
-    label: "Adherence 50% from 100%",
-    tone: "attention",
-    Icon: TrendIcon,
-  },
-  {
-    label: "Goal · Lower-body strength",
-    tone: "goal",
-    Icon: GoalIcon,
-  },
-];
+const member = {
+  id: "mbr_01HX9JORDAN",
+} as const;
 
-const quickActions = [
-  {
-    label: "Adjust",
-    prompt: "Adjust today’s session",
-    Icon: AdjustIcon,
-  },
-  {
-    label: "Explain",
-    prompt: "Explain the choices in today’s session",
-    Icon: ExplainIcon,
-  },
-  {
-    label: "Constraints",
-    prompt: "Check today’s session against Jordan’s constraints",
-    Icon: ShieldIcon,
-  },
-] as const;
-
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  memberSnapshot,
+}: {
+  children: ReactNode;
+  memberSnapshot: MemberSnapshotPart | null;
+}) {
   const pathname = usePathname();
   const activeTab: WorkspaceTab = pathname.startsWith("/graph")
     ? "graph"
@@ -90,6 +56,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [mobileCopilotOpen, setMobileCopilotOpen] = useState(false);
   const [isNarrow, setIsNarrow] = useState(false);
   const [composerValue, setComposerValue] = useState("");
+  const [planPart, setPlanPart] = useState<DataPlanPart | null>(null);
   const composerRef = useRef<HTMLInputElement>(null);
   const copilotToggleRef = useRef<HTMLButtonElement>(null);
   const copilotCloseRef = useRef<HTMLButtonElement>(null);
@@ -166,13 +133,25 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, []);
 
   const copilotHidden = isNarrow && !mobileCopilotOpen;
+  const identity = memberSnapshot?.identity ?? null;
+  const memberName = identity?.name ?? "Member";
+  const injury = identity?.injury ?? null;
+  const adherence = memberSnapshot?.stats.adherence ?? null;
+  const goal = identity?.goals[0] ?? null;
 
   return (
     <CopilotSidebarProvider prefillMessage={prefillMessage}>
       <div className="app-frame screen-enter">
-        <header className="app-header" inert={isNarrow && mobileCopilotOpen ? true : undefined}>
+        <header
+          className="app-header"
+          inert={isNarrow && mobileCopilotOpen ? true : undefined}
+        >
           <div className="global-nav-row">
-            <Link className="future-wordmark" href="/member" aria-label="Future Coach dashboard">
+            <Link
+              className="future-wordmark"
+              href="/member"
+              aria-label="Future Coach dashboard"
+            >
               Future Coach
             </Link>
             <nav className="global-nav" aria-label="Workspace">
@@ -200,22 +179,50 @@ export function AppShell({ children }: { children: ReactNode }) {
             </button>
           </div>
 
-          <div className="member-context-strip" aria-label="Jordan Rivera context">
-            {memberFacts.map(({ label, tone, Icon }) => (
-              <div key={label} className="member-context-item" data-tone={tone}>
-                <Icon className="member-context-icon" />
-                <span>{label}</span>
-              </div>
-            ))}
+          <div
+            className="member-context-strip"
+            aria-label={`${memberName} context`}
+          >
+            <div className="member-context-item" data-tone="identity">
+              <PersonIcon className="member-context-icon" />
+              <span>
+                {identity === null
+                  ? "Member unavailable"
+                  : `${identity.name} · ${identity.age}`}
+              </span>
+            </div>
+            <div className="member-context-item" data-tone="attention">
+              <KneeIcon className="member-context-icon" />
+              <span>{formatInjury(injury)}</span>
+              {memberSnapshot === null ? null : (
+                <JourneyStageChip journeyStage={memberSnapshot.journey_stage} />
+              )}
+            </div>
+            <div className="member-context-item" data-tone="attention">
+              <DumbbellIcon className="member-context-icon" />
+              <span>No barbell</span>
+            </div>
+            <div className="member-context-item" data-tone="attention">
+              <TrendIcon className="member-context-icon" />
+              <span>{formatAdherence(adherence)}</span>
+            </div>
+            <div className="member-context-item" data-tone="goal">
+              <GoalIcon className="member-context-icon" />
+              <span>{goal === null ? "Goal unavailable" : `Goal · ${goal.text}`}</span>
+            </div>
           </div>
         </header>
 
-        <div className="workspace-split" data-mobile-copilot={mobileCopilotOpen ? "open" : "closed"}>
+        <div
+          className="workspace-split"
+          data-mobile-copilot={mobileCopilotOpen ? "open" : "closed"}
+        >
           <main
             className="dashboard-canvas"
             inert={isNarrow && mobileCopilotOpen ? true : undefined}
           >
             {children}
+            {planPart === null ? null : <SessionPlan part={planPart} />}
           </main>
           <aside
             id="copilot-panel"
@@ -239,42 +246,15 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <CloseIcon className="size-5" />
                 </button>
               </div>
-
-              <p className="copilot-empty">What can I help with today?</p>
-
-              <div className="copilot-controls">
-                <div className="copilot-quick-actions" aria-label="Copilot quick actions">
-                  {quickActions.map(({ label, prompt, Icon }) => (
-                    <button
-                      key={label}
-                      type="button"
-                      className="copilot-chip"
-                      onClick={() => prefillMessage(prompt)}
-                    >
-                      <Icon className="size-[18px]" />
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <form
-                  className="copilot-composer"
-                  onSubmit={(event) => event.preventDefault()}
-                >
-                  <label htmlFor="copilot-composer" className="sr-only">
-                    Ask Copilot about this session
-                  </label>
-                  <input
-                    ref={composerRef}
-                    id="copilot-composer"
-                    value={composerValue}
-                    placeholder="Ask about this session…"
-                    onChange={(event) => setComposerValue(event.target.value)}
-                  />
-                  <button type="submit" aria-label="Send message">
-                    <SendIcon className="size-5" />
-                  </button>
-                </form>
-              </div>
+              <CopilotSidebar
+                memberId={member.id}
+                memberName={memberName}
+                composerValue={composerValue}
+                composerRef={composerRef}
+                hasPlan={planPart !== null}
+                onComposerChange={setComposerValue}
+                onPlan={setPlanPart}
+              />
             </div>
           </aside>
           <button
@@ -288,4 +268,39 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
     </CopilotSidebarProvider>
   );
+}
+
+function formatInjury(
+  injury: MemberSnapshotPart["identity"]["injury"],
+): string {
+  if (injury === null) {
+    return "No active MemberInjury";
+  }
+  return [injury.region, injury.finding, injury.status].filter(Boolean).join(" · ");
+}
+
+function formatAdherence(
+  adherence: MemberSnapshotPart["stats"]["adherence"] | null,
+): string {
+  if (adherence?.value === null || adherence === null) {
+    return "Adherence unavailable";
+  }
+  const value = `${adherence.value}${adherence.suffix ?? ""}`;
+  const age = adherence.source?.stale
+    ? ` · ${formatAge(adherence.source.age_days)} old`
+    : "";
+  return `Adherence ${value} · ${adherence.trend_text}${age}`;
+}
+
+function formatAge(days: number): string {
+  if (days < 14) {
+    return `${days}d`;
+  }
+  if (days < 60) {
+    return `${Math.floor(days / 7)}w`;
+  }
+  if (days < 730) {
+    return `${Math.floor(days / 30.4375)}mo`;
+  }
+  return `${Math.floor(days / 365.25)}y`;
 }
