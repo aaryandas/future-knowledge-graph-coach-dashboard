@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
+import { formatInjury } from "@/lib/member-format";
 import type { MemberSnapshotPart, MemberSnapshotStat } from "@/lib/parts";
 import { getMemberSnapshot } from "@/lib/member-snapshot";
 
@@ -65,15 +66,6 @@ function formatJourneyStage(part: MemberSnapshotPart | null): string {
   return stage === undefined
     ? "Journey stage unavailable"
     : `${stage.charAt(0).toUpperCase()}${stage.slice(1)}`;
-}
-
-function formatInjury(
-  injury: MemberSnapshotPart["identity"]["injury"],
-): string {
-  if (injury === null) {
-    return "No active MemberInjury";
-  }
-  return [injury.region, injury.finding, injury.status].filter(Boolean).join(" · ");
 }
 
 function formatStat(label: string, stat: MemberSnapshotStat | null): string {

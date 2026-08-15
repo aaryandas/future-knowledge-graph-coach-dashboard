@@ -10,6 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { formatInjury } from "@/lib/member-format";
 import type { DataPlanPart, MemberSnapshotPart } from "@/lib/parts";
 import { CopilotSidebar } from "./copilot-sidebar";
 import { CopilotSidebarProvider } from "./copilot-sidebar-context";
@@ -150,26 +151,28 @@ export function AppShell({
               </div>
               <div className="member-context-item" data-tone="attention">
                 <KneeIcon className="member-context-icon" />
-                <span>
-                  {formatInjury(injury)} · {formatStat("Sleep", sleep)}
-                </span>
+                <span>{formatInjury(injury)}</span>
                 {memberSnapshot === null ? null : (
                   <JourneyStageChip journeyStage={memberSnapshot.journey_stage} />
                 )}
               </div>
               <div className="member-context-item" data-tone="attention">
                 <DumbbellIcon className="member-context-icon" />
-                <span>No barbell · {formatStat("Sessions", sessions)}</span>
+                <span>No barbell</span>
               </div>
-              <div className="member-context-item" data-tone="attention">
+              <div className="member-context-item" data-tone="snapshot">
                 <TrendIcon className="member-context-icon" />
-                <span>{formatAdherence(adherence)}</span>
+                <div className="member-context-stats">
+                  <span>{formatAdherence(adherence)}</span>
+                  <span>{formatStat("Sleep", sleep)}</span>
+                  <span>{formatStat("Sessions", sessions)}</span>
+                  <span>{formatStat("Churn risk", churnRisk)}</span>
+                </div>
               </div>
               <div className="member-context-item" data-tone="goal">
                 <GoalIcon className="member-context-icon" />
                 <span>
-                  {goal === null ? "Goal unavailable" : `Goal · ${goal.text}`} ·{" "}
-                  {formatStat("Churn risk", churnRisk)}
+                  {goal === null ? "Goal unavailable" : `Goal · ${goal.text}`}
                 </span>
               </div>
             </div>
@@ -250,15 +253,6 @@ export function AppShell({
       </Dialog.Root>
     </CopilotSidebarProvider>
   );
-}
-
-function formatInjury(
-  injury: MemberSnapshotPart["identity"]["injury"],
-): string {
-  if (injury === null) {
-    return "No active MemberInjury";
-  }
-  return [injury.region, injury.finding, injury.status].filter(Boolean).join(" · ");
 }
 
 function formatAdherence(

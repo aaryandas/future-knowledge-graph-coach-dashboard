@@ -1,7 +1,17 @@
 "use client";
 
-import { useState, type DragEvent, type KeyboardEvent } from "react";
-import type { DataPlanPart, MemberSnapshotPart } from "@/lib/parts";
+import {
+  Fragment,
+  useState,
+  type DragEvent,
+  type KeyboardEvent,
+} from "react";
+import type {
+  DataPlanPart,
+  MemberSnapshotPart,
+  PlanSectionName,
+  Verdict,
+} from "@/lib/parts";
 import { useCopilotSidebar } from "./copilot-sidebar-context";
 import {
   GripIcon,
@@ -13,6 +23,9 @@ import {
 
 interface PlanEntry {
   id: string;
+  section: PlanSectionName | null;
+  sectionMinutes: number | null;
+  verdict: Verdict | null;
   exercise: string;
   sets: string;
   reps: string;
@@ -21,8 +34,73 @@ interface PlanEntry {
   notes: string;
 }
 
+type EditablePlanEntryField =
+  | "exercise"
+  | "sets"
+  | "reps"
+  | "load"
+  | "rest"
+  | "notes";
+
+const seededPlanEntries: PlanEntry[] = [
+  {
+    id: "box-squat",
+    section: null,
+    sectionMinutes: null,
+    verdict: null,
+    exercise: "Box squat",
+    sets: "3",
+    reps: "8",
+    load: "Bodyweight",
+    rest: "90s",
+    notes: "Comfortable range",
+  },
+  {
+    id: "supported-split-squat",
+    section: null,
+    sectionMinutes: null,
+    verdict: null,
+    exercise: "Supported split squat",
+    sets: "3",
+    reps: "8 per side",
+    load: "—",
+    rest: "90s",
+    notes: "Use support",
+  },
+  {
+    id: "seated-hamstring-curl",
+    section: null,
+    sectionMinutes: null,
+    verdict: null,
+    exercise: "Seated hamstring curl",
+    sets: "3",
+    reps: "12",
+    load: "Light",
+    rest: "60s",
+    notes: "Smooth control",
+  },
+  {
+    id: "bike",
+    section: null,
+    sectionMinutes: null,
+    verdict: null,
+    exercise: "Bike",
+    sets: "1",
+    reps: "10 min",
+    load: "Easy",
+    rest: "—",
+    notes: "Easy pace",
+  },
+];
+
+const verdictLabels: Record<Verdict, string> = {
+  clear: "Clear",
+  caution: "Caution",
+  exclude: "Exclude",
+};
+
 const planEntryFields: ReadonlyArray<{
-  key: keyof Omit<PlanEntry, "id">;
+  key: EditablePlanEntryField;
   label: string;
 }> = [
   { key: "exercise", label: "Exercise" },
@@ -61,7 +139,7 @@ export function MemberDashboard({
 
   function updatePlanEntry(
     id: string,
-    key: keyof Omit<PlanEntry, "id">,
+    key: EditablePlanEntryField,
     value: string,
   ) {
     setPlanEntries((current) =>
@@ -80,18 +158,24 @@ export function MemberDashboard({
 
   function addPlanEntry() {
     const id = `plan-entry-${Date.now()}`;
-    setPlanEntries((current) => [
-      ...current,
-      {
-        id,
-        exercise: "New exercise",
-        sets: "",
-        reps: "",
-        load: "—",
-        rest: "",
-        notes: "",
-      },
-    ]);
+    setPlanEntries((current) => {
+      const lastEntry = current.at(-1);
+      return [
+        ...current,
+        {
+          id,
+          section: lastEntry?.section ?? null,
+          sectionMinutes: lastEntry?.sectionMinutes ?? null,
+          verdict: null,
+          exercise: "New exercise",
+          sets: "",
+          reps: "",
+          load: "—",
+          rest: "",
+          notes: "",
+        },
+      ];
+    });
     setEditingId(id);
     setConfirmed(false);
   }
@@ -168,9 +252,17 @@ export function MemberDashboard({
 
       <section className="session-card" aria-labelledby="session-title">
         <div className="session-card-body">
-          <h2 id="session-title" className="display-title session-title">
-            Today’s session
-          </h2>
+          <div className="session-heading">
+            <h2 id="session-title" className="display-title session-title">
+              Today’s session
+            </h2>
+            {planPart === null ? null : (
+              <div className="session-plan-timing" aria-label="Session timing">
+                <strong>{formatMinutes(planPart.data.packed_minutes)} packed</strong>
+                <span>{formatMinutes(planPart.data.requested_minutes)} requested</span>
+              </div>
+            )}
+          </div>
 
           <div
             className="session-table"
@@ -190,82 +282,114 @@ export function MemberDashboard({
             </div>
 
             <div className="session-table-body" role="rowgroup">
-              {planEntries.map((entry) => {
+              {planEntries.map((entry, index) => {
                 const editing = entry.id === editingId;
+                const section = entry.section;
+                const startsSection =
+                  section !== null &&
+                  planEntries[index - 1]?.section !== section;
                 return (
-                  <div
-                    key={entry.id}
-                    className="session-row"
-                    role="row"
-                    data-dragging={draggingId === entry.id}
-                    data-editing={editing}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => handleDrop(event, entry.id)}
-                  >
-                    <button
-                      type="button"
-                      className="row-grabber"
-                      draggable={!editing}
-                      aria-label={`Move ${entry.exercise}. Use arrow keys to reorder.`}
-                      onDragStart={(event) => {
-                        setDraggingId(entry.id);
-                        event.dataTransfer.setData("text/plain", entry.id);
-                        event.dataTransfer.effectAllowed = "move";
-                      }}
-                      onDragEnd={() => setDraggingId(null)}
-                      onKeyDown={(event) => handleReorderKey(event, entry.id)}
-                    >
-                      <GripIcon className="size-5" />
-                    </button>
-
-                    {planEntryFields.map(({ key, label }) => (
-                      <div
-                        key={key}
-                        className="session-cell"
-                        role="cell"
-                        data-label={label}
-                      >
-                        {editing ? (
-                          <input
-                            aria-label={`${label} for ${entry.exercise}`}
-                            value={entry[key]}
-                            onChange={(event) =>
-                              updatePlanEntry(entry.id, key, event.target.value)
-                            }
-                          />
-                        ) : (
-                          entry[key]
-                        )}
+                  <Fragment key={entry.id}>
+                    {startsSection && section !== null ? (
+                      <div className="session-section-row" role="row">
+                        <div
+                          className="session-section-label"
+                          role="cell"
+                          aria-colspan={8}
+                        >
+                          <h3>{sectionLabel(section)}</h3>
+                          {entry.sectionMinutes === null ? null : (
+                            <span>{formatMinutes(entry.sectionMinutes)}</span>
+                          )}
+                        </div>
                       </div>
-                    ))}
+                    ) : null}
+                    <div
+                      className="session-row"
+                      role="row"
+                      data-dragging={draggingId === entry.id}
+                      data-editing={editing}
+                      data-verdict={entry.verdict ?? undefined}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => handleDrop(event, entry.id)}
+                    >
+                      <button
+                        type="button"
+                        className="row-grabber"
+                        draggable={!editing}
+                        aria-label={`Move ${entry.exercise}. Use arrow keys to reorder.`}
+                        onDragStart={(event) => {
+                          setDraggingId(entry.id);
+                          event.dataTransfer.setData("text/plain", entry.id);
+                          event.dataTransfer.effectAllowed = "move";
+                        }}
+                        onDragEnd={() => setDraggingId(null)}
+                        onKeyDown={(event) => handleReorderKey(event, entry.id)}
+                      >
+                        <GripIcon className="size-5" />
+                      </button>
 
-                    <div className="session-row-actions" role="cell">
-                      <button
-                        type="button"
-                        className="row-action"
-                        aria-label={
-                          editing
-                            ? `Finish editing ${entry.exercise}`
-                            : `Edit ${entry.exercise}`
-                        }
-                        onClick={() => setEditingId(editing ? null : entry.id)}
-                      >
-                        {editing ? (
-                          <span>Done</span>
-                        ) : (
-                          <PencilIcon className="size-[18px]" />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        className="row-action"
-                        aria-label={`Remove ${entry.exercise}`}
-                        onClick={() => removePlanEntry(entry.id)}
-                      >
-                        <TrashIcon className="size-[18px]" />
-                      </button>
+                      {planEntryFields.map(({ key, label }) => (
+                        <div
+                          key={key}
+                          className={
+                            key === "exercise"
+                              ? "session-cell session-exercise-cell"
+                              : "session-cell"
+                          }
+                          role="cell"
+                          data-label={label}
+                        >
+                          {key === "exercise" && entry.verdict !== null ? (
+                            <span
+                              className="session-verdict"
+                              data-verdict={entry.verdict}
+                            >
+                              {verdictLabels[entry.verdict]}
+                            </span>
+                          ) : null}
+                          {editing ? (
+                            <input
+                              aria-label={`${label} for ${entry.exercise}`}
+                              value={entry[key]}
+                              onChange={(event) =>
+                                updatePlanEntry(entry.id, key, event.target.value)
+                              }
+                            />
+                          ) : (
+                            <span>{entry[key]}</span>
+                          )}
+                        </div>
+                      ))}
+
+                      <div className="session-row-actions" role="cell">
+                        <button
+                          type="button"
+                          className="row-action"
+                          aria-label={
+                            editing
+                              ? `Finish editing ${entry.exercise}`
+                              : `Edit ${entry.exercise}`
+                          }
+                          onClick={() => setEditingId(editing ? null : entry.id)}
+                        >
+                          {editing ? (
+                            <span>Done</span>
+                          ) : (
+                            <PencilIcon className="size-[18px]" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          className="row-action"
+                          aria-label={`Remove ${entry.exercise}`}
+                          onClick={() => removePlanEntry(entry.id)}
+                        >
+                          <TrashIcon className="size-[18px]" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  </Fragment>
                 );
               })}
             </div>
@@ -297,12 +421,15 @@ export function MemberDashboard({
 
 function planEntriesFromPart(part: DataPlanPart | null): PlanEntry[] {
   if (part === null) {
-    return [];
+    return seededPlanEntries;
   }
   const sections = [part.data.warm_up, part.data.main, part.data.cool_down];
-  return sections.flatMap(({ entries, section }) =>
+  return sections.flatMap(({ entries, minutes, section }) =>
     entries.map((entry, index) => ({
       id: `${section}:${entry.exercise_id}:${index}`,
+      section,
+      sectionMinutes: minutes,
+      verdict: entry.verdict,
       exercise: entry.name,
       sets: String(entry.sets),
       reps:
@@ -314,6 +441,16 @@ function planEntriesFromPart(part: DataPlanPart | null): PlanEntry[] {
       notes: entry.caution_note ?? "",
     })),
   );
+}
+
+function sectionLabel(section: PlanSectionName): string {
+  if (section === "warm-up") {
+    return "Warm-up";
+  }
+  if (section === "cool-down") {
+    return "Cool-down";
+  }
+  return "Main";
 }
 
 function formatMinutes(value: number | null): string {
