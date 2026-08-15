@@ -751,11 +751,27 @@ input:focus-visible {
 }
 
 .generation-candidates li {
+  display: contents;
+}
+
+.generation-candidates button {
   padding: 3px 7px;
   color: var(--foreground-muted);
   background: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: 999px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.generation-candidates button:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.generation-candidates button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .persistence-suggestion {
@@ -849,7 +865,7 @@ input:focus-visible {
 }
 
 .session-table {
-  --session-columns: 38px minmax(155px, 1.65fr) 0.55fr 0.75fr 0.9fr 0.66fr 1.34fr 82px;
+  --session-columns: 38px minmax(0, 1fr) auto;
   width: 100%;
 }
 
@@ -869,6 +885,11 @@ input:focus-visible {
   border-bottom: 1px solid var(--border);
   color: var(--foreground);
   font-size: 14px;
+}
+
+.session-table-header > span:last-child {
+  padding-right: 6px;
+  text-align: right;
 }
 
 .session-row {
@@ -901,7 +922,7 @@ input:focus-visible {
   align-items: baseline;
   justify-content: space-between;
   gap: 16px;
-  padding: 9px 82px 9px 48px;
+  padding: 9px 245px 9px 48px;
 }
 
 .session-section-label h3,
@@ -951,48 +972,44 @@ input:focus-visible {
   background: var(--accent-muted);
 }
 
-.session-cell {
+.session-entry {
   min-width: 0;
-  padding: 8px 10px;
+  padding: 13px 12px;
+}
+
+.session-table[data-generated-plan="false"] .session-entry {
+  padding-inline: 0;
+  color: var(--foreground);
+  font-size: 15px;
+}
+
+.session-entry > strong,
+.session-entry-title strong {
+  display: block;
+  min-width: 0;
   overflow: hidden;
-  color: var(--foreground-muted);
-  font-size: 14px;
+  color: var(--foreground);
+  font-size: 15px;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.session-row > .session-cell:nth-child(2) {
-  color: var(--foreground);
-  font-size: 15px;
-}
-
-.session-table[data-generated-plan="false"] .session-exercise-cell {
-  color: var(--foreground);
-  font-size: 15px;
-}
-
-.session-exercise-cell {
+.session-entry-title {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.session-exercise-cell > span:last-child {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .session-verdict {
-  flex: 0 0 auto;
-  padding: 3px 6px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  place-items: center;
   color: var(--success);
   background: var(--success-muted);
-  border-radius: 999px;
-  font-size: 9px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  line-height: 1;
+  border-radius: 50%;
 }
 
 .session-verdict[data-verdict="caution"] {
@@ -1005,7 +1022,36 @@ input:focus-visible {
   background: var(--danger-muted);
 }
 
-.session-cell input {
+.session-dose,
+.session-caution-note {
+  margin: 5px 0 0 32px;
+  color: var(--foreground-subtle);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.session-caution-note {
+  color: var(--warning);
+}
+
+.session-dose-editor {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(100px, 1fr));
+  gap: 8px;
+  margin: 9px 0 0 32px;
+}
+
+.session-dose-editor label {
+  display: grid;
+  gap: 4px;
+}
+
+.session-dose-editor label > span {
+  color: var(--foreground-subtle);
+  font-size: 10px;
+}
+
+.session-dose-editor input {
   width: 100%;
   min-width: 0;
   padding: 8px 9px;
@@ -1016,7 +1062,7 @@ input:focus-visible {
   outline: none;
 }
 
-.session-cell input:focus {
+.session-dose-editor input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 11%, transparent);
 }
@@ -1025,12 +1071,42 @@ input:focus-visible {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 6px;
+  padding-left: 12px;
 }
 
 .row-action {
   min-width: 30px;
   height: 34px;
+}
+
+.session-adjustment {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--accent-border);
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.session-adjustment:hover:not(:disabled) {
+  background: var(--accent-muted);
+  border-color: var(--accent);
+}
+
+.session-adjustment:disabled {
+  color: var(--foreground-subtle);
+  border-color: var(--border);
+  cursor: not-allowed;
+  opacity: 0.72;
 }
 
 .row-action span {
@@ -1101,6 +1177,61 @@ input:focus-visible {
   background: var(--success);
   border-color: var(--success);
   cursor: default;
+}
+
+.why-plan-card {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.3fr) minmax(0, 1fr);
+  gap: 28px;
+  margin-top: 16px;
+  padding: 24px 28px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.why-plan-card h2 {
+  margin: 0;
+  font-size: 29px;
+  line-height: 1.05;
+}
+
+.why-plan-card ul {
+  display: grid;
+  gap: 11px;
+  margin: 0;
+  padding: 1px 0;
+  list-style: none;
+}
+
+.why-plan-card li {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+}
+
+.why-plan-card li p,
+.why-plan-empty {
+  margin: 0;
+  color: var(--foreground-muted);
+  line-height: 1.45;
+}
+
+.why-plan-marker {
+  width: 8px;
+  height: 8px;
+  background: var(--foreground-subtle);
+  border-radius: 50%;
+}
+
+.why-plan-card li[data-kind="replaced"] .why-plan-marker {
+  background: var(--accent);
+}
+
+.why-plan-card li[data-kind="capped"] .why-plan-marker,
+.why-plan-card li[data-kind="unrecognized"] .why-plan-marker {
+  background: var(--warning);
 }
 
 .members-page,
@@ -2794,17 +2925,12 @@ input:focus-visible {
   }
 
   .session-section-label {
-    padding-right: 72px;
+    padding-right: 229px;
     padding-left: 41px;
   }
 
   .session-table {
-    --session-columns: 34px minmax(140px, 1.5fr) 0.45fr 0.72fr 0.8fr 0.6fr 1.1fr 72px;
-  }
-
-  .session-cell {
-    padding-inline: 7px;
-    font-size: 13px;
+    --session-columns: 34px minmax(0, 1fr) auto;
   }
 
   .copilot-pane-inner {
@@ -3089,7 +3215,7 @@ input:focus-visible {
     position: relative;
     min-height: 0;
     align-items: start;
-    grid-template-columns: 28px repeat(3, minmax(0, 1fr)) 64px;
+    grid-template-columns: 28px minmax(0, 1fr);
     padding: 12px 0;
   }
 
@@ -3097,61 +3223,26 @@ input:focus-visible {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .session-table[data-generated-plan="false"] .session-cell::before {
-    display: none;
-  }
-
   .session-section-label {
-    padding-inline: 36px 64px;
+    padding-inline: 36px 0;
   }
 
-  .session-cell {
-    display: block;
-    padding: 6px 8px;
-    white-space: normal;
+  .session-entry {
+    padding: 4px 8px 7px;
   }
 
-  .session-exercise-cell {
-    display: flex;
+  .session-table[data-generated-plan="false"] .session-entry {
+    padding-inline: 0;
   }
 
-  .session-cell::before {
-    display: block;
-    margin-bottom: 3px;
-    color: var(--foreground-subtle);
-    content: attr(data-label);
-    font-size: 10px;
+  .session-dose,
+  .session-caution-note,
+  .session-dose-editor {
+    margin-left: 32px;
   }
 
-  .session-row > .session-cell:nth-child(2) {
-    grid-column: 2 / 5;
-    grid-row: 1;
-    font-size: 15px;
-    font-weight: 500;
-  }
-
-  .session-row > .session-cell:nth-child(2)::before {
-    display: none;
-  }
-
-  .session-row > .session-cell:nth-child(3) {
-    grid-column: 2;
-  }
-
-  .session-row > .session-cell:nth-child(4) {
-    grid-column: 3;
-  }
-
-  .session-row > .session-cell:nth-child(5) {
-    grid-column: 4;
-  }
-
-  .session-row > .session-cell:nth-child(6) {
-    grid-column: 2;
-  }
-
-  .session-row > .session-cell:nth-child(7) {
-    grid-column: 3 / 5;
+  .session-dose-editor {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .row-grabber {
@@ -3160,10 +3251,24 @@ input:focus-visible {
   }
 
   .session-row-actions {
-    grid-column: 5;
-    grid-row: 1;
-    align-self: start;
-    gap: 2px;
+    grid-column: 2;
+    justify-content: flex-start;
+    gap: 6px;
+    padding: 5px 8px 0 40px;
+  }
+
+  .session-adjustment {
+    min-height: 36px;
+  }
+
+  .why-plan-card {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 17px;
+    padding: 20px 16px;
+  }
+
+  .why-plan-card h2 {
+    font-size: 27px;
   }
 
   .add-exercise {

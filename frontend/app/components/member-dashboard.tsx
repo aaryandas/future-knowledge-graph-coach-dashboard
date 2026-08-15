@@ -15,12 +15,15 @@ import type {
 import { useCopilotSidebar } from "./copilot-sidebar-context";
 import { GenerationNotices } from "./generation-notices";
 import {
+  AdjustIcon,
   GripIcon,
   PencilIcon,
   PlusIcon,
+  ShieldIcon,
   StarIcon,
   TrashIcon,
 } from "./icons";
+import { WhyThisPlan } from "./why-this-plan";
 
 interface PlanEntry {
   id: string;
@@ -30,18 +33,11 @@ interface PlanEntry {
   exercise: string;
   sets: string;
   reps: string;
-  load: string;
   rest: string;
   notes: string;
 }
 
-type EditablePlanEntryField =
-  | "exercise"
-  | "sets"
-  | "reps"
-  | "load"
-  | "rest"
-  | "notes";
+type EditableDoseField = "sets" | "reps" | "rest";
 
 const verdictLabels: Record<Verdict, string> = {
   clear: "Clear",
@@ -49,24 +45,19 @@ const verdictLabels: Record<Verdict, string> = {
   exclude: "Exclude",
 };
 
-const planEntryFields: ReadonlyArray<{
-  key: EditablePlanEntryField;
-  label: string;
-}> = [
-  { key: "exercise", label: "Exercise" },
-  { key: "sets", label: "Sets" },
-  { key: "reps", label: "Reps" },
-  { key: "load", label: "Load" },
-  { key: "rest", label: "Rest" },
-  { key: "notes", label: "Notes" },
-];
-
 export function MemberDashboard({
   part,
 }: {
   part: MemberSnapshotPart | null;
 }) {
-  const { planPart, constraintsPart, prefillMessage } = useCopilotSidebar();
+  const {
+    planPart,
+    tracePart,
+    constraintsPart,
+    adjustmentBusy,
+    prefillMessage,
+    submitAdjustment,
+  } = useCopilotSidebar();
   const [planEntries, setPlanEntries] = useState<PlanEntry[]>(() =>
     planEntriesFromPart(planPart),
   );
@@ -97,7 +88,7 @@ export function MemberDashboard({
 
   function updatePlanEntry(
     id: string,
-    key: EditablePlanEntryField,
+    key: EditableDoseField,
     value: string,
   ) {
     setPlanEntries((current) =>
@@ -128,7 +119,6 @@ export function MemberDashboard({
           exercise: "New exercise",
           sets: "",
           reps: "",
-          load: "—",
           rest: "",
           notes: "",
         },
@@ -184,6 +174,17 @@ export function MemberDashboard({
     }
   }
 
+  function applyDose(entry: PlanEntry) {
+    submitAdjustment(composeEditDoseAdjustment(entry));
+    setEditingId(null);
+    setConfirmed(false);
+  }
+
+  function swapExercise(entry: PlanEntry) {
+    submitAdjustment(composeSwapAdjustment(entry));
+    setConfirmed(false);
+  }
+
   return (
     <div className="member-dashboard workspace-enter">
       <section className="morning-brief" aria-labelledby="morning-brief-title">
@@ -208,7 +209,11 @@ export function MemberDashboard({
         </button>
       </section>
 
-      <GenerationNotices part={constraintsPart} />
+      <GenerationNotices
+        part={constraintsPart}
+        adjustmentBusy={adjustmentBusy}
+        onSubmitAdjustment={submitAdjustment}
+      />
 
       <section
         className="session-card"
@@ -241,18 +246,10 @@ export function MemberDashboard({
           >
             <div className="session-table-header" role="row">
               {hasGeneratedPlan ? <span aria-hidden="true" /> : null}
-              {planEntryFields
-                .filter(({ key }) => hasGeneratedPlan || key === "exercise")
-                .map(({ label }) => (
-                <span key={label} role="columnheader">
-                  {label}
-                </span>
-              ))}
-              {hasGeneratedPlan ? (
-                <span className="sr-only" role="columnheader">
-                  Actions
-                </span>
-              ) : null}
+              <span role="columnheader">
+                {hasGeneratedPlan ? "Exercise and dose" : "Exercise"}
+              </span>
+              {hasGeneratedPlan ? <span role="columnheader">Actions</span> : null}
             </div>
 
             <div className="session-table-body" role="rowgroup">
@@ -269,7 +266,7 @@ export function MemberDashboard({
                         <div
                           className="session-section-label"
                           role="cell"
-                          aria-colspan={8}
+                          aria-colspan={3}
                         >
                           <h3>{sectionLabel(section)}</h3>
                           {entry.sectionMinutes === null ? null : (
@@ -288,86 +285,109 @@ export function MemberDashboard({
                       onDrop={(event) => handleDrop(event, entry.id)}
                     >
                       {hasGeneratedPlan ? (
-                        <button
-                          type="button"
-                          className="row-grabber"
-                          draggable={!editing}
-                          aria-label={`Move ${entry.exercise}. Use arrow keys to reorder.`}
-                          onDragStart={(event) => {
-                            setDraggingId(entry.id);
-                            event.dataTransfer.setData("text/plain", entry.id);
-                            event.dataTransfer.effectAllowed = "move";
-                          }}
-                          onDragEnd={() => setDraggingId(null)}
-                          onKeyDown={(event) => handleReorderKey(event, entry.id)}
-                        >
-                          <GripIcon className="size-5" />
-                        </button>
-                      ) : null}
-
-                      {planEntryFields
-                        .filter(({ key }) => hasGeneratedPlan || key === "exercise")
-                        .map(({ key, label }) => (
-                          <div
-                            key={key}
-                            className={
-                              key === "exercise"
-                                ? "session-cell session-exercise-cell"
-                                : "session-cell"
-                            }
-                            role="cell"
-                            data-label={label}
+                        <>
+                          <button
+                            type="button"
+                            className="row-grabber"
+                            draggable={!editing}
+                            aria-label={`Move ${entry.exercise}. Use arrow keys to reorder.`}
+                            onDragStart={(event) => {
+                              setDraggingId(entry.id);
+                              event.dataTransfer.setData("text/plain", entry.id);
+                              event.dataTransfer.effectAllowed = "move";
+                            }}
+                            onDragEnd={() => setDraggingId(null)}
+                            onKeyDown={(event) => handleReorderKey(event, entry.id)}
                           >
-                            {key === "exercise" && entry.verdict !== null ? (
-                              <span
-                                className="session-verdict"
-                                data-verdict={entry.verdict}
-                              >
-                                {verdictLabels[entry.verdict]}
-                              </span>
-                            ) : null}
+                            <GripIcon className="size-5" />
+                          </button>
+
+                          <div className="session-entry" role="cell">
+                            <div className="session-entry-title">
+                              {entry.verdict === null ? null : (
+                                <span
+                                  className="session-verdict"
+                                  data-verdict={entry.verdict}
+                                  title={`${verdictLabels[entry.verdict]} verdict`}
+                                >
+                                  <ShieldIcon className="size-4" />
+                                  <span className="sr-only">
+                                    {verdictLabels[entry.verdict]} verdict
+                                  </span>
+                                </span>
+                              )}
+                              <strong>{entry.exercise}</strong>
+                            </div>
+
                             {editing ? (
-                              <input
-                                aria-label={`${label} for ${entry.exercise}`}
-                                value={entry[key]}
-                                onChange={(event) =>
-                                  updatePlanEntry(entry.id, key, event.target.value)
-                                }
-                              />
+                              <div className="session-dose-editor">
+                                {(["sets", "reps", "rest"] as const).map(
+                                  (field) => (
+                                    <label key={field}>
+                                      <span>{doseFieldLabel(field)}</span>
+                                      <input
+                                        aria-label={`${doseFieldLabel(field)} for ${entry.exercise}`}
+                                        value={entry[field]}
+                                        onChange={(event) =>
+                                          updatePlanEntry(
+                                            entry.id,
+                                            field,
+                                            event.target.value,
+                                          )
+                                        }
+                                      />
+                                    </label>
+                                  ),
+                                )}
+                              </div>
                             ) : (
-                              <span>{entry[key]}</span>
+                              <p className="session-dose">{formatDose(entry)}</p>
+                            )}
+                            {entry.notes === "" ? null : (
+                              <p className="session-caution-note">
+                                {entry.notes}
+                              </p>
                             )}
                           </div>
-                        ))}
 
-                      {hasGeneratedPlan ? (
-                        <div className="session-row-actions" role="cell">
-                          <button
-                            type="button"
-                            className="row-action"
-                            aria-label={
-                              editing
-                                ? `Finish editing ${entry.exercise}`
-                                : `Edit ${entry.exercise}`
-                            }
-                            onClick={() => setEditingId(editing ? null : entry.id)}
-                          >
-                            {editing ? (
-                              <span>Done</span>
-                            ) : (
-                              <PencilIcon className="size-[18px]" />
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            className="row-action"
-                            aria-label={`Remove ${entry.exercise}`}
-                            onClick={() => removePlanEntry(entry.id)}
-                          >
-                            <TrashIcon className="size-[18px]" />
-                          </button>
+                          <div className="session-row-actions" role="cell">
+                            <button
+                              type="button"
+                              className="session-adjustment"
+                              disabled={adjustmentBusy}
+                              onClick={() =>
+                                editing
+                                  ? applyDose(entry)
+                                  : setEditingId(entry.id)
+                              }
+                            >
+                              <PencilIcon className="size-4" />
+                              {editing ? "Apply dose" : "Edit dose"}
+                            </button>
+                            <button
+                              type="button"
+                              className="session-adjustment"
+                              disabled={adjustmentBusy || editing}
+                              onClick={() => swapExercise(entry)}
+                            >
+                              <AdjustIcon className="size-4" />
+                              Swap
+                            </button>
+                            <button
+                              type="button"
+                              className="row-action"
+                              aria-label={`Remove ${entry.exercise}`}
+                              onClick={() => removePlanEntry(entry.id)}
+                            >
+                              <TrashIcon className="size-[18px]" />
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="session-entry" role="cell">
+                          <strong>{entry.exercise}</strong>
                         </div>
-                      ) : null}
+                      )}
                     </div>
                   </Fragment>
                 );
@@ -399,6 +419,12 @@ export function MemberDashboard({
           </footer>
         ) : null}
       </section>
+
+      <WhyThisPlan
+        planPart={planPart}
+        tracePart={tracePart}
+        constraintsPart={constraintsPart}
+      />
     </div>
   );
 }
@@ -418,9 +444,8 @@ function planEntriesFromPart(part: DataPlanPart | null): PlanEntry[] {
       sets: String(entry.sets),
       reps:
         entry.reps === null
-          ? formatMinutes(entry.hold_minutes)
-          : `${entry.reps}${entry.per_side ? " per side" : ""}`,
-      load: entry.supports_weight ? "Weighted" : "Bodyweight",
+          ? `${formatMinutes(entry.hold_minutes)} hold${entry.per_side ? " per side" : ""}`
+          : `${entry.reps} reps${entry.per_side ? " per side" : ""}`,
       rest: formatMinutes(entry.rest_minutes),
       notes: entry.caution_note ?? "",
     })),
@@ -436,10 +461,35 @@ function sessionEntriesFromSnapshot(part: MemberSnapshotPart | null): PlanEntry[
     exercise,
     sets: "",
     reps: "",
-    load: "",
     rest: "",
     notes: "",
   }));
+}
+
+export function composeEditDoseAdjustment(
+  entry: Pick<PlanEntry, "exercise" | "sets" | "reps" | "rest">,
+): string {
+  return `Adjust ${entry.exercise} to ${entry.sets} sets, ${entry.reps}, with ${entry.rest} rest.`;
+}
+
+export function composeSwapAdjustment(
+  entry: Pick<PlanEntry, "exercise" | "section">,
+): string {
+  if (entry.section === null) {
+    return `Swap ${entry.exercise} for a suitable alternative.`;
+  }
+  return `Swap ${entry.exercise} for a suitable alternative in the ${sectionLabel(entry.section)} section.`;
+}
+
+function formatDose(entry: PlanEntry): string {
+  return `${entry.sets} ${entry.sets === "1" ? "set" : "sets"} · ${entry.reps} · ${entry.rest} rest`;
+}
+
+function doseFieldLabel(field: EditableDoseField): string {
+  if (field === "reps") {
+    return "Reps or hold";
+  }
+  return field[0]?.toUpperCase() + field.slice(1);
 }
 
 function sectionLabel(section: PlanSectionName): string {

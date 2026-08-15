@@ -185,9 +185,12 @@ function renderSidebar(initialMessages: DashboardMessage[]) {
       composerRef={createRef<HTMLInputElement>()}
       hasPlan={false}
       initialMessages={initialMessages}
+      onBusyChange={vi.fn()}
       onComposerChange={vi.fn()}
       onConstraints={vi.fn()}
       onPlan={vi.fn()}
+      onSubmitterChange={vi.fn()}
+      onTrace={vi.fn()}
     />,
   );
 }
