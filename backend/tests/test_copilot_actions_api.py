@@ -71,6 +71,13 @@ def test_confirm_route_resumes_the_member_thread_with_the_edited_action() -> Non
         "finish-step",
         "finish",
     ]
+    action_event = next(
+        event for event in _events(response.text) if event["type"] == "data-action"
+    )
+    action_data = action_event["data"]
+    assert isinstance(action_data, dict)
+    assert action_data["actor"] == "coach-1"
+    assert action_data["timestamp"] == "2026-06-04T09:00:00+00:00"
 
 
 def test_confirm_route_maps_a_non_pending_action_to_conflict() -> None:
@@ -145,6 +152,10 @@ def _action_part(
                 "message": message,
                 "coach_task_id": "task-1",
             },
+            "actor": "coach-1" if status == "confirmed" else None,
+            "timestamp": (
+                "2026-06-04T09:00:00+00:00" if status == "confirmed" else None
+            ),
         },
     )
 

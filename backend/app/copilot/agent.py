@@ -529,7 +529,15 @@ def _build_graph(
         result = action_writer(member_id, decision.action)
         if result.status == "target-not-found":
             return {
-                "messages": [_coach_action_message(decision.action, "failed", sources)],
+                "messages": [
+                    _coach_action_message(
+                        decision.action,
+                        "failed",
+                        sources,
+                        actor=result.actor,
+                        timestamp=result.timestamp,
+                    )
+                ],
                 "pending_action": None,
             }
         return {
@@ -539,6 +547,8 @@ def _build_graph(
                     "confirmed",
                     sources,
                     morning_brief=result.morning_brief,
+                    actor=result.actor,
+                    timestamp=result.timestamp,
                 )
             ],
             "pending_action": None,
@@ -725,6 +735,8 @@ def _coach_action_message(
     sources: tuple[CopilotSource, ...],
     *,
     morning_brief: MorningBrief | None = None,
+    actor: str | None = None,
+    timestamp: str | None = None,
 ) -> AIMessage:
     if status == "pending":
         text = "Review this proposed coach action."
@@ -748,10 +760,14 @@ def _coach_action_message(
                 data=_json_value(asdict(morning_brief_data(morning_brief))),
             )
         )
+    action_payload = coach_action_payload(action, status)
+    if timestamp is not None:
+        action_payload["actor"] = actor
+        action_payload["timestamp"] = timestamp
     parts.append(
         CopilotDataPart(
             type="data-action",
-            data=_json_value(coach_action_payload(action, status)),
+            data=_json_value(action_payload),
         )
     )
     data_parts = _ordered_data_parts(tuple(parts))

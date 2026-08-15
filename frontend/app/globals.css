@@ -1497,6 +1497,54 @@ input:focus-visible {
   white-space: pre-wrap;
 }
 
+.coach-action-editor,
+.coach-action-task-editor {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.coach-action-task-editor {
+  grid-template-columns: minmax(0, 1fr) minmax(92px, 0.38fr);
+  border-top: 1px solid var(--border);
+}
+
+.coach-action-editor > span,
+.coach-action-task-editor label {
+  display: grid;
+  gap: 6px;
+  color: var(--foreground-subtle);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.coach-action-editor textarea,
+.coach-action-task-editor input,
+.coach-action-task-editor select {
+  width: 100%;
+  padding: 9px 10px;
+  color: var(--foreground);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.coach-action-editor textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.coach-action-editor textarea:focus-visible,
+.coach-action-task-editor input:focus-visible,
+.coach-action-task-editor select:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  outline-offset: 1px;
+}
+
 .coach-action-task-diff > p,
 .coach-action-plan-id {
   display: grid;
@@ -1602,10 +1650,67 @@ input:focus-visible {
   font-size: 11px;
 }
 
+.coach-action-session-edit {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 12px 14px;
+  color: var(--foreground-muted);
+  background: var(--surface-raised);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.coach-action-session-edit a {
+  width: fit-content;
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.coach-action-session-edit a:hover {
+  text-decoration: underline;
+}
+
+.coach-action-execution {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  border-top: 1px solid var(--border);
+}
+
+.coach-action-execution > div {
+  min-width: 0;
+  padding: 10px 14px;
+}
+
+.coach-action-execution > div + div {
+  border-left: 1px solid var(--border);
+}
+
+.coach-action-execution dt {
+  color: var(--foreground-subtle);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.coach-action-execution dd {
+  margin: 3px 0 0;
+  color: var(--foreground-muted);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
 .coach-action-controls {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   border-top: 1px solid var(--border-strong);
+}
+
+.coach-action-card[data-action-kind="write-session-plan"]
+  .coach-action-controls {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .coach-action-controls button {
@@ -1626,6 +1731,16 @@ input:focus-visible {
   background: var(--surface-hover);
 }
 
+.coach-action-controls button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.coach-action-controls button:disabled:hover {
+  color: var(--foreground-muted);
+  background: var(--surface);
+}
+
 .coach-action-controls .coach-action-confirm {
   color: var(--surface);
   background: var(--foreground);
@@ -1635,6 +1750,20 @@ input:focus-visible {
 .coach-action-controls .coach-action-confirm:hover {
   color: var(--surface);
   background: var(--session-action-hover);
+}
+
+.coach-action-controls .coach-action-confirm:disabled:hover {
+  color: var(--surface);
+  background: var(--foreground);
+}
+
+.coach-action-error {
+  margin: 0;
+  padding: 9px 14px;
+  color: var(--danger);
+  background: var(--danger-muted);
+  border-top: 1px solid var(--border);
+  font-size: 10px;
 }
 
 .copilot-workspace .copilot-log {
