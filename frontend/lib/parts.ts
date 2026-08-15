@@ -425,11 +425,81 @@ export interface UpdateBriefTask {
   text?: string | null;
 }
 
-export type CoachAction = SendMemberMessage | UpdateBriefTask;
+export interface SessionPlanActionRow {
+  row_id: string;
+  exercise_id: string;
+  section: PlanSectionName | null;
+  sets: number | null;
+  reps: number | null;
+  hold_minutes: number | null;
+  rest_minutes: number | null;
+  per_side: boolean | null;
+  supports_weight: boolean | null;
+  minutes: number | null;
+}
+
+export interface AddSessionPlanRow {
+  kind: "add";
+  row: SessionPlanActionRow;
+  position: number;
+}
+
+export interface EditSessionPlanRow {
+  kind: "edit";
+  row: SessionPlanActionRow;
+}
+
+export interface ReorderSessionPlanRow {
+  kind: "reorder";
+  row_id: string;
+  position: number;
+}
+
+export interface RemoveSessionPlanRow {
+  kind: "remove";
+  row_id: string;
+}
+
+export type SessionPlanEdit =
+  | AddSessionPlanRow
+  | EditSessionPlanRow
+  | ReorderSessionPlanRow
+  | RemoveSessionPlanRow;
+
+export interface SessionPlanVerdict {
+  exercise_id: string;
+  status: Verdict;
+  trace: VerdictTraceEvent[];
+}
+
+export interface SessionPlanEditFailure {
+  reason:
+    | "session-not-found"
+    | "row-not-found"
+    | "duplicate-row-id"
+    | "position-out-of-range";
+  edit_index: number | null;
+  row_id: string | null;
+}
+
+export interface WriteSessionPlan {
+  kind: "write-session-plan";
+  session_id: string;
+  edits: SessionPlanEdit[];
+  old_rows: SessionPlanActionRow[];
+  new_rows: SessionPlanActionRow[];
+  verdicts: SessionPlanVerdict[];
+  failure: SessionPlanEditFailure | null;
+}
+
+export type CoachAction =
+  | SendMemberMessage
+  | UpdateBriefTask
+  | WriteSessionPlan;
 
 export interface DataAction {
   action_id: string;
-  status: "pending" | "confirmed" | "discarded" | "failed";
+  status: "pending" | "confirmed" | "discarded" | "failed" | "blocked";
   action: CoachAction;
 }
 
