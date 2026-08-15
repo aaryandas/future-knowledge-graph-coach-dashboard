@@ -41,38 +41,6 @@ from app.safety import (
 )
 
 _DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/coach"
-_CHECKPOINT_TYPES = (
-    AgentTraceEvent,
-    AgentDecision,
-    Candidate,
-    CatalogExercise,
-    ConstraintSet,
-    GenerationFailure,
-    GraphDecision,
-    Intent,
-    PackingTraceEvent,
-    Plan,
-    PlanEntry,
-    PlanSection,
-    Resolution,
-    ResolutionCandidate,
-    ResolutionTraceEvent,
-    ResolvedIntent,
-    ResolvedMention,
-    SubstitutionTraceEvent,
-    Verdict,
-    VerdictTraceEvent,
-    WalkedEdge,
-    WalkedNode,
-    WalkedPath,
-)
-_TRACE_EVENT_TYPES = (
-    AgentTraceEvent,
-    PackingTraceEvent,
-    ResolutionTraceEvent,
-    SubstitutionTraceEvent,
-    VerdictTraceEvent,
-)
 _TRACE_EVENT_BY_KIND = {
     "agent": AgentTraceEvent,
     "packing": PackingTraceEvent,
@@ -80,6 +48,28 @@ _TRACE_EVENT_BY_KIND = {
     "substitution": SubstitutionTraceEvent,
     "verdict": VerdictTraceEvent,
 }
+_TRACE_EVENT_TYPES = tuple(_TRACE_EVENT_BY_KIND.values())
+_CHECKPOINT_TYPES = (
+    *_TRACE_EVENT_TYPES,
+    AgentDecision,
+    Candidate,
+    CatalogExercise,
+    ConstraintSet,
+    GenerationFailure,
+    GraphDecision,
+    Intent,
+    Plan,
+    PlanEntry,
+    PlanSection,
+    Resolution,
+    ResolutionCandidate,
+    ResolvedIntent,
+    ResolvedMention,
+    Verdict,
+    WalkedEdge,
+    WalkedNode,
+    WalkedPath,
+)
 _TRACE_EVENT_MARKER = "__generation_trace_event__"
 _TUPLE_MARKER = "__generation_tuple__"
 
