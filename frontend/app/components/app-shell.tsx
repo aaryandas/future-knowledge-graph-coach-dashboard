@@ -209,6 +209,9 @@ export function AppShell({
                   <CopilotSidebar
                     memberId={member.id}
                     memberName={memberName}
+                    coachTasks={
+                      memberSnapshot?.morning_brief.coach_tasks ?? []
+                    }
                     composerValue={composerValue}
                     composerRef={composerRef}
                     hasPlan={planPart !== null}
@@ -254,6 +257,9 @@ export function AppShell({
                   <CopilotSidebar
                     memberId={member.id}
                     memberName={memberName}
+                    coachTasks={
+                      memberSnapshot?.morning_brief.coach_tasks ?? []
+                    }
                     composerValue={composerValue}
                     composerRef={composerRef}
                     hasPlan={planPart !== null}
