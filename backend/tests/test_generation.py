@@ -264,6 +264,18 @@ def test_full_body_exact_named_adjustment_preserves_unrelated_plan_entries() -> 
     assert repeated_initial.plan is not None
     assert repeated_adjusted.plan == adjusted.plan
     assert repeated_adjusted.trace == adjusted.trace
+    assert adjusted.plan.warm_up == initial.plan.warm_up
+    assert adjusted.plan.cool_down == initial.plan.cool_down
+    assert len(adjusted.plan.main.entries) == len(initial.plan.main.entries)
+    for initial_entry, adjusted_entry in zip(
+        initial.plan.main.entries,
+        adjusted.plan.main.entries,
+        strict=True,
+    ):
+        if initial_entry.exercise_id == _LOW_PLANK_ID:
+            assert adjusted_entry.exercise_id == _BODYWEIGHT_PIKE_ID
+        else:
+            assert adjusted_entry == initial_entry
     initial_lunge = next(
         entry
         for entry in initial.plan.main.entries
