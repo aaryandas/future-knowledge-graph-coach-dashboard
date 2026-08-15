@@ -126,6 +126,8 @@ class DataAction(BaseModel):
     action_id: str
     status: Literal["pending", "confirmed", "discarded", "failed", "blocked"]
     action: CoachAction
+    actor: NonEmptyText | None = None
+    timestamp: NonEmptyText | None = None
 
 
 class DataActionPart(BaseModel):

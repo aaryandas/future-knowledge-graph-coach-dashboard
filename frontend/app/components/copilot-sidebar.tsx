@@ -16,6 +16,7 @@ import {
   ShieldIcon,
 } from "./icons";
 import type {
+  CoachActionResolution,
   CoachTaskSnapshot,
   DashboardMessage,
   DataActionPart,
@@ -82,6 +83,16 @@ export function CopilotSidebar({
       new DefaultChatTransport<DashboardMessage>({
         api: `/api/members/${encodeURIComponent(memberId)}/copilot`,
         prepareSendMessagesRequest({ id, messages, body, api }) {
+          if (
+            body?.surface === "coach-action" &&
+            typeof body.actionId === "string" &&
+            isCoachActionResolution(body.resolution)
+          ) {
+            return {
+              api: `/api/members/${encodeURIComponent(memberId)}/copilot/actions/${encodeURIComponent(body.actionId)}/confirm`,
+              body: body.resolution,
+            };
+          }
           const isGeneration = body?.surface === "generation";
           return {
             api: isGeneration
@@ -97,7 +108,16 @@ export function CopilotSidebar({
       }),
     [memberId],
   );
-  const { messages, sendMessage, status, error, clearError } =
+  const resolutionMessagesRef = useRef<DashboardMessage[] | null>(null);
+  const {
+    messages,
+    sendMessage,
+    regenerate,
+    setMessages,
+    status,
+    error,
+    clearError,
+  } =
     useChat<DashboardMessage>({
       id: memberId,
       messages: initialMessages,
@@ -112,6 +132,9 @@ export function CopilotSidebar({
         if (part.type === "data-trace") {
           onTrace({ type: "data-trace", data: part.data });
         }
+      },
+      onFinish() {
+        resolutionMessagesRef.current = null;
       },
     });
   const isBusy = status === "submitted" || status === "streaming";
@@ -139,6 +162,13 @@ export function CopilotSidebar({
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ block: "nearest" });
   }, [messages, status]);
+
+  useEffect(() => {
+    if (status === "error" && resolutionMessagesRef.current !== null) {
+      setMessages(resolutionMessagesRef.current);
+      resolutionMessagesRef.current = null;
+    }
+  }, [setMessages, status]);
 
   const submitMessage = useCallback(
     (text: string) => {
@@ -174,6 +204,26 @@ export function CopilotSidebar({
     return () => onBusyChange(false);
   }, [isBusy, onBusyChange]);
 
+  async function resolveCoachAction(
+    messageId: string,
+    actionId: string,
+    resolution: CoachActionResolution,
+  ) {
+    if (isBusy) {
+      throw new Error("The Copilot stream is busy.");
+    }
+    clearError();
+    resolutionMessagesRef.current = messages;
+    await regenerate({
+      messageId,
+      body: {
+        surface: "coach-action",
+        actionId,
+        resolution,
+      },
+    });
+  }
+
   return (
     <div className="copilot-workspace">
       <div
@@ -192,6 +242,7 @@ export function CopilotSidebar({
               key={message.id}
               message={message}
               currentCoachTasks={currentCoachTasks}
+              onResolveAction={resolveCoachAction}
             />
           ))
         )}
@@ -258,9 +309,15 @@ export function CopilotSidebar({
 export function CopilotMessage({
   message,
   currentCoachTasks,
+  onResolveAction,
 }: {
   message: DashboardMessage;
   currentCoachTasks?: ReadonlyMap<string, CoachTaskSnapshot>;
+  onResolveAction?(
+    messageId: string,
+    actionId: string,
+    resolution: CoachActionResolution,
+  ): Promise<void> | void;
 }) {
   const textParts = message.parts.filter((part) => part.type === "text");
   const chartParts = message.parts.filter(
@@ -326,11 +383,25 @@ export function CopilotMessage({
             key={actionPart.data.action_id}
             part={actionPart}
             currentCoachTask={currentCoachTask}
+            onResolve={(resolution) =>
+              onResolveAction?.(
+                message.id,
+                actionPart.data.action_id,
+                resolution,
+              )
+            }
           />
         );
       })}
     </article>
   );
+}
+
+function isCoachActionResolution(value: unknown): value is CoachActionResolution {
+  if (typeof value !== "object" || value === null || !("decision" in value)) {
+    return false;
+  }
+  return value.decision === "confirm" || value.decision === "discard";
 }
 
 function SourceChips({ part }: { part: DataSourcesPart }) {
