@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type DragEvent, type KeyboardEvent } from "react";
-import type { MemberSnapshotPart } from "@/lib/parts";
+import type { DataPlanPart, MemberSnapshotPart } from "@/lib/parts";
 import { useCopilotSidebar } from "./copilot-sidebar-context";
 import {
   GripIcon,
@@ -11,7 +11,7 @@ import {
   TrashIcon,
 } from "./icons";
 
-interface SessionExercise {
+interface PlanEntry {
   id: string;
   exercise: string;
   sets: string;
@@ -21,47 +21,8 @@ interface SessionExercise {
   notes: string;
 }
 
-const initialExercises: SessionExercise[] = [
-  {
-    id: "box-squat",
-    exercise: "Box squat",
-    sets: "3",
-    reps: "8",
-    load: "Bodyweight",
-    rest: "90s",
-    notes: "Comfortable range",
-  },
-  {
-    id: "supported-split-squat",
-    exercise: "Supported split squat",
-    sets: "3",
-    reps: "8 per side",
-    load: "—",
-    rest: "90s",
-    notes: "Use support",
-  },
-  {
-    id: "seated-hamstring-curl",
-    exercise: "Seated hamstring curl",
-    sets: "3",
-    reps: "12",
-    load: "Light",
-    rest: "60s",
-    notes: "Smooth control",
-  },
-  {
-    id: "bike",
-    exercise: "Bike",
-    sets: "1",
-    reps: "10 min",
-    load: "Easy",
-    rest: "—",
-    notes: "Easy pace",
-  },
-];
-
-const exerciseFields: ReadonlyArray<{
-  key: keyof Omit<SessionExercise, "id">;
+const planEntryFields: ReadonlyArray<{
+  key: keyof Omit<PlanEntry, "id">;
   label: string;
 }> = [
   { key: "exercise", label: "Exercise" },
@@ -77,8 +38,11 @@ export function MemberDashboard({
 }: {
   part: MemberSnapshotPart | null;
 }) {
-  const { prefillMessage } = useCopilotSidebar();
-  const [exercises, setExercises] = useState(initialExercises);
+  const { planPart, prefillMessage } = useCopilotSidebar();
+  const [planEntries, setPlanEntries] = useState<PlanEntry[]>(() =>
+    planEntriesFromPart(planPart),
+  );
+  const [previousPlanPart, setPreviousPlanPart] = useState(planPart);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -87,36 +51,44 @@ export function MemberDashboard({
     part?.morning_brief.coach_tasks[0] ??
     null;
 
-  function updateExercise(
+  if (planPart !== previousPlanPart) {
+    setPreviousPlanPart(planPart);
+    setPlanEntries(planEntriesFromPart(planPart));
+    setEditingId(null);
+    setDraggingId(null);
+    setConfirmed(false);
+  }
+
+  function updatePlanEntry(
     id: string,
-    key: keyof Omit<SessionExercise, "id">,
+    key: keyof Omit<PlanEntry, "id">,
     value: string,
   ) {
-    setExercises((current) =>
-      current.map((exercise) =>
-        exercise.id === id ? { ...exercise, [key]: value } : exercise,
+    setPlanEntries((current) =>
+      current.map((entry) =>
+        entry.id === id ? { ...entry, [key]: value } : entry,
       ),
     );
     setConfirmed(false);
   }
 
-  function removeExercise(id: string) {
-    setExercises((current) => current.filter((exercise) => exercise.id !== id));
+  function removePlanEntry(id: string) {
+    setPlanEntries((current) => current.filter((entry) => entry.id !== id));
     setEditingId((current) => (current === id ? null : current));
     setConfirmed(false);
   }
 
-  function addExercise() {
-    const id = `exercise-${Date.now()}`;
-    setExercises((current) => [
+  function addPlanEntry() {
+    const id = `plan-entry-${Date.now()}`;
+    setPlanEntries((current) => [
       ...current,
       {
         id,
         exercise: "New exercise",
-        sets: "3",
-        reps: "8",
+        sets: "",
+        reps: "",
         load: "—",
-        rest: "60s",
+        rest: "",
         notes: "",
       },
     ]);
@@ -124,11 +96,11 @@ export function MemberDashboard({
     setConfirmed(false);
   }
 
-  function moveExercise(sourceId: string, targetId: string) {
+  function movePlanEntry(sourceId: string, targetId: string) {
     if (sourceId === targetId) {
       return;
     }
-    setExercises((current) => {
+    setPlanEntries((current) => {
       const sourceIndex = current.findIndex(({ id }) => id === sourceId);
       const targetIndex = current.findIndex(({ id }) => id === targetId);
       if (sourceIndex === -1 || targetIndex === -1) {
@@ -149,24 +121,24 @@ export function MemberDashboard({
     event.preventDefault();
     const sourceId = draggingId ?? event.dataTransfer.getData("text/plain");
     if (sourceId) {
-      moveExercise(sourceId, targetId);
+      movePlanEntry(sourceId, targetId);
     }
     setDraggingId(null);
   }
 
   function handleReorderKey(
     event: KeyboardEvent<HTMLButtonElement>,
-    exerciseId: string,
+    planEntryId: string,
   ) {
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") {
       return;
     }
     event.preventDefault();
-    const index = exercises.findIndex(({ id }) => id === exerciseId);
+    const index = planEntries.findIndex(({ id }) => id === planEntryId);
     const targetIndex = event.key === "ArrowUp" ? index - 1 : index + 1;
-    const target = exercises[targetIndex];
+    const target = planEntries[targetIndex];
     if (target) {
-      moveExercise(exerciseId, target.id);
+      movePlanEntry(planEntryId, target.id);
     }
   }
 
@@ -200,10 +172,14 @@ export function MemberDashboard({
             Today’s session
           </h2>
 
-          <div className="session-table" role="table" aria-label="Today’s session exercises">
+          <div
+            className="session-table"
+            role="table"
+            aria-label="Today’s session exercises"
+          >
             <div className="session-table-header" role="row">
               <span aria-hidden="true" />
-              {exerciseFields.map(({ label }) => (
+              {planEntryFields.map(({ label }) => (
                 <span key={label} role="columnheader">
                   {label}
                 </span>
@@ -214,46 +190,51 @@ export function MemberDashboard({
             </div>
 
             <div className="session-table-body" role="rowgroup">
-              {exercises.map((exercise) => {
-                const editing = exercise.id === editingId;
+              {planEntries.map((entry) => {
+                const editing = entry.id === editingId;
                 return (
                   <div
-                    key={exercise.id}
+                    key={entry.id}
                     className="session-row"
                     role="row"
-                    data-dragging={draggingId === exercise.id}
+                    data-dragging={draggingId === entry.id}
                     data-editing={editing}
                     onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => handleDrop(event, exercise.id)}
+                    onDrop={(event) => handleDrop(event, entry.id)}
                   >
                     <button
                       type="button"
                       className="row-grabber"
                       draggable={!editing}
-                      aria-label={`Move ${exercise.exercise}. Use arrow keys to reorder.`}
+                      aria-label={`Move ${entry.exercise}. Use arrow keys to reorder.`}
                       onDragStart={(event) => {
-                        setDraggingId(exercise.id);
-                        event.dataTransfer.setData("text/plain", exercise.id);
+                        setDraggingId(entry.id);
+                        event.dataTransfer.setData("text/plain", entry.id);
                         event.dataTransfer.effectAllowed = "move";
                       }}
                       onDragEnd={() => setDraggingId(null)}
-                      onKeyDown={(event) => handleReorderKey(event, exercise.id)}
+                      onKeyDown={(event) => handleReorderKey(event, entry.id)}
                     >
                       <GripIcon className="size-5" />
                     </button>
 
-                    {exerciseFields.map(({ key, label }) => (
-                      <div key={key} className="session-cell" role="cell" data-label={label}>
+                    {planEntryFields.map(({ key, label }) => (
+                      <div
+                        key={key}
+                        className="session-cell"
+                        role="cell"
+                        data-label={label}
+                      >
                         {editing ? (
                           <input
-                            aria-label={`${label} for ${exercise.exercise}`}
-                            value={exercise[key]}
+                            aria-label={`${label} for ${entry.exercise}`}
+                            value={entry[key]}
                             onChange={(event) =>
-                              updateExercise(exercise.id, key, event.target.value)
+                              updatePlanEntry(entry.id, key, event.target.value)
                             }
                           />
                         ) : (
-                          exercise[key]
+                          entry[key]
                         )}
                       </div>
                     ))}
@@ -262,16 +243,24 @@ export function MemberDashboard({
                       <button
                         type="button"
                         className="row-action"
-                        aria-label={editing ? `Finish editing ${exercise.exercise}` : `Edit ${exercise.exercise}`}
-                        onClick={() => setEditingId(editing ? null : exercise.id)}
+                        aria-label={
+                          editing
+                            ? `Finish editing ${entry.exercise}`
+                            : `Edit ${entry.exercise}`
+                        }
+                        onClick={() => setEditingId(editing ? null : entry.id)}
                       >
-                        {editing ? <span>Done</span> : <PencilIcon className="size-[18px]" />}
+                        {editing ? (
+                          <span>Done</span>
+                        ) : (
+                          <PencilIcon className="size-[18px]" />
+                        )}
                       </button>
                       <button
                         type="button"
                         className="row-action"
-                        aria-label={`Remove ${exercise.exercise}`}
-                        onClick={() => removeExercise(exercise.id)}
+                        aria-label={`Remove ${entry.exercise}`}
+                        onClick={() => removePlanEntry(entry.id)}
                       >
                         <TrashIcon className="size-[18px]" />
                       </button>
@@ -282,7 +271,7 @@ export function MemberDashboard({
             </div>
           </div>
 
-          <button type="button" className="add-exercise" onClick={addExercise}>
+          <button type="button" className="add-exercise" onClick={addPlanEntry}>
             <PlusIcon className="size-[18px]" />
             Add exercise
           </button>
@@ -304,6 +293,37 @@ export function MemberDashboard({
       </section>
     </div>
   );
+}
+
+function planEntriesFromPart(part: DataPlanPart | null): PlanEntry[] {
+  if (part === null) {
+    return [];
+  }
+  const sections = [part.data.warm_up, part.data.main, part.data.cool_down];
+  return sections.flatMap(({ entries, section }) =>
+    entries.map((entry, index) => ({
+      id: `${section}:${entry.exercise_id}:${index}`,
+      exercise: entry.name,
+      sets: String(entry.sets),
+      reps:
+        entry.reps === null
+          ? formatMinutes(entry.hold_minutes)
+          : `${entry.reps}${entry.per_side ? " per side" : ""}`,
+      load: entry.supports_weight ? "Weighted" : "Bodyweight",
+      rest: formatMinutes(entry.rest_minutes),
+      notes: entry.caution_note ?? "",
+    })),
+  );
+}
+
+function formatMinutes(value: number | null): string {
+  if (value === null) {
+    return "—";
+  }
+  if (value < 1) {
+    return `${Math.round(value * 60)}s`;
+  }
+  return `${value} min`;
 }
 
 function formatAge(days: number): string {

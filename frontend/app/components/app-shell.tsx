@@ -1,5 +1,6 @@
 "use client";
 
+import { Dialog } from "@base-ui/react/dialog";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -22,7 +23,6 @@ import {
   TrendIcon,
 } from "./icons";
 import { JourneyStageChip } from "./journey-stage-chip";
-import { SessionPlan } from "./session-plan";
 
 type WorkspaceTab = "dashboard" | "members" | "graph";
 
@@ -60,6 +60,7 @@ export function AppShell({
   const composerRef = useRef<HTMLInputElement>(null);
   const copilotToggleRef = useRef<HTMLButtonElement>(null);
   const copilotCloseRef = useRef<HTMLButtonElement>(null);
+  const focusComposerOnOpenRef = useRef(false);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 980px)");
@@ -69,203 +70,184 @@ export function AppShell({
     return () => media.removeEventListener("change", update);
   }, []);
 
-  useEffect(() => {
-    if (!isNarrow || !mobileCopilotOpen) {
-      return;
-    }
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [isNarrow, mobileCopilotOpen]);
-
-  const closeMobileCopilot = useCallback(() => {
-    setMobileCopilotOpen(false);
-    window.requestAnimationFrame(() => copilotToggleRef.current?.focus());
-  }, []);
-
-  useEffect(() => {
-    if (!isNarrow || !mobileCopilotOpen) {
-      return;
-    }
-
-    copilotCloseRef.current?.focus();
-
-    function handlePanelKeydown(event: globalThis.KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeMobileCopilot();
-        return;
+  const prefillMessage = useCallback(
+    (message: string) => {
+      if (isNarrow) {
+        focusComposerOnOpenRef.current = true;
+        setMobileCopilotOpen(true);
       }
-
-      if (event.key !== "Tab") {
-        return;
+      setComposerValue(message);
+      if (!isNarrow) {
+        window.requestAnimationFrame(() => composerRef.current?.focus());
       }
+    },
+    [isNarrow],
+  );
 
-      const panel = document.getElementById("copilot-panel");
-      const focusable = panel?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      );
-      if (!focusable || focusable.length === 0) {
-        return;
-      }
-
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last?.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first?.focus();
-      }
-    }
-
-    document.addEventListener("keydown", handlePanelKeydown);
-    return () => document.removeEventListener("keydown", handlePanelKeydown);
-  }, [closeMobileCopilot, isNarrow, mobileCopilotOpen]);
-
-  const prefillMessage = useCallback((message: string) => {
-    setMobileCopilotOpen(true);
-    setComposerValue(message);
-    window.requestAnimationFrame(() => composerRef.current?.focus());
-  }, []);
-
-  const copilotHidden = isNarrow && !mobileCopilotOpen;
   const identity = memberSnapshot?.identity ?? null;
   const memberName = identity?.name ?? "Member";
   const injury = identity?.injury ?? null;
   const adherence = memberSnapshot?.stats.adherence ?? null;
+  const sleep = memberSnapshot?.stats.sleep ?? null;
+  const sessions = memberSnapshot?.stats.sessions ?? null;
+  const churnRisk = memberSnapshot?.stats.churn_risk ?? null;
   const goal = identity?.goals[0] ?? null;
 
   return (
-    <CopilotSidebarProvider prefillMessage={prefillMessage}>
-      <div className="app-frame screen-enter">
-        <header
-          className="app-header"
-          inert={isNarrow && mobileCopilotOpen ? true : undefined}
-        >
-          <div className="global-nav-row">
-            <Link
-              className="future-wordmark"
-              href="/member"
-              aria-label="Future Coach dashboard"
-            >
-              Future Coach
-            </Link>
-            <nav className="global-nav" aria-label="Workspace">
-              {tabs.map((tab) => (
-                <Link
-                  key={tab.value}
-                  href={tab.href}
-                  aria-current={activeTab === tab.value ? "page" : undefined}
-                  className="global-nav-link"
-                >
-                  {tab.label}
-                </Link>
-              ))}
-            </nav>
-            <button
-              ref={copilotToggleRef}
-              type="button"
-              className="mobile-copilot-toggle"
-              aria-controls="copilot-panel"
-              aria-expanded={mobileCopilotOpen}
-              onClick={() => setMobileCopilotOpen(true)}
-            >
-              <PanelIcon className="size-4" />
-              Copilot
-            </button>
-          </div>
+    <CopilotSidebarProvider planPart={planPart} prefillMessage={prefillMessage}>
+      <Dialog.Root
+        open={isNarrow && mobileCopilotOpen}
+        onOpenChange={setMobileCopilotOpen}
+        onOpenChangeComplete={(open) => {
+          if (open) {
+            focusComposerOnOpenRef.current = false;
+          }
+        }}
+      >
+        <div className="app-frame screen-enter">
+          <header className="app-header">
+            <div className="global-nav-row">
+              <Link
+                className="future-wordmark"
+                href="/member"
+                aria-label="Future Coach dashboard"
+              >
+                Future Coach
+              </Link>
+              <nav className="global-nav" aria-label="Workspace">
+                {tabs.map((tab) => (
+                  <Link
+                    key={tab.value}
+                    href={tab.href}
+                    aria-current={activeTab === tab.value ? "page" : undefined}
+                    className="global-nav-link"
+                  >
+                    {tab.label}
+                  </Link>
+                ))}
+              </nav>
+              <Dialog.Trigger
+                ref={copilotToggleRef}
+                className="mobile-copilot-toggle"
+                aria-controls="copilot-panel"
+              >
+                <PanelIcon className="size-4" />
+                Copilot
+              </Dialog.Trigger>
+            </div>
 
-          <div
-            className="member-context-strip"
-            aria-label={`${memberName} context`}
-          >
-            <div className="member-context-item" data-tone="identity">
-              <PersonIcon className="member-context-icon" />
-              <span>
-                {identity === null
-                  ? "Member unavailable"
-                  : `${identity.name} · ${identity.age}`}
-              </span>
-            </div>
-            <div className="member-context-item" data-tone="attention">
-              <KneeIcon className="member-context-icon" />
-              <span>{formatInjury(injury)}</span>
-              {memberSnapshot === null ? null : (
-                <JourneyStageChip journeyStage={memberSnapshot.journey_stage} />
-              )}
-            </div>
-            <div className="member-context-item" data-tone="attention">
-              <DumbbellIcon className="member-context-icon" />
-              <span>No barbell</span>
-            </div>
-            <div className="member-context-item" data-tone="attention">
-              <TrendIcon className="member-context-icon" />
-              <span>{formatAdherence(adherence)}</span>
-            </div>
-            <div className="member-context-item" data-tone="goal">
-              <GoalIcon className="member-context-icon" />
-              <span>{goal === null ? "Goal unavailable" : `Goal · ${goal.text}`}</span>
-            </div>
-          </div>
-        </header>
-
-        <div
-          className="workspace-split"
-          data-mobile-copilot={mobileCopilotOpen ? "open" : "closed"}
-        >
-          <main
-            className="dashboard-canvas"
-            inert={isNarrow && mobileCopilotOpen ? true : undefined}
-          >
-            {children}
-            {planPart === null ? null : <SessionPlan part={planPart} />}
-          </main>
-          <aside
-            id="copilot-panel"
-            className="copilot-pane"
-            aria-labelledby="copilot-title"
-            aria-hidden={copilotHidden}
-            inert={copilotHidden ? true : undefined}
-          >
-            <div className="copilot-pane-inner">
-              <div className="copilot-heading-row">
-                <h2 id="copilot-title" className="display-title copilot-title">
-                  Copilot
-                </h2>
-                <button
-                  ref={copilotCloseRef}
-                  type="button"
-                  className="copilot-close"
-                  aria-label="Close Copilot"
-                  onClick={closeMobileCopilot}
-                >
-                  <CloseIcon className="size-5" />
-                </button>
+            <div
+              className="member-context-strip"
+              aria-label={`${memberName} context`}
+            >
+              <div className="member-context-item" data-tone="identity">
+                <PersonIcon className="member-context-icon" />
+                <span>
+                  {identity === null
+                    ? "Member unavailable"
+                    : `${identity.name} · ${identity.age}`}
+                </span>
               </div>
-              <CopilotSidebar
-                memberId={member.id}
-                memberName={memberName}
-                composerValue={composerValue}
-                composerRef={composerRef}
-                hasPlan={planPart !== null}
-                onComposerChange={setComposerValue}
-                onPlan={setPlanPart}
-              />
+              <div className="member-context-item" data-tone="attention">
+                <KneeIcon className="member-context-icon" />
+                <span>
+                  {formatInjury(injury)} · {formatStat("Sleep", sleep)}
+                </span>
+                {memberSnapshot === null ? null : (
+                  <JourneyStageChip journeyStage={memberSnapshot.journey_stage} />
+                )}
+              </div>
+              <div className="member-context-item" data-tone="attention">
+                <DumbbellIcon className="member-context-icon" />
+                <span>No barbell · {formatStat("Sessions", sessions)}</span>
+              </div>
+              <div className="member-context-item" data-tone="attention">
+                <TrendIcon className="member-context-icon" />
+                <span>{formatAdherence(adherence)}</span>
+              </div>
+              <div className="member-context-item" data-tone="goal">
+                <GoalIcon className="member-context-icon" />
+                <span>
+                  {goal === null ? "Goal unavailable" : `Goal · ${goal.text}`} ·{" "}
+                  {formatStat("Churn risk", churnRisk)}
+                </span>
+              </div>
             </div>
-          </aside>
-          <button
-            type="button"
-            className="copilot-backdrop"
-            aria-label="Close Copilot"
-            tabIndex={-1}
-            onClick={closeMobileCopilot}
-          />
+          </header>
+
+          <div className="workspace-split">
+            <main className="dashboard-canvas">{children}</main>
+            {isNarrow ? null : (
+              <aside
+                id="copilot-panel"
+                className="copilot-pane"
+                aria-labelledby="copilot-title"
+              >
+                <div className="copilot-pane-inner">
+                  <div className="copilot-heading-row">
+                    <h2 id="copilot-title" className="display-title copilot-title">
+                      Copilot
+                    </h2>
+                  </div>
+                  <CopilotSidebar
+                    memberId={member.id}
+                    memberName={memberName}
+                    composerValue={composerValue}
+                    composerRef={composerRef}
+                    hasPlan={planPart !== null}
+                    onComposerChange={setComposerValue}
+                    onPlan={setPlanPart}
+                  />
+                </div>
+              </aside>
+            )}
+          </div>
+
+          {isNarrow ? (
+            <Dialog.Portal>
+              <Dialog.Backdrop className="copilot-backdrop" />
+              <Dialog.Popup
+                id="copilot-panel"
+                className="copilot-pane"
+                aria-labelledby="copilot-title"
+                initialFocus={() =>
+                  focusComposerOnOpenRef.current
+                    ? composerRef.current
+                    : copilotCloseRef.current
+                }
+                finalFocus={copilotToggleRef}
+              >
+                <div className="copilot-pane-inner">
+                  <div className="copilot-heading-row">
+                    <Dialog.Title
+                      id="copilot-title"
+                      className="display-title copilot-title"
+                    >
+                      Copilot
+                    </Dialog.Title>
+                    <Dialog.Close
+                      ref={copilotCloseRef}
+                      className="copilot-close"
+                      aria-label="Close Copilot"
+                    >
+                      <CloseIcon className="size-5" />
+                    </Dialog.Close>
+                  </div>
+                  <CopilotSidebar
+                    memberId={member.id}
+                    memberName={memberName}
+                    composerValue={composerValue}
+                    composerRef={composerRef}
+                    hasPlan={planPart !== null}
+                    onComposerChange={setComposerValue}
+                    onPlan={setPlanPart}
+                  />
+                </div>
+              </Dialog.Popup>
+            </Dialog.Portal>
+          ) : null}
         </div>
-      </div>
+      </Dialog.Root>
     </CopilotSidebarProvider>
   );
 }
@@ -290,6 +272,20 @@ function formatAdherence(
     ? ` · ${formatAge(adherence.source.age_days)} old`
     : "";
   return `Adherence ${value} · ${adherence.trend_text}${age}`;
+}
+
+function formatStat(
+  label: string,
+  stat: MemberSnapshotPart["stats"][keyof MemberSnapshotPart["stats"]] | null,
+): string {
+  if (stat?.value === null || stat === null) {
+    return `${label} unavailable`;
+  }
+  const value = `${stat.value}${stat.suffix ?? ""}`;
+  const age = stat.source?.stale
+    ? ` · ${formatAge(stat.source.age_days)} old`
+    : "";
+  return `${label} ${value} · ${stat.trend_text}${age}`;
 }
 
 function formatAge(days: number): string {

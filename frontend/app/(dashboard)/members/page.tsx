@@ -1,11 +1,33 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
+import type { MemberSnapshotPart, MemberSnapshotStat } from "@/lib/parts";
+import { getMemberSnapshot } from "@/lib/member-snapshot";
+
+const memberId = "mbr_01HX9JORDAN";
 
 export const metadata: Metadata = {
   title: "Members",
 };
 
 export default function MembersPage() {
+  return (
+    <Suspense fallback={<MemberList part={null} />}>
+      <MemberOverview />
+    </Suspense>
+  );
+}
+
+async function MemberOverview() {
+  const part = await getMemberSnapshot(memberId);
+  return <MemberList part={part} />;
+}
+
+function MemberList({ part }: { part: MemberSnapshotPart | null }) {
+  const identity = part?.identity ?? null;
+  const injury = identity?.injury ?? null;
+  const goal = identity?.goals[0] ?? null;
+
   return (
     <div className="members-page workspace-enter">
       <header>
@@ -17,20 +39,46 @@ export default function MembersPage() {
       <section className="member-list" aria-label="Members">
         <article className="member-list-row">
           <div>
-            <strong>Jordan Rivera</strong>
-            <span>41 · Lower-body strength</span>
+            <strong>{identity?.name ?? "Member unavailable"}</strong>
+            <span>
+              {identity === null ? "Profile unavailable" : identity.age}
+              {goal === null ? "" : ` · ${goal.text}`}
+            </span>
           </div>
           <div>
-            <strong>Recovering</strong>
-            <span>Left-knee PFPS</span>
+            <strong>{formatJourneyStage(part)}</strong>
+            <span>{formatInjury(injury)}</span>
           </div>
           <div>
-            <strong>50% adherence</strong>
-            <span>Previous period 100%</span>
+            <strong>{formatStat("Adherence", part?.stats.adherence ?? null)}</strong>
+            <span>{part?.stats.adherence.trend_text ?? "Trend unavailable"}</span>
           </div>
           <Link href="/member">Open dashboard</Link>
         </article>
       </section>
     </div>
   );
+}
+
+function formatJourneyStage(part: MemberSnapshotPart | null): string {
+  const stage = part?.journey_stage.stage;
+  return stage === undefined
+    ? "Journey stage unavailable"
+    : `${stage.charAt(0).toUpperCase()}${stage.slice(1)}`;
+}
+
+function formatInjury(
+  injury: MemberSnapshotPart["identity"]["injury"],
+): string {
+  if (injury === null) {
+    return "No active MemberInjury";
+  }
+  return [injury.region, injury.finding, injury.status].filter(Boolean).join(" · ");
+}
+
+function formatStat(label: string, stat: MemberSnapshotStat | null): string {
+  if (stat?.value === null || stat === null) {
+    return `${label} unavailable`;
+  }
+  return `${label} ${stat.value}${stat.suffix ?? ""}`;
 }

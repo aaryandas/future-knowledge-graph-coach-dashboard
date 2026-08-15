@@ -38,6 +38,15 @@
   --shadow-color: rgb(11 15 20 / 8%);
   --shadow-color-strong: rgb(11 15 20 / 14%);
   --highlight: rgb(255 255 255 / 68%);
+  --copilot-empty: #7a8290;
+  --copilot-placeholder: #777f8e;
+  --copilot-control: #667081;
+  --brief-icon: #ec5d22;
+  --brief-action: #df4f17;
+  --brief-action-hover: #a9340b;
+  --session-control: #4e586b;
+  --session-action-hover: #1d222a;
+  --overlay-backdrop: rgb(11 15 20 / 28%);
 
   --font-app-sans: var(--font-season-sans), "Helvetica Neue", Arial, sans-serif;
   --font-app-display: var(--font-season-mix), Georgia, serif;
@@ -273,6 +282,12 @@ input:focus-visible {
   border-right: 0;
 }
 
+.member-context-item > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .member-context-item[data-tone="identity"] {
   background: var(--surface);
 }
@@ -358,7 +373,7 @@ input:focus-visible {
 
 .copilot-empty {
   margin: clamp(150px, 26vh, 270px) 0 0;
-  color: #7a8290;
+  color: var(--copilot-empty);
   font-size: 24px;
   letter-spacing: -0.02em;
   text-align: center;
@@ -432,7 +447,7 @@ input:focus-visible {
 }
 
 .copilot-composer input::placeholder {
-  color: #777f8e;
+  color: var(--copilot-placeholder);
 }
 
 .copilot-composer button {
@@ -440,7 +455,7 @@ input:focus-visible {
   width: 44px;
   height: 44px;
   place-items: center;
-  color: #667081;
+  color: var(--copilot-control);
   background: transparent;
   border: 0;
   border-radius: 50%;
@@ -481,7 +496,7 @@ input:focus-visible {
 .morning-brief-icon {
   width: 34px;
   height: 34px;
-  color: #ec5d22;
+  color: var(--brief-icon);
 }
 
 .morning-brief h1,
@@ -505,7 +520,7 @@ input:focus-visible {
 
 .morning-brief button {
   padding: 10px 0 10px 16px;
-  color: #df4f17;
+  color: var(--brief-action);
   background: transparent;
   border: 0;
   font-size: 16px;
@@ -514,7 +529,7 @@ input:focus-visible {
 }
 
 .morning-brief button:hover {
-  color: #a9340b;
+  color: var(--brief-action-hover);
 }
 
 .session-card {
@@ -574,7 +589,7 @@ input:focus-visible {
   display: grid;
   place-items: center;
   padding: 0;
-  color: #4e586b;
+  color: var(--session-control);
   background: transparent;
   border: 0;
   border-radius: 6px;
@@ -683,7 +698,7 @@ input:focus-visible {
   min-width: 260px;
   min-height: 64px;
   padding: 0 30px;
-  color: #ffffff;
+  color: var(--surface);
   background: var(--foreground);
   border: 1px solid var(--foreground);
   border-radius: 7px;
@@ -695,7 +710,7 @@ input:focus-visible {
 }
 
 .confirm-session:hover:not(:disabled) {
-  background: #1d222a;
+  background: var(--session-action-hover);
   transform: translateY(-1px);
 }
 
@@ -704,7 +719,7 @@ input:focus-visible {
 }
 
 .confirm-session:disabled {
-  color: #ffffff;
+  color: var(--surface);
   background: var(--success);
   border-color: var(--success);
   cursor: default;
@@ -1133,7 +1148,12 @@ input:focus-visible {
 .skeleton-shimmer::after {
   position: absolute;
   inset: 0;
-  background: linear-gradient(100deg, transparent 20%, #ffffff 50%, transparent 80%);
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    var(--surface) 50%,
+    transparent 80%
+  );
   content: "";
   transform: translateX(-100%);
   animation: shimmer 2.2s var(--ease-fluid) infinite;
@@ -1906,6 +1926,10 @@ input:focus-visible {
     padding-inline: 18px;
   }
 
+  .member-context-item > span {
+    overflow: visible;
+  }
+
   .workspace-split {
     display: block;
   }
@@ -1920,16 +1944,16 @@ input:focus-visible {
     border-left: 1px solid var(--border-strong);
     box-shadow: -18px 0 48px var(--shadow-color-strong);
     transform: translateX(100%);
-    visibility: hidden;
-    transition:
-      transform 240ms var(--ease-fluid),
-      visibility 0s linear 240ms;
+    transition: transform 240ms var(--ease-fluid);
   }
 
-  .workspace-split[data-mobile-copilot="open"] .copilot-pane {
+  .copilot-pane[data-open] {
     transform: translateX(0);
-    visibility: visible;
-    transition-delay: 0s;
+  }
+
+  .copilot-pane[data-starting-style],
+  .copilot-pane[data-ending-style] {
+    transform: translateX(100%);
   }
 
   .copilot-pane-inner {
@@ -1947,16 +1971,21 @@ input:focus-visible {
     inset: 0;
     display: block;
     padding: 0;
-    background: rgb(11 15 20 / 28%);
+    background: var(--overlay-backdrop);
     border: 0;
     opacity: 0;
     pointer-events: none;
     transition: opacity 180ms ease;
   }
 
-  .workspace-split[data-mobile-copilot="open"] .copilot-backdrop {
+  .copilot-backdrop[data-open] {
     opacity: 1;
     pointer-events: auto;
+  }
+
+  .copilot-backdrop[data-starting-style],
+  .copilot-backdrop[data-ending-style] {
+    opacity: 0;
   }
 
   .morning-brief ul {
