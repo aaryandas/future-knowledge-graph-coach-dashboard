@@ -62,6 +62,7 @@ export function AppShell({
       ? "members"
       : "dashboard";
   const [mobileCopilotOpen, setMobileCopilotOpen] = useState(false);
+  const [desktopCopilotOpen, setDesktopCopilotOpen] = useState(true);
   const [isNarrow, setIsNarrow] = useState(false);
   const [composerValue, setComposerValue] = useState("");
   const [planPart, setPlanPart] = useState<DataPlanPart | null>(null);
@@ -70,6 +71,9 @@ export function AppShell({
   const composerRef = useRef<HTMLInputElement>(null);
   const copilotToggleRef = useRef<HTMLButtonElement>(null);
   const copilotCloseRef = useRef<HTMLButtonElement>(null);
+  const desktopCopilotShowRef = useRef<HTMLButtonElement>(null);
+  const desktopCopilotHideRef = useRef<HTMLButtonElement>(null);
+  const desktopCopilotFocusRef = useRef<"show" | "hide" | null>(null);
   const focusComposerOnOpenRef = useRef(false);
 
   useEffect(() => {
@@ -79,6 +83,18 @@ export function AppShell({
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
+
+  useEffect(() => {
+    if (isNarrow || desktopCopilotFocusRef.current === null) {
+      return;
+    }
+    const target = desktopCopilotFocusRef.current;
+    desktopCopilotFocusRef.current = null;
+    (target === "show"
+      ? desktopCopilotShowRef.current
+      : desktopCopilotHideRef.current
+    )?.focus();
+  }, [desktopCopilotOpen, isNarrow]);
 
   const prefillMessage = useCallback(
     (message: string) => {
@@ -195,9 +211,31 @@ export function AppShell({
             </div>
           </header>
 
-          <div className="workspace-split">
-            <main className="dashboard-canvas">{children}</main>
-            {isNarrow ? null : (
+          <div
+            className="workspace-split"
+            data-copilot-open={
+              !isNarrow && desktopCopilotOpen ? "" : undefined
+            }
+          >
+            <main className="dashboard-canvas">
+              <button
+                ref={desktopCopilotShowRef}
+                type="button"
+                className="desktop-copilot-show"
+                aria-controls="copilot-panel"
+                aria-expanded={desktopCopilotOpen}
+                hidden={isNarrow || desktopCopilotOpen}
+                onClick={() => {
+                  desktopCopilotFocusRef.current = "hide";
+                  setDesktopCopilotOpen(true);
+                }}
+              >
+                <PanelIcon className="size-4" />
+                Show Copilot
+              </button>
+              {children}
+            </main>
+            {!isNarrow && desktopCopilotOpen ? (
               <aside
                 id="copilot-panel"
                 className="copilot-pane"
@@ -208,6 +246,20 @@ export function AppShell({
                     <h2 id="copilot-title" className="display-title copilot-title">
                       Copilot
                     </h2>
+                    <button
+                      ref={desktopCopilotHideRef}
+                      type="button"
+                      className="desktop-copilot-hide"
+                      aria-controls="copilot-panel"
+                      aria-expanded="true"
+                      onClick={() => {
+                        desktopCopilotFocusRef.current = "show";
+                        setDesktopCopilotOpen(false);
+                      }}
+                    >
+                      <PanelIcon className="size-4" />
+                      Hide Copilot
+                    </button>
                   </div>
                   <CopilotSidebar
                     memberId={member.id}
@@ -225,7 +277,7 @@ export function AppShell({
                   />
                 </div>
               </aside>
-            )}
+            ) : null}
           </div>
 
           {isNarrow ? (

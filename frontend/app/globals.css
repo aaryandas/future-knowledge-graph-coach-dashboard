@@ -343,12 +343,58 @@ input:focus-visible {
 .workspace-split {
   display: grid;
   min-height: calc(100svh - var(--nav-height) - var(--context-height));
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workspace-split[data-copilot-open] {
   grid-template-columns: minmax(0, 2.05fr) minmax(29rem, 1fr);
 }
 
 .dashboard-canvas {
+  position: relative;
   min-width: 0;
   padding: 32px 31px 56px;
+}
+
+.desktop-copilot-show,
+.desktop-copilot-hide {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 7px 11px;
+  color: var(--accent);
+  background: var(--accent-muted);
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease;
+}
+
+.desktop-copilot-show {
+  position: fixed;
+  z-index: 20;
+  top: calc(var(--nav-height) + var(--context-height) + 18px);
+  right: 18px;
+}
+
+.desktop-copilot-show[hidden] {
+  display: none;
+}
+
+.desktop-copilot-show:hover,
+.desktop-copilot-hide:hover {
+  background: color-mix(in srgb, var(--accent-muted) 72%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--accent-border));
+}
+
+.desktop-copilot-show:focus-visible,
+.desktop-copilot-hide:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .copilot-pane {
@@ -410,6 +456,7 @@ input:focus-visible {
 
 .copilot-quick-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 12px;
   margin-bottom: 34px;
@@ -1268,7 +1315,7 @@ input:focus-visible {
   border-radius: 14px 14px 6px;
 }
 
-.copilot-message-body[data-has-chart] {
+.copilot-message-body[data-wide] {
   width: 100%;
   max-width: 100%;
   padding: 12px;
@@ -1366,8 +1413,95 @@ input:focus-visible {
   font-size: 11px;
 }
 
+.copilot-brief {
+  margin-top: 12px;
+  color: var(--foreground);
+  border-block: 1px solid var(--border);
+}
+
+.copilot-brief > header,
+.copilot-barrier-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.copilot-brief > header {
+  padding-block: 9px;
+}
+
+.copilot-brief h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.copilot-brief [data-risk-level] {
+  color: var(--warning);
+  font-size: 9px;
+  font-weight: 550;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.copilot-barriers {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.copilot-barriers > li {
+  padding-block: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.copilot-barrier-heading strong {
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.copilot-barriers > li > p {
+  margin-top: 4px;
+  color: var(--foreground-muted);
+  overflow-wrap: anywhere;
+}
+
+.copilot-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.copilot-evidence li {
+  max-width: 100%;
+  padding: 3px 7px;
+  color: var(--foreground-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-family: var(--font-app-mono);
+  font-size: 8px;
+  overflow-wrap: anywhere;
+}
+
+.copilot-barriers-empty,
+.copilot-sources-empty {
+  color: var(--foreground-subtle);
+  font-size: 10px;
+}
+
+.copilot-barriers-empty {
+  padding-block: 10px;
+  border-top: 1px solid var(--border);
+}
+
 .copilot-chart + .copilot-sources,
-.copilot-chart-empty + .copilot-sources {
+.copilot-chart-empty + .copilot-sources,
+.copilot-brief + .copilot-sources {
   margin-top: 10px;
 }
 
@@ -1381,12 +1515,24 @@ input:focus-visible {
 }
 
 .copilot-sources li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   padding: 3px 7px;
   color: var(--accent);
   background: var(--accent-muted);
   border-radius: 999px;
   font-family: var(--font-app-mono);
   font-size: 9px;
+}
+
+.copilot-sources li > span:last-child {
+  min-width: 15px;
+  padding-inline: 4px;
+  color: var(--surface);
+  background: var(--accent);
+  border-radius: 999px;
+  text-align: center;
 }
 
 .copilot-stream-status {
@@ -2635,7 +2781,7 @@ input:focus-visible {
     font-size: 11px;
   }
 
-  .workspace-split {
+  .workspace-split[data-copilot-open] {
     grid-template-columns: minmax(0, 1.65fr) minmax(23rem, 1fr);
   }
 
@@ -2699,6 +2845,11 @@ input:focus-visible {
 
   .mobile-copilot-toggle {
     display: inline-flex;
+  }
+
+  .desktop-copilot-show,
+  .desktop-copilot-hide {
+    display: none;
   }
 
   .member-context-strip {

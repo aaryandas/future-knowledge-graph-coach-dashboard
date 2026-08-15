@@ -3,17 +3,13 @@
 import { useEffect, useMemo, useRef, type RefObject } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import {
-  AdjustIcon,
-  ExplainIcon,
-  SendIcon,
-  ShieldIcon,
-} from "./icons";
+import { SendIcon } from "./icons";
 import type {
   CoachActionResolution,
   CoachTaskSnapshot,
   DashboardMessage,
   DataActionPart,
+  DataBriefPart,
   DataConstraintsPart,
   DataPlanPart,
   DataSourcesPart,
@@ -23,19 +19,24 @@ import { CopilotChart } from "./copilot-chart";
 
 const quickPrompts = [
   {
-    label: "Adjust",
-    message: "Adjust today’s session",
-    Icon: AdjustIcon,
+    id: "show-brief",
+    label: "Brief",
+    message: "Show me the brief",
   },
   {
-    label: "Explain",
-    message: "Explain the choices in today’s session",
-    Icon: ExplainIcon,
+    id: "adherence-trend",
+    label: "Adherence",
+    message: "How's adherence trending?",
   },
   {
-    label: "Constraints",
-    message: "Check today’s session against the member’s constraints",
-    Icon: ShieldIcon,
+    id: "sleep-week",
+    label: "Sleep",
+    message: "Sleep this week",
+  },
+  {
+    id: "changes",
+    label: "4 weeks",
+    message: "What changed since last week?",
   },
 ] as const;
 
@@ -232,20 +233,7 @@ export function CopilotSidebar({
       </div>
 
       <div className="copilot-controls">
-        <div className="copilot-quick-actions" aria-label="Copilot quick actions">
-          {quickPrompts.map(({ label, message, Icon }) => (
-            <button
-              key={label}
-              type="button"
-              className="copilot-chip"
-              disabled={isBusy}
-              onClick={() => submitMessage(message)}
-            >
-              <Icon className="size-[18px]" />
-              {label}
-            </button>
-          ))}
-        </div>
+        <QuickPromptPalette disabled={isBusy} onSelect={submitMessage} />
         <form
           className="copilot-composer"
           onSubmit={(event) => {
@@ -297,6 +285,9 @@ export function CopilotMessage({
   const sourceParts = message.parts.filter(
     (part) => part.type === "data-sources",
   );
+  const briefParts = message.parts.filter(
+    (part) => part.type === "data-brief",
+  );
   const actionParts = message.parts.filter(
     (part) => part.type === "data-action",
   );
@@ -304,6 +295,7 @@ export function CopilotMessage({
     textParts.length === 0 &&
     chartParts.length === 0 &&
     sourceParts.length === 0 &&
+    briefParts.length === 0 &&
     actionParts.length === 0
   ) {
     return null;
@@ -317,10 +309,13 @@ export function CopilotMessage({
     >
       {textParts.length === 0 &&
       chartParts.length === 0 &&
-      sourceParts.length === 0 ? null : (
+      sourceParts.length === 0 &&
+      briefParts.length === 0 ? null : (
         <div
           className="copilot-message-body"
-          data-has-chart={chartParts.length > 0 ? "" : undefined}
+          data-wide={
+            chartParts.length > 0 || briefParts.length > 0 ? "" : undefined
+          }
         >
           {textParts.map((part, index) => (
             <p key={index}>{part.text}</p>
@@ -329,6 +324,12 @@ export function CopilotMessage({
             <CopilotChart
               key={index}
               part={{ type: "data-chart", data: part.data }}
+            />
+          ))}
+          {briefParts.map((part, index) => (
+            <BriefBarriers
+              key={index}
+              part={{ type: "data-brief", data: part.data }}
             />
           ))}
           {sourceParts.map((part, index) => (
@@ -368,6 +369,32 @@ export function CopilotMessage({
   );
 }
 
+export function QuickPromptPalette({
+  disabled,
+  onSelect,
+}: {
+  disabled: boolean;
+  onSelect(message: string): void;
+}) {
+  return (
+    <div className="copilot-quick-actions" aria-label="Copilot quick prompts">
+      {quickPrompts.map(({ id, label, message }) => (
+        <button
+          key={id}
+          type="button"
+          className="copilot-chip"
+          data-quick-prompt={id}
+          aria-label={`Ask Copilot: ${message}`}
+          disabled={disabled}
+          onClick={() => onSelect(message)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function isCoachActionResolution(value: unknown): value is CoachActionResolution {
   if (typeof value !== "object" || value === null || !("decision" in value)) {
     return false;
@@ -375,14 +402,62 @@ function isCoachActionResolution(value: unknown): value is CoachActionResolution
   return value.decision === "confirm" || value.decision === "discard";
 }
 
+function BriefBarriers({ part }: { part: DataBriefPart }) {
+  const { barriers, churn_risk_level: churnRiskLevel } = part.data;
+
+  return (
+    <section className="copilot-brief" aria-label="Barriers">
+      <header>
+        <h3>Barriers</h3>
+        <span data-risk-level={churnRiskLevel}>
+          {formatLabel(churnRiskLevel)} churn risk
+        </span>
+      </header>
+      {barriers.length === 0 ? (
+        <p className="copilot-barriers-empty">No evidenced Barriers.</p>
+      ) : (
+        <ul className="copilot-barriers">
+          {barriers.map((barrier) => (
+            <li key={barrier.node_id} data-barrier-id={barrier.node_id}>
+              <div className="copilot-barrier-heading">
+                <strong>{formatLabel(barrier.kind)}</strong>
+                <span data-risk-level={barrier.risk_level}>
+                  {formatLabel(barrier.risk_level)}
+                </span>
+              </div>
+              <p>{barrier.reason}</p>
+              <ul
+                className="copilot-evidence"
+                aria-label={`Evidence for ${formatLabel(barrier.kind)}`}
+              >
+                {barrier.evidence_node_ids.map((nodeId) => (
+                  <li key={nodeId}>{nodeId}</li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function SourceChips({ part }: { part: DataSourcesPart }) {
   if (part.data.sources.length === 0) {
-    return null;
+    return <p className="copilot-sources-empty">No graph sources</p>;
   }
   return (
     <ul className="copilot-sources" aria-label="Sources">
       {part.data.sources.map((source, index) => (
-        <li key={`${source.tool}-${index}`}>{formatToolName(source.tool)}</li>
+        <li
+          key={`${source.tool}-${index}`}
+          data-source-tool={source.tool}
+          title={source.node_ids.join(", ")}
+          aria-label={`${formatToolName(source.tool)} source: ${source.node_ids.length} graph ${source.node_ids.length === 1 ? "record" : "records"}`}
+        >
+          <span>{formatToolName(source.tool)}</span>
+          <span aria-hidden="true">{source.node_ids.length}</span>
+        </li>
       ))}
     </ul>
   );
@@ -390,6 +465,11 @@ function SourceChips({ part }: { part: DataSourcesPart }) {
 
 function formatToolName(tool: string): string {
   return tool.replace(/^get_/, "").replaceAll("_", " ");
+}
+
+function formatLabel(value: string): string {
+  const label = value.replaceAll("-", " ").replaceAll("_", " ");
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 function requestedWindow(prompt: string): number | null {
