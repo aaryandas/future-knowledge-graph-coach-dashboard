@@ -23,7 +23,7 @@ MEMBER_ID = "mbr_01HX9JORDAN"
 THREAD_ID = "annotation-test-thread"
 
 
-def test_generation_session_streams_each_template_as_its_pair_validates() -> None:
+def test_generation_session_buffers_complete_form_before_emitting_templates() -> None:
     annotation_llm = FakeAnnotationLLM(
         [
             {
@@ -54,7 +54,7 @@ def test_generation_session_streams_each_template_as_its_pair_validates() -> Non
 
         assert not any(event.kind == "agent" for event in turn.trace)
         assert next(parts) == "Reduce the load on Box Squat."
-        assert annotation_llm.parts_requested == 1
+        assert annotation_llm.parts_requested == 2
         assert tuple(parts) == ("Stop Box Squat if you feel pain.",)
         assert len(annotation_llm.calls) == 1
         system_prompt = str(annotation_llm.calls[0][0].content)
@@ -180,6 +180,7 @@ def test_generation_session_drops_the_whole_note_on_mid_note_provider_error() ->
                 "cautions": [
                     {
                         "plan_item_id": "ex-main",
+                        "tightening_kind": "reduce-load",
                     }
                 ]
             },

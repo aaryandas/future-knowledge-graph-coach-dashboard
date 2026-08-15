@@ -48,7 +48,7 @@ def annotate(
     llm: AnnotationLLM | None = None,
     record_trace_event: Callable[[AgentTraceEvent], None],
 ) -> Iterator[str]:
-    """Stream one validated caution form and drop provider failures."""
+    """Buffer one complete caution form and drop provider failures."""
     annotation_llm = llm or build_annotation_llm()
     if annotation_llm is None:
         return
@@ -58,28 +58,27 @@ def annotate(
         HumanMessage(content=_annotation_context(plan, coach_message)),
     )
     plan_items = _plan_items(plan)
-    emitted: set[tuple[str, TighteningKind]] = set()
+    complete_payload: object = None
     try:
         for payload in annotation_llm.stream(messages):
-            for caution in _cautions_from_payload(payload, plan_items):
-                key = (caution.plan_item_id, caution.tightening_kind)
-                if key in emitted:
-                    continue
-                emitted.add(key)
-                record_trace_event(
-                    AgentTraceEvent(
-                        action="annotation",
-                        reason=(
-                            "Added a structurally validated tighten-only coaching note."
-                        ),
-                        used=(caution.plan_item_id,),
-                    )
-                )
-                yield caution.caution_text
-                if len(emitted) == _MAX_CAUTIONS:
-                    return
+            complete_payload = payload
     except LLMProviderError:
         return
+
+    emitted: set[tuple[str, TighteningKind]] = set()
+    for caution in _cautions_from_payload(complete_payload, plan_items):
+        key = (caution.plan_item_id, caution.tightening_kind)
+        if key in emitted:
+            continue
+        emitted.add(key)
+        record_trace_event(
+            AgentTraceEvent(
+                action="annotation",
+                reason="Added a structurally validated tighten-only coaching note.",
+                used=(caution.plan_item_id,),
+            )
+        )
+        yield caution.caution_text
 
 
 def _cautions_from_payload(
