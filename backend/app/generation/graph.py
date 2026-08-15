@@ -107,7 +107,6 @@ def run_generation_session(
                 "member_id": member_id,
                 "coach_message": coach_message.strip(),
                 "window": window,
-                "trace": (),
                 "failure": None,
             },
             config,

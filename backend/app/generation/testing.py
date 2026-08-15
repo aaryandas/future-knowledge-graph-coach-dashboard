@@ -2,8 +2,8 @@
 
 import pickle
 from collections.abc import Iterable, Iterator, Sequence
-from contextlib import contextmanager
-from typing import Any
+from contextlib import AbstractContextManager, contextmanager
+from typing import Any, Protocol
 
 from langchain_core.messages import BaseMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -62,6 +62,13 @@ class _PickleSerializer:
         return pickle.loads(value)
 
 
+class CheckpointerFactory(Protocol):
+    def __call__(
+        self,
+        database_url: str | None = None,
+    ) -> AbstractContextManager[BaseCheckpointSaver[Any]]: ...
+
+
 class FakeAnnotationLLM:
     def __init__(self, parts: Iterable[object | LLMProviderError]) -> None:
         self._parts = tuple(parts)
@@ -93,6 +100,7 @@ def generation_test_adapters(
     member_context_reader: MemberContextReader = read_generation_member_context,
     verdict_evaluator: VerdictEvaluator = evaluate_generation_safety,
     annotation_llm: AnnotationLLM | None = None,
+    checkpointer_factory: CheckpointerFactory | None = None,
 ) -> Iterator[InMemorySaver]:
     checkpointer = InMemorySaver(serde=_PickleSerializer())
     test_llm = llm
@@ -147,7 +155,9 @@ def generation_test_adapters(
             annotation_trace_recorder=annotation_trace_recorder,
         )
 
-    _generation_service.open_postgres_checkpointer = open_in_memory_checkpointer
+    test_checkpointer_factory = checkpointer_factory or open_in_memory_checkpointer
+    # ty cannot narrow an injected context manager to contextmanager's concrete type.
+    _generation_service.open_postgres_checkpointer = test_checkpointer_factory  # ty: ignore[invalid-assignment]
     # ty cannot prove that a local replacement matches the imported function.
     _generation_service.run_checkpointed_session = run_with_test_adapters  # ty: ignore[invalid-assignment]
     try:
@@ -160,6 +170,7 @@ def generation_test_adapters(
 __all__ = [
     "AgentTraceEvent",
     "CatalogExercise",
+    "CheckpointerFactory",
     "ConstraintSet",
     "FakeAnnotationLLM",
     "FakeLLM",

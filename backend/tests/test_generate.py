@@ -7,16 +7,22 @@ from typing import Any
 import pytest
 from app.api.generate import TurnRunner, create_generate_router
 from app.generation import GenerationTurn, run_generation_session
+from app.generation.persistence import open_postgres_checkpointer
 from app.generation.testing import (
     AgentTraceEvent,
+    CatalogExercise,
     ConstraintSet,
+    FakeAnnotationLLM,
     FakeLLM,
+    GenerationMemberContext,
     Plan,
     PlanEntry,
     PlanSection,
     Resolution,
     ResolvedIntent,
     ResolvedMention,
+    Verdict,
+    WalkedPath,
     generation_test_adapters,
 )
 from app.graph import get_member_injuries, ingest_kg1, ingest_kg2
@@ -192,6 +198,54 @@ def test_coaching_note_text_parts_stream_after_plan_and_trace() -> None:
     ] == ["Keep the load light.", " Stop if knee pain increases."]
 
 
+def test_generation_service_replays_annotation_trace_events_after_postgres_restart() -> (
+    None
+):
+    replay_thread_id = "annotation-postgres-replay-thread"
+    isolated_thread_id = "annotation-postgres-isolated-thread"
+    _delete_postgres_threads(replay_thread_id, isolated_thread_id)
+
+    try:
+        with _annotation_generation_client(
+            intent_count=3,
+            annotation_llm=_two_note_annotation_llm(),
+        ) as client:
+            first = _generate_annotation_stream(
+                client,
+                thread_id=replay_thread_id,
+                message_id="annotation-postgres-message-1",
+                text="Build a careful full-body workout.",
+            )
+            replayed = _generate_annotation_stream(
+                client,
+                thread_id=replay_thread_id,
+                message_id="annotation-postgres-message-2",
+                text="Make one adjustment.",
+            )
+            isolated = _generate_annotation_stream(
+                client,
+                thread_id=isolated_thread_id,
+                message_id="annotation-postgres-isolated-message-1",
+                text="Build another workout.",
+            )
+
+        packing_trace = _expected_packing_trace()
+        prior_annotations = _expected_annotation_trace()
+        assert _trace_data(first) == packing_trace
+        assert _annotation_text_deltas(first) == [
+            "Add more rest after March.",
+            "Reduce the load on Box Squat.",
+        ]
+        assert _trace_data(replayed) == [
+            *packing_trace,
+            *prior_annotations,
+            *packing_trace,
+        ]
+        assert _trace_data(isolated) == packing_trace
+    finally:
+        _delete_postgres_threads(replay_thread_id, isolated_thread_id)
+
+
 def test_generate_stream_enforces_a_session_injury_without_persisting_it(
     seeded_generation_graph: None,
 ) -> None:
@@ -326,6 +380,26 @@ def _generation_client(
         yield _client(turn_runner=run_generation_session)
 
 
+@contextmanager
+def _annotation_generation_client(
+    *,
+    intent_count: int,
+    annotation_llm: FakeAnnotationLLM,
+) -> Iterator[TestClient]:
+    with generation_test_adapters(
+        llm=FakeLLM([_full_body_intent()] * intent_count),
+        annotation_llm=annotation_llm,
+        catalog_reader=_annotation_catalog,
+        member_context_reader=lambda member_id: GenerationMemberContext(
+            equipment_ids=(),
+            disliked_exercise_ids=(),
+        ),
+        verdict_evaluator=_clear_verdicts,
+        checkpointer_factory=open_postgres_checkpointer,
+    ):
+        yield _client(turn_runner=run_generation_session)
+
+
 def _generate(
     client: TestClient,
     *,
@@ -347,6 +421,31 @@ def _generate(
             ],
         },
     )
+
+
+def _generate_annotation_stream(
+    client: TestClient,
+    *,
+    thread_id: str,
+    message_id: str,
+    text: str,
+) -> str:
+    response = client.post(
+        f"/api/members/{MEMBER_ID}/generate",
+        json={
+            "id": thread_id,
+            "window": 20,
+            "messages": [
+                {
+                    "id": message_id,
+                    "role": "user",
+                    "parts": [{"type": "text", "text": text}],
+                }
+            ],
+        },
+    )
+    assert response.status_code == 200
+    return response.text
 
 
 def _data_parts(stream: str) -> dict[str, dict[str, Any]]:
@@ -380,6 +479,145 @@ def _events(stream: str) -> list[dict[str, Any]]:
         for line in stream.splitlines()
         if line.startswith("data: {")
     ]
+
+
+def _trace_data(stream: str) -> list[dict[str, Any]]:
+    trace = next(event for event in _events(stream) if event["type"] == "data-trace")[
+        "data"
+    ]
+    assert isinstance(trace, list)
+    return trace
+
+
+def _annotation_text_deltas(stream: str) -> list[object]:
+    return [
+        event["delta"]
+        for event in _events(stream)
+        if event["type"] == "text-delta" and str(event["id"]).endswith("-annotation")
+    ]
+
+
+def _expected_packing_trace() -> list[dict[str, object]]:
+    return [
+        {
+            "kind": "packing",
+            "action": "selected",
+            "section": section,
+            "exercise_id": exercise_id,
+            "reason": (
+                "score 2: goal match 0 + coverage gain 1 + priority tier 1 "
+                "- caution 0 - dislike 0."
+            ),
+            "used": [exercise_id],
+            "score": 2,
+            "wasGeneratedBy": "pack",
+            "wasAttributedTo": "graph",
+        }
+        for section, exercise_id in (
+            ("warm-up", "ex-warm"),
+            ("main", "ex-main"),
+            ("cool-down", "ex-cool"),
+        )
+    ]
+
+
+def _expected_annotation_trace() -> list[dict[str, object]]:
+    return [
+        {
+            "kind": "agent",
+            "action": "annotation",
+            "reason": "Added a structurally validated tighten-only coaching note.",
+            "used": [exercise_id],
+            "wasGeneratedBy": "annotate",
+            "wasAttributedTo": "agent",
+        }
+        for exercise_id in ("ex-warm", "ex-main")
+    ]
+
+
+def _full_body_intent() -> dict[str, object]:
+    return {
+        "focus": "full-body",
+        "targets": [],
+        "exclusions": [],
+        "injuries": [],
+        "equipment": [],
+    }
+
+
+def _two_note_annotation_llm() -> FakeAnnotationLLM:
+    return FakeAnnotationLLM(
+        [
+            {
+                "cautions": [
+                    {
+                        "plan_item_id": "ex-warm",
+                        "tightening_kind": "add-rest",
+                    },
+                    {
+                        "plan_item_id": "ex-main",
+                        "tightening_kind": "reduce-load",
+                    },
+                ]
+            }
+        ]
+    )
+
+
+def _delete_postgres_threads(*thread_ids: str) -> None:
+    with open_postgres_checkpointer() as checkpointer:
+        for thread_id in thread_ids:
+            checkpointer.delete_thread(thread_id)
+
+
+def _annotation_catalog() -> tuple[CatalogExercise, ...]:
+    return (
+        _annotation_exercise("ex-warm", "March", "mobility - dynamic"),
+        _annotation_exercise("ex-main", "Box Squat", "lower squat"),
+        _annotation_exercise("ex-cool", "Breathing", "regen"),
+    )
+
+
+def _annotation_exercise(
+    exercise_id: str,
+    name: str,
+    movement_pattern: str,
+) -> CatalogExercise:
+    return CatalogExercise(
+        exercise_id=exercise_id,
+        name=name,
+        movement_patterns=(movement_pattern,),
+        movement_pattern_ids=(f"pattern-{exercise_id}",),
+        muscle_groups=("full body",),
+        muscle_group_ids=("muscle-full-body",),
+        joint_ids=(),
+        equipment_ids=(),
+        priority_tier=1,
+        is_reps=True,
+        is_duration=False,
+        supports_weight=False,
+        estimated_rep_duration=0.1,
+        is_bilateral=False,
+        side=None,
+        bilateral_pair_id=None,
+    )
+
+
+def _clear_verdicts(
+    member_id: str,
+    exercise_ids: tuple[str, ...],
+    session_injuries: tuple[ResolvedMention, ...],
+) -> tuple[Verdict, ...]:
+    return tuple(
+        Verdict(
+            exercise_id=exercise_id,
+            status="clear",
+            walked_path=WalkedPath(nodes=(), edges=()),
+            decisions=(),
+            trace=(),
+        )
+        for exercise_id in exercise_ids
+    )
 
 
 def _plan() -> Plan:
