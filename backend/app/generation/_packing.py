@@ -58,10 +58,27 @@ class _PackedEntry:
 
 
 def pack(
-    candidates: tuple[Candidate, ...], intent: Intent, window: int
+    candidates: tuple[Candidate, ...],
+    intent: Intent,
+    window: int,
+    *,
+    previous_plan: Plan | None = None,
+    adjustment_exclusion_ids: tuple[str, ...] = (),
 ) -> tuple[Plan, tuple[TraceEvent, ...]] | PackingFailure:
     """Pack one deterministic three-section plan into the supported window."""
     _validate_inputs(candidates, window)
+    if (
+        previous_plan is not None
+        and previous_plan.requested_minutes == window
+        and adjustment_exclusion_ids
+    ):
+        return _pack_exact_named_exclusion_adjustment(
+            candidates,
+            intent,
+            window,
+            previous_plan,
+            adjustment_exclusion_ids,
+        )
     events = _hard_filter_events(candidates)
     used_exercise_ids: set[str] = set()
     packed_by_section: dict[Section, list[_PackedEntry]] = {}
@@ -117,6 +134,153 @@ def pack(
             events=tuple(events),
         )
 
+    return (
+        Plan(
+            warm_up=sections["warm-up"],
+            main=sections["main"],
+            cool_down=sections["cool-down"],
+            requested_minutes=window,
+            packed_minutes=packed_minutes,
+        ),
+        tuple(events),
+    )
+
+
+def _pack_exact_named_exclusion_adjustment(
+    candidates: tuple[Candidate, ...],
+    intent: Intent,
+    window: int,
+    previous_plan: Plan,
+    adjustment_exclusion_ids: tuple[str, ...],
+) -> tuple[Plan, tuple[TraceEvent, ...]] | PackingFailure:
+    candidate_by_id = {candidate.exercise_id: candidate for candidate in candidates}
+    excluded_ids = frozenset(adjustment_exclusion_ids)
+    previous_ids = frozenset(
+        entry.exercise_id
+        for section in (
+            previous_plan.warm_up,
+            previous_plan.main,
+            previous_plan.cool_down,
+        )
+        for entry in section.entries
+    )
+    previous_by_section = {
+        "warm-up": previous_plan.warm_up,
+        "main": previous_plan.main,
+        "cool-down": previous_plan.cool_down,
+    }
+    packed_slots: dict[Section, list[_PackedEntry | None]] = {}
+    retained_ids: set[str] = set()
+    used_ids: set[str] = set()
+    covered_by_section: dict[Section, frozenset[str]] = {}
+
+    for section_name in SECTION_ORDER:
+        section = section_name
+        slots: list[_PackedEntry | None] = []
+        covered_muscle_groups: frozenset[str] = frozenset()
+        for entry in previous_by_section[section].entries:
+            if entry.exercise_id in excluded_ids:
+                slots.append(None)
+                continue
+            candidate = candidate_by_id.get(entry.exercise_id)
+            if candidate is None or not eligible_candidates(
+                (candidate,),
+                section,
+                intent.focus,
+            ):
+                continue
+            ranking = rank_candidates((candidate,), covered_muscle_groups)[0]
+            slots.append(
+                _PackedEntry(
+                    candidate=candidate,
+                    entry=entry,
+                    ranking=ranking,
+                )
+            )
+            retained_ids.add(candidate.exercise_id)
+            used_ids.add(candidate.exercise_id)
+            covered_muscle_groups = covered_muscle_groups.union(candidate.muscle_groups)
+        packed_slots[section] = slots
+        covered_by_section[section] = covered_muscle_groups
+
+    retained_minutes = sum(
+        packed_entry.entry.minutes
+        for slots in packed_slots.values()
+        for packed_entry in slots
+        if packed_entry is not None
+    )
+    remaining_minutes = _round_minutes(window - retained_minutes)
+
+    for section_name in SECTION_ORDER:
+        section = section_name
+        slots = packed_slots[section]
+        covered_muscle_groups = covered_by_section[section]
+        for index, packed_entry in enumerate(slots):
+            if packed_entry is not None:
+                continue
+            available = tuple(
+                candidate
+                for candidate in eligible_candidates(candidates, section, intent.focus)
+                if candidate.exercise_id not in used_ids
+                and candidate.exercise_id not in previous_ids
+            )
+            ranked = rank_candidates(available, covered_muscle_groups)
+            fitting = next(
+                (
+                    ranked_candidate
+                    for ranked_candidate in ranked
+                    if _entry(ranked_candidate.candidate, section).minutes
+                    <= remaining_minutes + TIME_COMPARISON_TOLERANCE
+                ),
+                None,
+            )
+            if fitting is None:
+                continue
+            entry = _entry(fitting.candidate, section)
+            slots[index] = _PackedEntry(
+                candidate=fitting.candidate,
+                entry=entry,
+                ranking=fitting,
+            )
+            used_ids.add(fitting.candidate.exercise_id)
+            remaining_minutes = _round_minutes(remaining_minutes - entry.minutes)
+            covered_muscle_groups = covered_muscle_groups.union(
+                fitting.candidate.muscle_groups
+            )
+
+    events = _hard_filter_events(candidates)
+    packed_by_section: dict[Section, list[_PackedEntry]] = {}
+    for section_name in SECTION_ORDER:
+        section = section_name
+        packed_entries = [
+            packed_entry
+            for packed_entry in packed_slots[section]
+            if packed_entry is not None
+        ]
+        if len(packed_entries) < MINIMUM_SECTION_ENTRIES:
+            return PackingFailure(
+                reason="empty-section",
+                message=f"No eligible exercise is available for the {section} section.",
+                section=section,
+                events=tuple(events),
+            )
+        packed_by_section[section] = packed_entries
+        events.extend(
+            (
+                _retained_selection_event(packed_entry.ranking, section)
+                if packed_entry.candidate.exercise_id in retained_ids
+                else _selection_event(packed_entry.ranking, section)
+            )
+            for packed_entry in packed_entries
+        )
+
+    sections = {
+        section: _plan_section(section, packed_by_section[section])
+        for section in SECTION_ORDER
+    }
+    packed_minutes = _round_minutes(
+        sum(plan_section.minutes for plan_section in sections.values())
+    )
     return (
         Plan(
             warm_up=sections["warm-up"],
@@ -282,6 +446,20 @@ def _selection_event(ranking: RankedCandidate, section: Section) -> PackingTrace
             f"{ranking.coverage_gain} + priority tier {ranking.priority_tier} - caution "
             f"{ranking.caution} - dislike {ranking.dislike}."
         ),
+        used=(ranking.candidate.exercise_id,),
+        score=ranking.score,
+    )
+
+
+def _retained_selection_event(
+    ranking: RankedCandidate,
+    section: Section,
+) -> PackingTraceEvent:
+    return PackingTraceEvent(
+        action="selected",
+        section=section,
+        exercise_id=ranking.candidate.exercise_id,
+        reason="Retained the eligible Plan entry after an exact Exercise exclusion.",
         used=(ranking.candidate.exercise_id,),
         score=ranking.score,
     )

@@ -52,6 +52,7 @@ class _GenerationState(TypedDict, total=False):
     intent: Intent | None
     intent_delta: Intent | None
     resolved_intent: ResolvedIntent | None
+    adjustment_exclusion_ids: tuple[str, ...]
     catalog: tuple[CatalogExercise, ...]
     verdicts: tuple[Verdict, ...]
     candidates: tuple[Candidate, ...]
@@ -191,11 +192,17 @@ def _build_graph(
         if delta is None:
             raise RuntimeError("The resolve node has no Intent delta")
         resolved_delta, events = resolve_intent(delta)
+        current_resolved_intent = state.get("resolved_intent")
         return {
             "intent": merge_intent(state.get("intent"), delta),
             "resolved_intent": merge_resolved_intent(
-                state.get("resolved_intent"),
+                current_resolved_intent,
                 resolved_delta,
+            ),
+            "adjustment_exclusion_ids": _adjustment_exclusion_ids(
+                delta,
+                resolved_delta,
+                current_resolved_intent,
             ),
             "trace": (*state.get("trace", ()), *events),
         }
@@ -248,7 +255,14 @@ def _build_graph(
         intent = state.get("intent")
         if intent is None:
             raise RuntimeError("The pack node has no Intent")
-        result = pack(state.get("candidates", ()), intent, state["window"])
+        previous_plan = state.get("plan")
+        result = pack(
+            state.get("candidates", ()),
+            intent,
+            state["window"],
+            previous_plan=previous_plan,
+            adjustment_exclusion_ids=state.get("adjustment_exclusion_ids", ()),
+        )
         if isinstance(result, PackingFailure):
             return {
                 "plan": None,
@@ -261,7 +275,7 @@ def _build_graph(
             }
         plan, events = result
         substitutions = pair_substitutions(
-            state.get("plan"),
+            previous_plan,
             plan,
             state.get("catalog", ()),
         )
@@ -382,6 +396,36 @@ def _resolved_exclusions(
         if concept_id is not None
     )
     return exercise_ids, movement_pattern_ids
+
+
+def _adjustment_exclusion_ids(
+    delta: Intent,
+    resolved_delta: ResolvedIntent,
+    current: ResolvedIntent | None,
+) -> tuple[str, ...]:
+    if (
+        delta.focus is not None
+        or delta.targets
+        or delta.injuries
+        or delta.equipment
+        or len(resolved_delta.constraints.exclusions) != 1
+    ):
+        return ()
+    exclusion = resolved_delta.constraints.exclusions[0]
+    concept_id = exclusion.resolution.concept_id
+    if (
+        not exclusion.enforced
+        or exclusion.vocabulary != "Exercise"
+        or concept_id is None
+        or exclusion.resolution.pass_ != "exact"
+    ):
+        return ()
+    if current is not None and any(
+        mention.enforced and mention.resolution.concept_id == concept_id
+        for mention in current.constraints.exclusions
+    ):
+        return ()
+    return (concept_id,)
 
 
 def _thread_config(thread_id: str) -> RunnableConfig:
