@@ -186,12 +186,51 @@ def _select_section(
     events: list[TraceEvent] = []
     covered_muscle_groups: frozenset[str] = frozenset()
     remaining_minutes = target_minutes
+    previous_slots = tuple(
+        sorted(
+            (
+                candidate
+                for candidate in available_candidates
+                if candidate.previous_section == section
+                and candidate.previous_position is not None
+            ),
+            key=lambda candidate: cast(int, candidate.previous_position),
+        )
+    )
 
-    while remaining and remaining_minutes > TIME_COMPARISON_TOLERANCE:
+    while remaining and (
+        len(selected) < len(previous_slots)
+        if previous_slots
+        else remaining_minutes > TIME_COMPARISON_TOLERANCE
+    ):
         ranked = rank_candidates(remaining, covered_muscle_groups)
+        previous_candidate = (
+            previous_slots[len(selected)]
+            if len(selected) < len(previous_slots)
+            else None
+        )
+        previous_ranking = next(
+            (
+                ranked_candidate
+                for ranked_candidate in ranked
+                if previous_candidate is not None
+                and ranked_candidate.candidate.exercise_id
+                == previous_candidate.exercise_id
+            ),
+            None,
+        )
+        ranked_for_position = (
+            (previous_ranking,)
+            if previous_ranking is not None
+            else tuple(
+                ranked_candidate
+                for ranked_candidate in ranked
+                if ranked_candidate.candidate.previous_section is None
+            )
+        )
         reservable = tuple(
             ranked_candidate
-            for ranked_candidate in ranked
+            for ranked_candidate in ranked_for_position
             if _can_reserve_later_sections(
                 tuple(
                     candidate
@@ -202,14 +241,18 @@ def _select_section(
                 focus,
             )
         )
-        fitting = next(
-            (
-                ranked_candidate
-                for ranked_candidate in reservable
-                if _entry(ranked_candidate.candidate, section).minutes
-                <= remaining_minutes + TIME_COMPARISON_TOLERANCE
-            ),
-            None,
+        fitting = (
+            next(iter(reservable), None)
+            if previous_slots
+            else next(
+                (
+                    ranked_candidate
+                    for ranked_candidate in reservable
+                    if _entry(ranked_candidate.candidate, section).minutes
+                    <= remaining_minutes + TIME_COMPARISON_TOLERANCE
+                ),
+                None,
+            )
         )
         if fitting is None:
             if selected:
@@ -272,7 +315,10 @@ def _can_reserve_later_sections(
     return reserve(0, frozenset())
 
 
-def _selection_event(ranking: RankedCandidate, section: Section) -> PackingTraceEvent:
+def _selection_event(
+    ranking: RankedCandidate,
+    section: Section,
+) -> PackingTraceEvent:
     return PackingTraceEvent(
         action="selected",
         section=section,

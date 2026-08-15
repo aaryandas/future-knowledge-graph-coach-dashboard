@@ -232,12 +232,19 @@ def _build_graph(
         resolved = state.get("resolved_intent")
         if resolved is None:
             raise RuntimeError("The rank node has no resolved Intent")
+        previous_plan = state.get("plan")
         return {
             "candidates": _rank_inputs(
                 state.get("catalog", ()),
                 state.get("verdicts", ()),
                 resolved,
                 member_context,
+                previous_plan=(
+                    previous_plan
+                    if previous_plan is not None
+                    and previous_plan.requested_minutes == state["window"]
+                    else None
+                ),
             )
         }
 
@@ -248,6 +255,7 @@ def _build_graph(
         intent = state.get("intent")
         if intent is None:
             raise RuntimeError("The pack node has no Intent")
+        previous_plan = state.get("plan")
         result = pack(state.get("candidates", ()), intent, state["window"])
         if isinstance(result, PackingFailure):
             return {
@@ -261,7 +269,7 @@ def _build_graph(
             }
         plan, events = result
         substitutions = pair_substitutions(
-            state.get("plan"),
+            previous_plan,
             plan,
             state.get("catalog", ()),
         )
@@ -299,6 +307,8 @@ def _rank_inputs(
     verdicts: tuple[Verdict, ...],
     resolved_intent: ResolvedIntent,
     member_context: GenerationMemberContext,
+    *,
+    previous_plan: Plan | None = None,
 ) -> tuple[Candidate, ...]:
     verdict_by_exercise_id = {verdict.exercise_id: verdict for verdict in verdicts}
     target_ids = _resolved_ids(resolved_intent.targets)
@@ -312,6 +322,19 @@ def _rank_inputs(
         else _resolved_ids(equipment_override)
     )
     disliked_exercise_ids = frozenset(member_context.disliked_exercise_ids)
+    previous_placements = (
+        {
+            entry.exercise_id: (section.section, position)
+            for section in (
+                previous_plan.warm_up,
+                previous_plan.main,
+                previous_plan.cool_down,
+            )
+            for position, entry in enumerate(section.entries)
+        }
+        if previous_plan is not None
+        else {}
+    )
     return tuple(
         Candidate(
             exercise_id=exercise.exercise_id,
@@ -339,6 +362,16 @@ def _rank_inputs(
             explicitly_excluded=(
                 exercise.exercise_id in exclusion_ids
                 or not exclusion_pattern_ids.isdisjoint(exercise.movement_pattern_ids)
+            ),
+            previous_section=(
+                previous_placements[exercise.exercise_id][0]
+                if exercise.exercise_id in previous_placements
+                else None
+            ),
+            previous_position=(
+                previous_placements[exercise.exercise_id][1]
+                if exercise.exercise_id in previous_placements
+                else None
             ),
         )
         for exercise in catalog
