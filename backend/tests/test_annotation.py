@@ -5,6 +5,7 @@ from typing import cast
 
 import pytest
 from app.generation import GenerationTurn, run_generation_session
+from app.generation.persistence import open_postgres_checkpointer
 from app.generation.testing import (
     CatalogExercise,
     FakeAnnotationLLM,
@@ -196,6 +197,127 @@ def test_generation_session_drops_the_whole_note_on_mid_note_provider_error() ->
         )
 
 
+def test_generation_service_replays_annotation_trace_events_by_thread() -> None:
+    intent = _full_body_intent()
+    annotation_llm = _two_note_annotation_llm()
+
+    with generation_test_adapters(
+        llm=FakeLLM([intent, intent, intent]),
+        annotation_llm=annotation_llm,
+        catalog_reader=_catalog,
+        member_context_reader=lambda member_id: GenerationMemberContext(
+            equipment_ids=(),
+            disliked_exercise_ids=(),
+        ),
+        verdict_evaluator=_clear_verdicts,
+    ) as checkpointer:
+        first = run_generation_session(
+            MEMBER_ID,
+            "Build a careful full-body workout.",
+            20,
+            "annotation-replay-thread",
+            "annotation-replay-message-1",
+        )
+
+        assert not any(event.kind == "agent" for event in first.trace)
+        assert tuple(first.coaching_note_parts) == (
+            "Add more rest after March.",
+            "Reduce the load on Box Squat.",
+        )
+        assert [
+            event.used
+            for event in _checkpoint_trace(
+                checkpointer,
+                thread_id="annotation-replay-thread",
+            )
+            if event.kind == "agent"
+        ] == [
+            ("ex-warm",),
+            ("ex-main",),
+        ]
+
+        replayed = run_generation_session(
+            MEMBER_ID,
+            "Make one adjustment.",
+            20,
+            "annotation-replay-thread",
+            "annotation-replay-message-2",
+        )
+        isolated = run_generation_session(
+            MEMBER_ID,
+            "Build another workout.",
+            20,
+            "annotation-isolated-thread",
+            "annotation-isolated-message-1",
+        )
+
+    assert [event.used for event in replayed.trace if event.kind == "agent"] == [
+        ("ex-warm",),
+        ("ex-main",),
+    ]
+    assert not any(event.kind == "agent" for event in isolated.trace)
+
+
+def test_generation_service_replays_annotation_trace_events_after_postgres_restart() -> (
+    None
+):
+    replay_thread_id = "annotation-postgres-replay-thread"
+    isolated_thread_id = "annotation-postgres-isolated-thread"
+    _delete_postgres_threads(replay_thread_id, isolated_thread_id)
+
+    try:
+        with generation_test_adapters(
+            llm=FakeLLM(
+                [_full_body_intent(), _full_body_intent(), _full_body_intent()]
+            ),
+            annotation_llm=_two_note_annotation_llm(),
+            catalog_reader=_catalog,
+            member_context_reader=lambda member_id: GenerationMemberContext(
+                equipment_ids=(),
+                disliked_exercise_ids=(),
+            ),
+            verdict_evaluator=_clear_verdicts,
+            checkpointer_factory=open_postgres_checkpointer,
+        ):
+            first = run_generation_session(
+                MEMBER_ID,
+                "Build a careful full-body workout.",
+                20,
+                replay_thread_id,
+                "annotation-postgres-message-1",
+            )
+
+            assert not any(event.kind == "agent" for event in first.trace)
+            assert tuple(first.coaching_note_parts) == (
+                "Add more rest after March.",
+                "Reduce the load on Box Squat.",
+            )
+
+            replayed = run_generation_session(
+                MEMBER_ID,
+                "Make one adjustment.",
+                20,
+                replay_thread_id,
+                "annotation-postgres-message-2",
+            )
+            isolated = run_generation_session(
+                MEMBER_ID,
+                "Build another workout.",
+                20,
+                isolated_thread_id,
+                "annotation-postgres-isolated-message-1",
+            )
+
+        assert None not in replayed.trace, replayed.trace
+        assert [event.used for event in replayed.trace if event.kind == "agent"] == [
+            ("ex-warm",),
+            ("ex-main",),
+        ]
+        assert not any(event.kind == "agent" for event in isolated.trace)
+    finally:
+        _delete_postgres_threads(replay_thread_id, isolated_thread_id)
+
+
 def test_generation_session_without_an_api_key_has_no_coaching_note(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -253,14 +375,53 @@ def _run_turn(
         )
 
 
-def _checkpoint_trace(checkpointer: InMemorySaver) -> tuple[TraceEvent, ...]:
-    checkpoint = checkpointer.get({"configurable": {"thread_id": THREAD_ID}})
+def _checkpoint_trace(
+    checkpointer: InMemorySaver,
+    *,
+    thread_id: str = THREAD_ID,
+) -> tuple[TraceEvent, ...]:
+    checkpoint = checkpointer.get({"configurable": {"thread_id": thread_id}})
     assert checkpoint is not None
     channel_values = checkpoint["channel_values"]
     assert isinstance(channel_values, dict)
     trace = channel_values["trace"]
     assert isinstance(trace, tuple)
     return cast("tuple[TraceEvent, ...]", trace)
+
+
+def _full_body_intent() -> dict[str, object]:
+    return {
+        "focus": "full-body",
+        "targets": [],
+        "exclusions": [],
+        "injuries": [],
+        "equipment": [],
+    }
+
+
+def _two_note_annotation_llm() -> FakeAnnotationLLM:
+    return FakeAnnotationLLM(
+        [
+            {
+                "cautions": [
+                    {
+                        "plan_item_id": "ex-warm",
+                        "tightening_kind": "add-rest",
+                    },
+                    {
+                        "plan_item_id": "ex-main",
+                        "tightening_kind": "reduce-load",
+                    },
+                ]
+            }
+        ]
+    )
+
+
+def _delete_postgres_threads(*thread_ids: str) -> None:
+    with open_postgres_checkpointer() as checkpointer:
+        for thread_id in thread_ids:
+            checkpointer.delete_thread(thread_id)
 
 
 def _catalog() -> tuple[CatalogExercise, ...]:
