@@ -235,7 +235,8 @@ export type TraceEvent =
   | ResolutionTraceEvent
   | VerdictTraceEvent
   | PackingTraceEvent
-  | AgentTraceEvent;
+  | AgentTraceEvent
+  | SubstitutionTraceEvent;
 
 export interface DataTracePart {
   type: "data-trace";
@@ -245,6 +246,9 @@ export interface DataTracePart {
 export interface ConstraintsData {
   targets: ResolvedMention[];
   constraints: ConstraintSet;
+  omissions: OmissionChip[];
+  not_enforced: NotEnforcedFlag[];
+  session_injury_persistence_suggestions: SessionInjuryPersistenceSuggestion[];
   failure: GenerationFailure | null;
 }
 
@@ -512,6 +516,7 @@ export type ChatDataParts = {
   plan: Plan;
   trace: TraceEvent[];
   constraints: ConstraintsData;
+  chart: DataChart;
   sources: DataSources;
   brief: DataBrief;
   action: DataAction;
@@ -523,9 +528,137 @@ export type TypedDataPart =
   | DataPlanPart
   | DataTracePart
   | DataConstraintsPart
+  | DataChartPart
   | DataSourcesPart
   | GraphNeighborhoodPart
   | MemberSnapshotPart
   | DataBriefPart
   | DataActionPart
   | DataPart;
+
+export type ChartKind =
+  | "adherence_trend"
+  | "sleep_week"
+  | "message_pattern"
+  | "four_week_comparison";
+
+export type ChartWindow = "7-days" | "28-days";
+
+export interface CategoryAxis {
+  label: string;
+  values: string[];
+}
+
+export interface NumericAxis {
+  label: string;
+  unit: string;
+  minimum: number;
+  maximum: number;
+  ticks: number[];
+}
+
+export interface ChartAxes {
+  x: CategoryAxis;
+  y: NumericAxis;
+}
+
+export interface AdherenceTrendPoint {
+  observed_at: string;
+  completion_percent: number;
+  observation_node_id: string;
+}
+
+export interface SleepWeekPoint {
+  observed_at: string;
+  hours: number;
+  observation_node_id: string;
+}
+
+export interface MessagePatternPoint {
+  date: string;
+  member_count: number;
+  coach_count: number;
+  observation_node_id: string;
+}
+
+export interface FourWeekComparisonPoint {
+  week_of: string;
+  completion_percent: number;
+  observation_node_id: string;
+}
+
+interface ChartBase {
+  axes: ChartAxes;
+  observation_node_ids: string[];
+}
+
+export interface AdherenceTrendChart extends ChartBase {
+  kind: "adherence_trend";
+  window: ChartWindow;
+  series: AdherenceTrendPoint[];
+}
+
+export interface SleepWeekChart extends ChartBase {
+  kind: "sleep_week";
+  window: "7-days";
+  series: SleepWeekPoint[];
+}
+
+export interface MessagePatternChart extends ChartBase {
+  kind: "message_pattern";
+  window: ChartWindow;
+  series: MessagePatternPoint[];
+}
+
+export interface FourWeekComparisonChart extends ChartBase {
+  kind: "four_week_comparison";
+  window: "28-days";
+  series: FourWeekComparisonPoint[];
+}
+
+export type DataChart =
+  | AdherenceTrendChart
+  | SleepWeekChart
+  | MessagePatternChart
+  | FourWeekComparisonChart;
+
+export interface DataChartPart {
+  type: "data-chart";
+  data: DataChart;
+}
+
+export interface OmissionChip {
+  raw_text: string;
+  purpose: "target" | "exclusion" | "equipment override";
+  candidates: ResolutionCandidate[];
+  message: string;
+}
+
+export interface NotEnforcedFlag {
+  raw_text: string;
+  purpose: "session injury";
+  candidates: ResolutionCandidate[];
+  message: string;
+}
+
+export interface SessionInjuryPersistenceSuggestion {
+  raw_text: string;
+  concept_id: string;
+  vocabulary: "Joint" | "AnatomicalStructure" | "ClinicalFinding";
+  action: "persist session injury";
+  requires_confirmation: true;
+  message: string;
+}
+
+export interface SubstitutionTraceEvent {
+  kind: "substitution";
+  dropped_exercise_id: string;
+  replacement_exercise_id: string;
+  basis: "movement pattern" | "muscle overlap";
+  shared_movement_pattern_ids: string[];
+  shared_muscle_group_ids: string[];
+  reason: string;
+  used: string[];
+  wasGeneratedBy: "pair_substitutions";
+  wasAttributedTo: "graph";
+}

@@ -13,10 +13,12 @@ import type {
   CoachTaskSnapshot,
   DashboardMessage,
   DataActionPart,
+  DataConstraintsPart,
   DataPlanPart,
   DataSourcesPart,
 } from "@/lib/parts";
 import { CoachActionCard } from "./coach-action-card";
+import { CopilotChart } from "./copilot-chart";
 
 const quickPrompts = [
   {
@@ -44,6 +46,7 @@ interface CopilotSidebarProps {
   composerRef: RefObject<HTMLInputElement | null>;
   hasPlan: boolean;
   onComposerChange(value: string): void;
+  onConstraints(part: DataConstraintsPart): void;
   onPlan(part: DataPlanPart): void;
 }
 
@@ -55,6 +58,7 @@ export function CopilotSidebar({
   composerRef,
   hasPlan,
   onComposerChange,
+  onConstraints,
   onPlan,
 }: CopilotSidebarProps) {
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -85,6 +89,9 @@ export function CopilotSidebar({
       onData(part) {
         if (part.type === "data-plan") {
           onPlan({ type: "data-plan", data: part.data });
+        }
+        if (part.type === "data-constraints") {
+          onConstraints({ type: "data-constraints", data: part.data });
         }
       },
     });
@@ -216,14 +223,17 @@ export function CopilotSidebar({
   );
 }
 
-function CopilotMessage({
+export function CopilotMessage({
   message,
   currentCoachTasks,
 }: {
   message: DashboardMessage;
-  currentCoachTasks: ReadonlyMap<string, CoachTaskSnapshot>;
+  currentCoachTasks?: ReadonlyMap<string, CoachTaskSnapshot>;
 }) {
   const textParts = message.parts.filter((part) => part.type === "text");
+  const chartParts = message.parts.filter(
+    (part) => part.type === "data-chart",
+  );
   const sourceParts = message.parts.filter(
     (part) => part.type === "data-sources",
   );
@@ -232,6 +242,7 @@ function CopilotMessage({
   );
   if (
     textParts.length === 0 &&
+    chartParts.length === 0 &&
     sourceParts.length === 0 &&
     actionParts.length === 0
   ) {
@@ -240,10 +251,21 @@ function CopilotMessage({
 
   return (
     <article className="copilot-message" data-role={message.role}>
-      {textParts.length === 0 && sourceParts.length === 0 ? null : (
-        <div className="copilot-message-body">
+      {textParts.length === 0 &&
+      chartParts.length === 0 &&
+      sourceParts.length === 0 ? null : (
+        <div
+          className="copilot-message-body"
+          data-has-chart={chartParts.length > 0 ? "" : undefined}
+        >
           {textParts.map((part, index) => (
             <p key={index}>{part.text}</p>
+          ))}
+          {chartParts.map((part, index) => (
+            <CopilotChart
+              key={index}
+              part={{ type: "data-chart", data: part.data }}
+            />
           ))}
           {sourceParts.map((part, index) => (
             <SourceChips
@@ -261,7 +283,7 @@ function CopilotMessage({
         const action = actionPart.data.action;
         const currentCoachTask =
           action.kind === "update-brief-task"
-            ? (currentCoachTasks.get(action.coach_task_id) ?? null)
+            ? (currentCoachTasks?.get(action.coach_task_id) ?? null)
             : null;
         return (
           <CoachActionCard

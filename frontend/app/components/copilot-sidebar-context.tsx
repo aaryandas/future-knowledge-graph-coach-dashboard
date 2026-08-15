@@ -1,10 +1,11 @@
 "use client";
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
-import type { DataPlanPart } from "@/lib/parts";
+import type { DataConstraintsPart, DataPlanPart } from "@/lib/parts";
 
 interface CopilotSidebarInterface {
   planPart: DataPlanPart | null;
+  constraintsPart: DataConstraintsPart | null;
   prefillMessage(message: string): void;
 }
 
@@ -15,15 +16,17 @@ const CopilotSidebarContext = createContext<CopilotSidebarInterface | null>(
 export function CopilotSidebarProvider({
   children,
   planPart,
+  constraintsPart,
   prefillMessage,
 }: {
   children: ReactNode;
   planPart: DataPlanPart | null;
+  constraintsPart: DataConstraintsPart | null;
   prefillMessage(message: string): void;
 }) {
   const value = useMemo(
-    () => ({ planPart, prefillMessage }),
-    [planPart, prefillMessage],
+    () => ({ planPart, constraintsPart, prefillMessage }),
+    [planPart, constraintsPart, prefillMessage],
   );
 
   return (
