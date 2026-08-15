@@ -11,7 +11,11 @@ import {
   type ReactNode,
 } from "react";
 import { formatInjury } from "@/lib/member-format";
-import type { DataPlanPart, MemberSnapshotPart } from "@/lib/parts";
+import type {
+  DataConstraintsPart,
+  DataPlanPart,
+  MemberSnapshotPart,
+} from "@/lib/parts";
 import { CopilotSidebar } from "./copilot-sidebar";
 import { CopilotSidebarProvider } from "./copilot-sidebar-context";
 import {
@@ -58,6 +62,8 @@ export function AppShell({
   const [isNarrow, setIsNarrow] = useState(false);
   const [composerValue, setComposerValue] = useState("");
   const [planPart, setPlanPart] = useState<DataPlanPart | null>(null);
+  const [constraintsPart, setConstraintsPart] =
+    useState<DataConstraintsPart | null>(null);
   const composerRef = useRef<HTMLInputElement>(null);
   const copilotToggleRef = useRef<HTMLButtonElement>(null);
   const copilotCloseRef = useRef<HTMLButtonElement>(null);
@@ -93,9 +99,17 @@ export function AppShell({
   const sessions = memberSnapshot?.stats.sessions ?? null;
   const churnRisk = memberSnapshot?.stats.churn_risk ?? null;
   const goal = identity?.goals[0] ?? null;
+  const acceptPlan = useCallback((part: DataPlanPart) => {
+    setConstraintsPart(null);
+    setPlanPart(part);
+  }, []);
 
   return (
-    <CopilotSidebarProvider planPart={planPart} prefillMessage={prefillMessage}>
+    <CopilotSidebarProvider
+      planPart={planPart}
+      constraintsPart={constraintsPart}
+      prefillMessage={prefillMessage}
+    >
       <Dialog.Root
         open={isNarrow && mobileCopilotOpen}
         onOpenChange={setMobileCopilotOpen}
@@ -199,7 +213,8 @@ export function AppShell({
                     composerRef={composerRef}
                     hasPlan={planPart !== null}
                     onComposerChange={setComposerValue}
-                    onPlan={setPlanPart}
+                    onConstraints={setConstraintsPart}
+                    onPlan={acceptPlan}
                   />
                 </div>
               </aside>
@@ -243,7 +258,8 @@ export function AppShell({
                     composerRef={composerRef}
                     hasPlan={planPart !== null}
                     onComposerChange={setComposerValue}
-                    onPlan={setPlanPart}
+                    onConstraints={setConstraintsPart}
+                    onPlan={acceptPlan}
                   />
                 </div>
               </Dialog.Popup>
