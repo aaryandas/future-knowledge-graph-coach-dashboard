@@ -11,6 +11,7 @@ from openai import OpenAIError
 
 _DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+_LOW_LATENCY_PROVIDER_ROUTING = {"provider": {"sort": "latency"}}
 _INTENT_SCHEMA = {
     "title": "coach_message_intent",
     "description": "Raw mentions extracted from one coach workout message.",
@@ -116,7 +117,10 @@ class _OpenRouterIntentLLM:
 
     def invoke(self, messages: Sequence[BaseMessage]) -> object:
         try:
-            return self._structured_llm.invoke(list(messages))
+            return self._structured_llm.invoke(
+                list(messages),
+                extra_body=_LOW_LATENCY_PROVIDER_ROUTING,
+            )
         except (
             ConnectionError,
             IndexError,
