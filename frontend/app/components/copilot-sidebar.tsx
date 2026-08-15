@@ -42,6 +42,7 @@ const quickPrompts = [
 interface CopilotSidebarProps {
   memberId: string;
   memberName: string;
+  initialMessages: DashboardMessage[];
   coachTasks: ReadonlyArray<CoachTaskSnapshot>;
   composerValue: string;
   composerRef: RefObject<HTMLInputElement | null>;
@@ -54,6 +55,7 @@ interface CopilotSidebarProps {
 export function CopilotSidebar({
   memberId,
   memberName,
+  initialMessages,
   coachTasks,
   composerValue,
   composerRef,
@@ -105,6 +107,7 @@ export function CopilotSidebar({
   } =
     useChat<DashboardMessage>({
       id: memberId,
+      messages: initialMessages,
       transport,
       onData(part) {
         if (part.type === "data-plan") {
@@ -307,7 +310,11 @@ export function CopilotMessage({
   }
 
   return (
-    <article className="copilot-message" data-role={message.role}>
+    <article
+      className="copilot-message"
+      data-message-id={message.id}
+      data-role={message.role}
+    >
       {textParts.length === 0 &&
       chartParts.length === 0 &&
       sourceParts.length === 0 ? null : (
