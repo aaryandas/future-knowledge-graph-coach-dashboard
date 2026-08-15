@@ -112,6 +112,8 @@ class Candidate:
     disliked: bool = False
     has_required_equipment: bool = True
     explicitly_excluded: bool = False
+    previous_section: Section | None = None
+    previous_position: int | None = None
 
 
 @dataclass(frozen=True)
