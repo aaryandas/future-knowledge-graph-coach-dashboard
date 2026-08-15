@@ -213,6 +213,9 @@ export function AppShell({
                     memberId={member.id}
                     memberName={memberName}
                     initialMessages={initialCopilotMessages}
+                    coachTasks={
+                      memberSnapshot?.morning_brief.coach_tasks ?? []
+                    }
                     composerValue={composerValue}
                     composerRef={composerRef}
                     hasPlan={planPart !== null}
@@ -259,6 +262,9 @@ export function AppShell({
                     memberId={member.id}
                     memberName={memberName}
                     initialMessages={initialCopilotMessages}
+                    coachTasks={
+                      memberSnapshot?.morning_brief.coach_tasks ?? []
+                    }
                     composerValue={composerValue}
                     composerRef={composerRef}
                     hasPlan={planPart !== null}
