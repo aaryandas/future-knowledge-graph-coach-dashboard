@@ -1,3 +1,4 @@
+import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -19,7 +20,7 @@ from app.copilot.testing import (
     run_quick_prompt,
 )
 from app.graph import ingest_kg2
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.checkpoint.memory import InMemorySaver
 
@@ -29,7 +30,9 @@ type _ChartKind = Literal["sleep_week"]
 type _ChartWindow = Literal["7-days"]
 
 
-def test_copilot_tool_loop_persists_follow_ups_and_replays_sources() -> None:
+def test_copilot_prunes_prior_retrieval_payloads_and_replays_persisted_data_parts() -> (
+    None
+):
     checkpointer = InMemorySaver()
     llm = FakeCopilotLLM(
         (
@@ -75,6 +78,19 @@ def test_copilot_tool_loop_persists_follow_ups_and_replays_sources() -> None:
         for message in llm.calls[3].messages
         if isinstance(message, HumanMessage)
     ] == ["What is the priority goal?", "How does that fit Jordan?"]
+    assert not any(
+        isinstance(message, ToolMessage) for message in llm.calls[2].messages
+    )
+    prior_answers = [
+        message for message in llm.calls[2].messages if isinstance(message, AIMessage)
+    ]
+    assert len(prior_answers) == 1
+    assert prior_answers[0].content == "Jordan's priority goal is strength."
+    assert prior_answers[0].additional_kwargs == {}
+    current_tool_messages = [
+        message for message in llm.calls[3].messages if isinstance(message, ToolMessage)
+    ]
+    assert [message.name for message in current_tool_messages] == ["get_member_profile"]
     history = replay_copilot_history(MEMBER_ID, checkpointer=checkpointer)
     assert [(message.role, message.text) for message in history] == [
         ("user", "What is the priority goal?"),
@@ -84,6 +100,56 @@ def test_copilot_tool_loop_persists_follow_ups_and_replays_sources() -> None:
     ]
     assert history[1].data_parts == first_turn.data_parts
     assert history[3].data_parts == second_turn.data_parts
+
+
+def test_chart_payload_value_follow_up_is_regrounded_after_context_pruning() -> None:
+    checkpointer = InMemorySaver()
+    llm = _ChartPayloadFollowUpLLM()
+
+    first_turn = run_copilot_turn(
+        MEMBER_ID,
+        "Show Jordan's sleep this week as a chart.",
+        checkpointer=checkpointer,
+        llm=llm,
+        message_id="chart-follow-up-user-1",
+        retrieval_tools=(_chart_tool(),),
+        tone_fact_reader=_no_tone_facts,
+    )
+    second_turn = run_copilot_turn(
+        MEMBER_ID,
+        "What was the highest bar in that chart?",
+        checkpointer=checkpointer,
+        llm=llm,
+        message_id="chart-follow-up-user-2",
+        retrieval_tools=(_chart_tool(),),
+        tone_fact_reader=_no_tone_facts,
+    )
+
+    assert isinstance(first_turn, CopilotTurn)
+    assert isinstance(second_turn, CopilotTurn)
+    assert second_turn.text == "The highest bar was 7.5 hours on 2026-06-03."
+    assert llm.retrieval_questions == [
+        "Show Jordan's sleep this week as a chart.",
+        "What was the highest bar in that chart?",
+    ]
+    assert _source_payload(second_turn.data_parts) == [
+        {
+            "tool": "render_chart",
+            "node_ids": [MEMBER_ID, "observation:sleep:2026-06-03"],
+        }
+    ]
+    assert (
+        next(part for part in second_turn.data_parts if part.type == "data-chart").data
+        == _chart_data()
+    )
+    follow_up_context = llm.calls[2]
+    assert not any(isinstance(message, ToolMessage) for message in follow_up_context)
+    prior_answers = [
+        message for message in follow_up_context if isinstance(message, AIMessage)
+    ]
+    assert len(prior_answers) == 1
+    assert prior_answers[0].content == "Here is Jordan's sleep chart."
+    assert prior_answers[0].additional_kwargs == {}
 
 
 def test_each_follow_up_requires_a_current_turn_tool_call() -> None:
@@ -368,6 +434,60 @@ class _CurrentTurnRetrievalLLM:
         return AIMessage(content="Jordan's priority goal is strength.")
 
 
+class _ChartPayloadFollowUpLLM:
+    def __init__(self) -> None:
+        self.calls: list[tuple[BaseMessage, ...]] = []
+        self.retrieval_questions: list[str] = []
+
+    def invoke(
+        self,
+        messages: Sequence[BaseMessage],
+        tools: Sequence[BaseTool],
+        *,
+        require_tool_call: bool = False,
+    ) -> object:
+        self.calls.append(tuple(messages))
+        current_question = next(
+            str(message.text)
+            for message in reversed(messages)
+            if isinstance(message, HumanMessage)
+        )
+        current_tool_result = next(
+            (
+                message
+                for message in reversed(messages)
+                if isinstance(message, ToolMessage)
+            ),
+            None,
+        )
+        if require_tool_call:
+            if "that chart" in current_question:
+                assert any(
+                    isinstance(message, HumanMessage)
+                    and "sleep this week" in str(message.text)
+                    for message in messages
+                )
+            self.retrieval_questions.append(current_question)
+            return _tool_call(
+                f"chart-payload-{len(self.retrieval_questions)}",
+                name="render_chart",
+                args={"kind": "sleep_week", "window": "7-days"},
+            )
+        assert current_tool_result is not None
+        raw_result = json.loads(str(current_tool_result.text))
+        chart = cast("dict[str, object]", raw_result["data"])
+        if "highest bar" not in current_question:
+            return AIMessage(content="Here is Jordan's sleep chart.")
+        series = cast("list[dict[str, object]]", chart["series"])
+        highest = max(series, key=lambda point: cast("float", point["hours"]))
+        return AIMessage(
+            content=(
+                f"The highest bar was {highest['hours']} hours "
+                f"on {highest['observed_at']}."
+            )
+        )
+
+
 @dataclass(frozen=True)
 class _ChartResult:
     node_ids: tuple[str, ...]
@@ -375,6 +495,12 @@ class _ChartResult:
     @property
     def data_part(self) -> dict[str, object]:
         return {"type": "data-chart", "data": _chart_data()}
+
+    def __str__(self) -> str:
+        return json.dumps(
+            {"data": _chart_data(), "node_ids": list(self.node_ids)},
+            ensure_ascii=False,
+        )
 
 
 def _chart_tool() -> StructuredTool:

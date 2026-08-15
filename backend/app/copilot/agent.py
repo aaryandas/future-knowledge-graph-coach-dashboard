@@ -68,10 +68,13 @@ _ROUND_LIMIT_MESSAGE = (
 _SYSTEM_PROMPT = """You are the coach copilot for one member.
 Answer only from retrieval tool results in this thread. Use a retrieval tool before
 making a member-specific claim. The tools are already scoped to the current member.
-For a chart request, call render_chart and select only its kind and window. Never invent
-a value, chart point, or node id. Treat Journey stage and Churn risk as tone guidance,
-not answer evidence. A coach action is only a proposal until the coach confirms it.
-After at most five retrieval tool rounds, answer concisely."""
+Call all retrieval tools you need together in the first tool round. After successful
+results, answer directly unless a result is empty or the user asked for facts that still
+lack a current-turn source. For a chart request, call render_chart and select only its
+kind and window. Never invent a value, chart point, or node id. Treat Journey stage and
+Churn risk as tone guidance, not answer evidence. A coach action is only a proposal
+until the coach confirms it. After at most five retrieval tool rounds, answer in no more
+than 100 words."""
 
 
 class _CopilotState(TypedDict):
@@ -358,7 +361,7 @@ def _build_graph(
             return fallback(state)
         messages: tuple[BaseMessage, ...] = (
             SystemMessage(content=_system_prompt(tone_facts)),
-            *state["messages"],
+            *_model_context(state["messages"]),
         )
         try:
             response = llm.invoke(
@@ -673,6 +676,21 @@ def _system_prompt(tone_facts: tuple[CopilotToneFact, ...]) -> str:
         return _SYSTEM_PROMPT
     facts = "\n".join(f"{fact.label}: {fact.value}" for fact in tone_facts)
     return f"{_SYSTEM_PROMPT}\n\nTone facts:\n{facts}"
+
+
+def _model_context(messages: Sequence[AnyMessage]) -> tuple[BaseMessage, ...]:
+    current_turn_start = next(
+        index
+        for index in range(len(messages) - 1, -1, -1)
+        if isinstance(messages[index], HumanMessage)
+    )
+    history: list[BaseMessage] = []
+    for message in messages[:current_turn_start]:
+        if isinstance(message, HumanMessage):
+            history.append(message)
+        elif isinstance(message, AIMessage) and not message.tool_calls:
+            history.append(AIMessage(content=_message_text(message), id=message.id))
+    return (*history, *messages[current_turn_start:])
 
 
 def _thread_config(member_id: str) -> RunnableConfig:
