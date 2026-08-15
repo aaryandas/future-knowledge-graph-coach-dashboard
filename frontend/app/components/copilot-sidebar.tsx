@@ -481,11 +481,24 @@ function SourceChips({ part }: { part: DataSourcesPart }) {
         <li
           key={`${source.tool}-${index}`}
           data-source-tool={source.tool}
-          title={source.node_ids.join(", ")}
-          aria-label={`${formatToolName(source.tool)} source: ${source.node_ids.length} graph ${source.node_ids.length === 1 ? "record" : "records"}`}
         >
-          <span>{formatToolName(source.tool)}</span>
-          <span aria-hidden="true">{source.node_ids.length}</span>
+          <details className="copilot-source-disclosure">
+            <summary
+              className="copilot-source-summary"
+              aria-label={`${formatToolName(source.tool)} source: show ${source.node_ids.length} graph ${source.node_ids.length === 1 ? "node ID" : "node IDs"}`}
+            >
+              <span>{formatToolName(source.tool)}</span>
+              <span aria-hidden="true">{source.node_ids.length}</span>
+            </summary>
+            <ul
+              className="copilot-source-node-ids"
+              aria-label={`${formatToolName(source.tool)} graph node IDs`}
+            >
+              {source.node_ids.map((nodeId) => (
+                <li key={nodeId}>{nodeId}</li>
+              ))}
+            </ul>
+          </details>
         </li>
       ))}
     </ul>

@@ -254,11 +254,12 @@ export function AppShell({
               </button>
               {children}
             </main>
-            {!isNarrow && desktopCopilotOpen ? (
+            {!isNarrow ? (
               <aside
                 id="copilot-panel"
                 className="copilot-pane"
                 aria-labelledby="copilot-title"
+                hidden={!desktopCopilotOpen}
               >
                 <div className="copilot-pane-inner">
                   <div className="copilot-heading-row">

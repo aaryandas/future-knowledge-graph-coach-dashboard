@@ -1,12 +1,15 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DashboardMessage } from "@/lib/parts";
-import {
-  CopilotMessage,
-  CopilotSidebar,
-  QuickPromptPalette,
-} from "./copilot-sidebar";
+import { CopilotMessage, CopilotSidebar } from "./copilot-sidebar";
 
 const persistedMessages: DashboardMessage[] = [
   {
@@ -48,7 +51,10 @@ const persistedMessages: DashboardMessage[] = [
   },
 ];
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("CopilotSidebar", () => {
   it("mounts with persisted typed messages and their original ids", () => {
@@ -76,25 +82,25 @@ describe("CopilotSidebar", () => {
     expect(screen.getByText("What can I help with today?")).toBeDefined();
   });
 
-  it("offers the four member-context quick prompts through the Copilot loop", () => {
-    const onSelect = vi.fn();
-    render(<QuickPromptPalette disabled={false} onSelect={onSelect} />);
+  it.each([
+    ["Show me the brief"],
+    ["How's adherence trending?"],
+    ["Sleep this week"],
+    ["What changed since last week?"],
+  ])("submits the canonical quick prompt as a Copilot turn: %s", async (message) => {
+    vi.stubGlobal("fetch", pendingFetch());
+    renderSidebar([]);
 
-    const prompts = [
-      ["Brief", "Show me the brief"],
-      ["Adherence", "How's adherence trending?"],
-      ["Sleep", "Sleep this week"],
-      ["4 weeks", "What changed since last week?"],
-    ] as const;
-    for (const [label, message] of prompts) {
-      fireEvent.click(
-        screen.getByRole("button", { name: `Ask Copilot: ${message}` }),
-      );
-      expect(screen.getByText(label)).toBeDefined();
-    }
-    expect(onSelect.mock.calls.map(([message]) => message)).toEqual(
-      prompts.map(([, message]) => message),
+    fireEvent.click(
+      screen.getByRole("button", { name: `Ask Copilot: ${message}` }),
     );
+
+    await waitFor(() => {
+      expect(
+        within(screen.getByRole("log", { name: "Copilot conversation" }))
+          .getByText(message),
+      ).toBeDefined();
+    });
   });
 
   it("renders churn Barriers with exact evidence and auditable Source chips", () => {
@@ -146,17 +152,32 @@ describe("CopilotSidebar", () => {
 
     expect(screen.getByRole("region", { name: "Barriers" })).toBeDefined();
     expect(screen.getByText("Adherence decline")).toBeDefined();
+    const evidence = screen.getByRole("list", {
+      name: "Evidence for Adherence decline",
+    });
     expect(
-      screen.getByText("observation:adherence:2026-05-26"),
+      within(evidence).getByText("observation:adherence:2026-05-26"),
     ).toBeDefined();
-    expect(screen.getByText("workout-session:2026-06-02")).toBeDefined();
+    expect(
+      within(evidence).getByText("workout-session:2026-06-02"),
+    ).toBeDefined();
     const source = container.querySelector(
       '[data-source-tool="get_morning_brief"]',
     );
-    expect(source?.textContent).toBe("morning brief2");
-    expect(source?.getAttribute("title")).toContain(
-      "barrier:adherence-decline",
+    expect(source).not.toBeNull();
+    fireEvent.click(
+      within(source as HTMLElement).getByLabelText(
+        "morning brief source: show 2 graph node IDs",
+      ),
     );
+    expect(
+      within(source as HTMLElement).getByText("barrier:adherence-decline"),
+    ).toBeDefined();
+    expect(
+      within(source as HTMLElement).getByText(
+        "observation:adherence:2026-05-26",
+      ),
+    ).toBeDefined();
   });
 
   it("shows when an answer has no graph sources", () => {
@@ -192,5 +213,16 @@ function renderSidebar(initialMessages: DashboardMessage[]) {
       onSubmitterChange={vi.fn()}
       onTrace={vi.fn()}
     />,
+  );
+}
+
+function pendingFetch(): typeof fetch {
+  return vi.fn(
+    (_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("Aborted", "AbortError"));
+        });
+      }),
   );
 }

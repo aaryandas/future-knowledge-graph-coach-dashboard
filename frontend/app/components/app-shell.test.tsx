@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppShell } from "./app-shell";
 
@@ -17,7 +23,10 @@ beforeEach(() => {
   });
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("AppShell", () => {
   it("hides and restores the desktop Copilot pane with explicit controls", () => {
@@ -49,4 +58,42 @@ describe("AppShell", () => {
     expect(hide.getAttribute("aria-expanded")).toBe("true");
     expect(document.activeElement).toBe(hide);
   });
+
+  it("preserves a live Copilot turn while the desktop pane is hidden", async () => {
+    vi.stubGlobal("fetch", pendingFetch());
+    render(
+      <AppShell memberSnapshot={null} initialCopilotMessages={[]}>
+        <section>Dashboard content</section>
+      </AppShell>,
+    );
+    const message = "How is Jordan doing today?";
+
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Ask Copilot about this session" }),
+      { target: { value: message } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => {
+      expect(screen.getByText(message)).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide Copilot" }));
+    expect(
+      screen.queryByRole("complementary", { name: "Copilot" }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show Copilot" }));
+
+    expect(screen.getByText(message)).toBeDefined();
+  });
 });
+
+function pendingFetch(): typeof fetch {
+  return vi.fn(
+    (_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("Aborted", "AbortError"));
+        });
+      }),
+  );
+}
