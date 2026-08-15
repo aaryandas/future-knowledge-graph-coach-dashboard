@@ -109,16 +109,14 @@ const tracePart: DataTracePart = {
       wasAttributedTo: "graph",
     },
     {
-      kind: "substitution",
-      dropped_exercise_id: "exercise-jump-squat",
-      replacement_exercise_id: "exercise-goblet-squat",
-      basis: "movement pattern",
-      shared_movement_pattern_ids: ["movement-pattern-squat"],
-      shared_muscle_group_ids: [],
-      reason:
-        "Replaced Jump Squat with Goblet Squat by shared movement pattern: movement-pattern-squat.",
-      used: ["exercise-jump-squat", "exercise-goblet-squat"],
-      wasGeneratedBy: "pair_substitutions",
+      kind: "packing",
+      action: "selected",
+      section: "main",
+      exercise_id: "exercise-goblet-squat",
+      reason: "Selected for the main section.",
+      used: ["exercise-goblet-squat"],
+      score: 12,
+      wasGeneratedBy: "pack",
       wasAttributedTo: "graph",
     },
     {
@@ -130,6 +128,19 @@ const tracePart: DataTracePart = {
       used: ["exercise-goblet-squat"],
       score: 10,
       wasGeneratedBy: "pack",
+      wasAttributedTo: "graph",
+    },
+    {
+      kind: "substitution",
+      dropped_exercise_id: "exercise-jump-squat",
+      replacement_exercise_id: "exercise-goblet-squat",
+      basis: "movement pattern",
+      shared_movement_pattern_ids: ["movement-pattern-squat"],
+      shared_muscle_group_ids: [],
+      reason:
+        "Replaced Jump Squat with Goblet Squat by shared movement pattern: movement-pattern-squat.",
+      used: ["exercise-jump-squat", "exercise-goblet-squat"],
+      wasGeneratedBy: "pair_substitutions",
       wasAttributedTo: "graph",
     },
   ],
@@ -198,6 +209,80 @@ describe("why this plan", () => {
     expect(container.textContent).toContain("Unrecognized term “moon burpees”");
     expect(container.textContent).not.toMatch(
       /pair_substitutions|wasGeneratedBy|evaluate_safety|\bpack\b|\bresolve\b/,
+    );
+  });
+
+  it("renders only the current turn trace after an adjustment", () => {
+    act(() =>
+      root.render(
+        <WhyThisPlan
+          planPart={planPart}
+          tracePart={tracePart}
+          constraintsPart={constraintsPart}
+        />,
+      ),
+    );
+
+    expect(container.textContent).toContain(
+      "Removed one exercise that did not meet the member’s safety constraints.",
+    );
+    expect(container.textContent).toContain(
+      "Replaced Jump Squat with Goblet Squat",
+    );
+    expect(container.textContent).toContain("Capped Goblet Squat at 2 sets");
+
+    const adjustedTracePart: DataTracePart = {
+      type: "data-trace",
+      data: [
+        ...tracePart.data,
+        {
+          kind: "packing",
+          action: "filtered",
+          section: null,
+          exercise_id: "exercise-barbell-squat",
+          reason: "Required equipment is unavailable.",
+          used: ["exercise-barbell-squat"],
+          score: null,
+          wasGeneratedBy: "pack",
+          wasAttributedTo: "graph",
+        },
+        {
+          kind: "packing",
+          action: "selected",
+          section: "main",
+          exercise_id: "exercise-goblet-squat",
+          reason: "Selected for the main section.",
+          used: ["exercise-goblet-squat"],
+          score: 12,
+          wasGeneratedBy: "pack",
+          wasAttributedTo: "graph",
+        },
+      ],
+    };
+
+    act(() =>
+      root.render(
+        <WhyThisPlan
+          planPart={planPart}
+          tracePart={adjustedTracePart}
+          constraintsPart={constraintsPart}
+        />,
+      ),
+    );
+
+    expect(container.textContent).toContain("Removed “Jump Squat”");
+    expect(container.textContent).toContain("Unrecognized term “moon burpees”");
+    expect(container.textContent).toContain(
+      "Removed one exercise that need unavailable equipment.",
+    );
+    expect(container.textContent).not.toContain(
+      "Removed one exercise that did not meet the member’s safety constraints.",
+    );
+    expect(container.textContent).not.toContain(
+      "Replaced Jump Squat with Goblet Squat",
+    );
+    expect(container.textContent).not.toContain(
+      "Capped Goblet Squat at 2 sets",
     );
   });
 

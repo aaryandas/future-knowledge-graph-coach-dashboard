@@ -59,7 +59,7 @@ export function whyPlanItems(
   constraintsPart: DataConstraintsPart,
 ): WhyPlanItem[] {
   const entriesById = planEntriesById(planPart);
-  const events = tracePart.data;
+  const events = currentPlanTraceEvents(tracePart.data, entriesById);
   const items: WhyPlanItem[] = [];
 
   items.push(...removedItems(events, constraintsPart));
@@ -73,6 +73,41 @@ export function whyPlanItems(
   );
 
   return items;
+}
+
+function currentPlanTraceEvents(
+  events: TraceEvent[],
+  entriesById: Map<string, PlanEntry>,
+): TraceEvent[] {
+  const currentSelectionIndexes = events.flatMap((event, index) =>
+    isPackingTraceEvent(event) &&
+    event.action === "selected" &&
+    entriesById.has(event.exercise_id)
+      ? [index]
+      : [],
+  );
+  const lastSelectionByExercise = new Map<string, number>();
+  for (const index of currentSelectionIndexes) {
+    const event = events[index];
+    if (isPackingTraceEvent(event)) {
+      lastSelectionByExercise.set(event.exercise_id, index);
+    }
+  }
+  const selectionIndexes = [...lastSelectionByExercise.values()];
+  if (selectionIndexes.length === 0) {
+    return events;
+  }
+
+  let startIndex = Math.min(...selectionIndexes);
+  while (startIndex > 0) {
+    const previous = events[startIndex - 1];
+    if (!isPackingTraceEvent(previous) || previous.action !== "filtered") {
+      break;
+    }
+    startIndex -= 1;
+  }
+
+  return events.slice(startIndex);
 }
 
 function removedItems(
