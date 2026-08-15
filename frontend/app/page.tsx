@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { LoginForm } from "@/app/components/login-form";
-import { RidgelineMark } from "@/app/components/ridgeline-mark";
 
 export const metadata: Metadata = {
   title: "Sign in",
@@ -8,25 +7,24 @@ export const metadata: Metadata = {
 
 export default function LoginPage() {
   return (
-    <main className="screen-enter grid min-h-svh place-items-center px-5 py-10">
-      <section
-        className="glass w-full max-w-[330px] rounded-[22px] p-[30px]"
-        aria-labelledby="login-title"
-      >
-        <RidgelineMark className="mb-5 size-8" />
-        <h1
-          id="login-title"
-          className="text-[22px] font-semibold tracking-[-0.02em]"
-        >
-          Ridgeline
+    <main className="login-screen screen-enter">
+      <section className="login-introduction" aria-labelledby="login-title">
+        <p className="login-eyebrow">Future Coach</p>
+        <h1 id="login-title" className="display-title">
+          Start with what matters today.
         </h1>
-        <p className="mt-0.5 mb-[22px] text-[12.5px] text-foreground-subtle">
-          Coach console
+        <p>
+          Review the signal, shape the session, and keep each member moving
+          forward.
         </p>
+      </section>
+      <section className="login-card" aria-label="Sign in">
+        <div>
+          <h2 className="display-title">Welcome back</h2>
+          <p>Sign in to your coaching workspace.</p>
+        </div>
         <LoginForm />
-        <p className="mt-4 text-center text-[11px] text-foreground-subtle">
-          Demo access · no credentials required
-        </p>
+        <p className="login-demo-note">Demo access · no credentials required</p>
       </section>
     </main>
   );

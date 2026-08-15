@@ -1,54 +1,46 @@
-import type { SVGProps } from "react";
+import {
+  ControlSlider,
+  DotsGrid3x3,
+  EditPencil,
+  GraphDown,
+  Gym,
+  LogOut,
+  Page,
+  Plus,
+  PrecisionTool,
+  SendDiagonal,
+  ShieldCheck,
+  Star,
+  Trash,
+  User,
+  ViewColumns2,
+  Walking,
+  Xmark,
+} from "iconoir-react";
+import type { ComponentType, SVGProps } from "react";
 
-type IconProps = SVGProps<SVGSVGElement>;
+export type IconProps = SVGProps<SVGSVGElement>;
 
-export function PanelIcon(props: IconProps) {
-  return (
-    <svg
-      aria-hidden="true"
-      fill="none"
-      viewBox="0 0 20 20"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      {...props}
-    >
-      <rect x="2.75" y="3.25" width="14.5" height="13.5" rx="2.25" />
-      <path d="M12.25 3.5v13" />
-    </svg>
-  );
+function createIcon(Icon: ComponentType<IconProps>) {
+  return function IconoirCompatibilityIcon(props: IconProps) {
+    return <Icon aria-hidden="true" {...props} />;
+  };
 }
 
-export function SignOutIcon(props: IconProps) {
-  return (
-    <svg
-      aria-hidden="true"
-      fill="none"
-      viewBox="0 0 20 20"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="1.5"
-      {...props}
-    >
-      <path d="M8 3.5H5.25a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2H8" />
-      <path d="M11.5 6.5 15 10l-3.5 3.5M7 10h8" />
-    </svg>
-  );
-}
-
-export function SendIcon(props: IconProps) {
-  return (
-    <svg
-      aria-hidden="true"
-      fill="none"
-      viewBox="0 0 20 20"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="1.5"
-      {...props}
-    >
-      <path d="m10 15.5.2-10M6.5 9l3.7-3.5L13.5 9" />
-    </svg>
-  );
-}
+export const PersonIcon = createIcon(User);
+export const KneeIcon = createIcon(Walking);
+export const DumbbellIcon = createIcon(Gym);
+export const TrendIcon = createIcon(GraphDown);
+export const GoalIcon = createIcon(PrecisionTool);
+export const StarIcon = createIcon(Star);
+export const GripIcon = createIcon(DotsGrid3x3);
+export const PencilIcon = createIcon(EditPencil);
+export const TrashIcon = createIcon(Trash);
+export const PlusIcon = createIcon(Plus);
+export const AdjustIcon = createIcon(ControlSlider);
+export const ExplainIcon = createIcon(Page);
+export const ShieldIcon = createIcon(ShieldCheck);
+export const CloseIcon = createIcon(Xmark);
+export const PanelIcon = createIcon(ViewColumns2);
+export const SignOutIcon = createIcon(LogOut);
+export const SendIcon = createIcon(SendDiagonal);

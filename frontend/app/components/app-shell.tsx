@@ -2,161 +2,288 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useRef, useState, type ReactNode } from "react";
-import { buttonVariants, cx } from "@/lib/theme";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from "react";
 import { CopilotSidebarProvider } from "./copilot-sidebar-context";
-import { PanelIcon, SendIcon, SignOutIcon } from "./icons";
-import { RidgelineMark } from "./ridgeline-mark";
+import {
+  AdjustIcon,
+  CloseIcon,
+  DumbbellIcon,
+  ExplainIcon,
+  GoalIcon,
+  KneeIcon,
+  PanelIcon,
+  PersonIcon,
+  SendIcon,
+  ShieldIcon,
+  TrendIcon,
+  type IconProps,
+} from "./icons";
 
-type WorkspaceTab = "member" | "graph";
+type WorkspaceTab = "dashboard" | "members" | "graph";
 
-const tabs: ReadonlyArray<{ label: string; value: WorkspaceTab; href: string }> = [
-  { label: "Member", value: "member", href: "/member" },
+const tabs: ReadonlyArray<{
+  label: string;
+  value: WorkspaceTab;
+  href: string;
+}> = [
+  { label: "Dashboard", value: "dashboard", href: "/member" },
+  { label: "Members", value: "members", href: "/members" },
   { label: "Graph", value: "graph", href: "/graph" },
 ];
+
+const memberFacts: ReadonlyArray<{
+  label: string;
+  tone: "identity" | "attention" | "goal";
+  Icon: ComponentType<IconProps>;
+}> = [
+  { label: "Jordan Rivera · 41", tone: "identity", Icon: PersonIcon },
+  {
+    label: "Left-knee PFPS · recovering",
+    tone: "attention",
+    Icon: KneeIcon,
+  },
+  { label: "No barbell", tone: "attention", Icon: DumbbellIcon },
+  {
+    label: "Adherence 50% from 100%",
+    tone: "attention",
+    Icon: TrendIcon,
+  },
+  {
+    label: "Goal · Lower-body strength",
+    tone: "goal",
+    Icon: GoalIcon,
+  },
+];
+
+const quickActions = [
+  {
+    label: "Adjust",
+    prompt: "Adjust today’s session",
+    Icon: AdjustIcon,
+  },
+  {
+    label: "Explain",
+    prompt: "Explain the choices in today’s session",
+    Icon: ExplainIcon,
+  },
+  {
+    label: "Constraints",
+    prompt: "Check today’s session against Jordan’s constraints",
+    Icon: ShieldIcon,
+  },
+] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const activeTab: WorkspaceTab = pathname.startsWith("/graph")
     ? "graph"
-    : "member";
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+    : pathname.startsWith("/members")
+      ? "members"
+      : "dashboard";
+  const [mobileCopilotOpen, setMobileCopilotOpen] = useState(false);
+  const [isNarrow, setIsNarrow] = useState(false);
   const [composerValue, setComposerValue] = useState("");
   const composerRef = useRef<HTMLInputElement>(null);
+  const copilotToggleRef = useRef<HTMLButtonElement>(null);
+  const copilotCloseRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 980px)");
+    const update = () => setIsNarrow(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    if (!isNarrow || !mobileCopilotOpen) {
+      return;
+    }
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isNarrow, mobileCopilotOpen]);
+
+  const closeMobileCopilot = useCallback(() => {
+    setMobileCopilotOpen(false);
+    window.requestAnimationFrame(() => copilotToggleRef.current?.focus());
+  }, []);
+
+  useEffect(() => {
+    if (!isNarrow || !mobileCopilotOpen) {
+      return;
+    }
+
+    copilotCloseRef.current?.focus();
+
+    function handlePanelKeydown(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMobileCopilot();
+        return;
+      }
+
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const panel = document.getElementById("copilot-panel");
+      const focusable = panel?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable || focusable.length === 0) {
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handlePanelKeydown);
+    return () => document.removeEventListener("keydown", handlePanelKeydown);
+  }, [closeMobileCopilot, isNarrow, mobileCopilotOpen]);
+
   const prefillMessage = useCallback((message: string) => {
-    setSidebarOpen(true);
+    setMobileCopilotOpen(true);
     setComposerValue(message);
     window.requestAnimationFrame(() => composerRef.current?.focus());
   }, []);
 
+  const copilotHidden = isNarrow && !mobileCopilotOpen;
+
   return (
     <CopilotSidebarProvider prefillMessage={prefillMessage}>
-      <div className="screen-enter min-h-svh">
-        <header className="topbar sticky top-0 z-30 flex h-[var(--header-height)] items-center gap-3.5 px-[18px]">
-          <Link href="/member" aria-label="Ridgeline member workspace">
-            <RidgelineMark className="size-[26px] text-xs" />
-          </Link>
-
-          <nav
-            aria-label="Workspace"
-            className="shell-tabs rounded-full border border-border bg-surface p-[3px]"
-            data-active-tab={activeTab}
-          >
-            <span className="shell-tab-indicator" aria-hidden="true" />
-            {tabs.map((tab) => (
-              <Link
-                key={tab.value}
-                href={tab.href}
-                aria-current={activeTab === tab.value ? "page" : undefined}
-                className={cx(
-                  "press relative z-10 rounded-full px-3.5 py-1 text-[13px] font-medium transition-colors",
-                  activeTab === tab.value
-                    ? "text-foreground"
-                    : "text-foreground-muted hover:text-foreground",
-                )}
-              >
-                {tab.label}
-              </Link>
-            ))}
-          </nav>
-
-          <button
-            type="button"
-            className="press flex items-center gap-2 rounded-full border border-border bg-surface py-1 pr-3.5 pl-1"
-            aria-label="Select member"
-          >
-            <span className="grid size-[25px] place-items-center rounded-full bg-accent-muted text-[10.5px] font-semibold text-accent">
-              JR
-            </span>
-            <span className="shell-member-name text-[13px] font-semibold">
-              Jordan Rivera <span className="text-foreground-subtle">⌄</span>
-            </span>
-          </button>
-
-          <div className="ml-auto flex items-center gap-2">
+      <div className="app-frame screen-enter">
+        <header className="app-header" inert={isNarrow && mobileCopilotOpen ? true : undefined}>
+          <div className="global-nav-row">
+            <Link className="future-wordmark" href="/member" aria-label="Future Coach dashboard">
+              Future Coach
+            </Link>
+            <nav className="global-nav" aria-label="Workspace">
+              {tabs.map((tab) => (
+                <Link
+                  key={tab.value}
+                  href={tab.href}
+                  aria-current={activeTab === tab.value ? "page" : undefined}
+                  className="global-nav-link"
+                >
+                  {tab.label}
+                </Link>
+              ))}
+            </nav>
             <button
+              ref={copilotToggleRef}
               type="button"
-              aria-controls="copilot-sidebar"
-              aria-expanded={sidebarOpen}
-              aria-label={sidebarOpen ? "Hide copilot" : "Show copilot"}
-              className={buttonVariants({ intent: "icon", size: "icon" })}
-              onClick={() => setSidebarOpen((open) => !open)}
+              className="mobile-copilot-toggle"
+              aria-controls="copilot-panel"
+              aria-expanded={mobileCopilotOpen}
+              onClick={() => setMobileCopilotOpen(true)}
             >
               <PanelIcon className="size-4" />
+              Copilot
             </button>
-            <Link
-              href="/"
-              aria-label="Sign out"
-              className={buttonVariants({ intent: "icon", size: "icon" })}
-            >
-              <SignOutIcon className="size-4" />
-            </Link>
+          </div>
+
+          <div className="member-context-strip" aria-label="Jordan Rivera context">
+            {memberFacts.map(({ label, tone, Icon }) => (
+              <div key={label} className="member-context-item" data-tone={tone}>
+                <Icon className="member-context-icon" />
+                <span>{label}</span>
+              </div>
+            ))}
           </div>
         </header>
 
-        <div
-          className="shell-columns"
-          data-sidebar-state={sidebarOpen ? "open" : "closed"}
-        >
-          <main className="min-w-0 px-5 pt-[22px] pb-14 sm:px-[26px]">
+        <div className="workspace-split" data-mobile-copilot={mobileCopilotOpen ? "open" : "closed"}>
+          <main
+            className="dashboard-canvas"
+            inert={isNarrow && mobileCopilotOpen ? true : undefined}
+          >
             {children}
           </main>
           <aside
-            id="copilot-sidebar"
-            data-slot="copilot-sidebar"
-            aria-hidden={!sidebarOpen}
-            inert={!sidebarOpen}
-            className="copilot-slot"
+            id="copilot-panel"
+            className="copilot-pane"
+            aria-labelledby="copilot-title"
+            aria-hidden={copilotHidden}
+            inert={copilotHidden ? true : undefined}
           >
-            <div className="copilot-panel flex flex-col px-[18px] pt-[18px] pb-6">
-              <div className="mb-3 flex items-baseline gap-2">
-                <h2 className="text-[15px] font-semibold">Copilot</h2>
-                <span className="text-xs text-foreground-subtle">Jordan Rivera</span>
-              </div>
-              <div className="mb-4 flex flex-wrap gap-1.5" aria-label="Quick prompts">
-                {["Adherence", "Sleep", "Messages", "4 weeks"].map((prompt) => (
-                  <button
-                    key={prompt}
-                    type="button"
-                    className="press rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium text-foreground-muted transition-colors hover:border-border-strong hover:text-foreground"
-                  >
-                    {prompt}
-                  </button>
-                ))}
-              </div>
-              <div className="flex flex-1 items-center justify-center border-y border-border py-10 text-center">
-                <div className="max-w-[230px]">
-                  <p className="font-medium text-foreground">Ask about Jordan</p>
-                  <p className="mt-1 text-xs text-foreground-subtle">
-                    Member context, session planning, and coach actions appear here.
-                  </p>
-                </div>
-              </div>
-              <form
-                className="flex gap-2 pt-3"
-                onSubmit={(event) => event.preventDefault()}
-              >
-                <label htmlFor="copilot-composer" className="sr-only">
-                  Message copilot
-                </label>
-                <input
-                  ref={composerRef}
-                  id="copilot-composer"
-                  className="min-w-0 flex-1 rounded-[14px] border border-border-strong bg-surface-input px-3.5 py-2.5 text-foreground outline-none placeholder:text-foreground-subtle"
-                  placeholder="Plan a session · ask about Jordan"
-                  value={composerValue}
-                  onChange={(event) => setComposerValue(event.target.value)}
-                />
+            <div className="copilot-pane-inner">
+              <div className="copilot-heading-row">
+                <h2 id="copilot-title" className="display-title copilot-title">
+                  Copilot
+                </h2>
                 <button
-                  type="submit"
-                  className={buttonVariants({ size: "icon" })}
-                  aria-label="Send message"
+                  ref={copilotCloseRef}
+                  type="button"
+                  className="copilot-close"
+                  aria-label="Close Copilot"
+                  onClick={closeMobileCopilot}
                 >
-                  <SendIcon className="size-4" />
+                  <CloseIcon className="size-5" />
                 </button>
-              </form>
+              </div>
+
+              <p className="copilot-empty">What can I help with today?</p>
+
+              <div className="copilot-controls">
+                <div className="copilot-quick-actions" aria-label="Copilot quick actions">
+                  {quickActions.map(({ label, prompt, Icon }) => (
+                    <button
+                      key={label}
+                      type="button"
+                      className="copilot-chip"
+                      onClick={() => prefillMessage(prompt)}
+                    >
+                      <Icon className="size-[18px]" />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <form
+                  className="copilot-composer"
+                  onSubmit={(event) => event.preventDefault()}
+                >
+                  <label htmlFor="copilot-composer" className="sr-only">
+                    Ask Copilot about this session
+                  </label>
+                  <input
+                    ref={composerRef}
+                    id="copilot-composer"
+                    value={composerValue}
+                    placeholder="Ask about this session…"
+                    onChange={(event) => setComposerValue(event.target.value)}
+                  />
+                  <button type="submit" aria-label="Send message">
+                    <SendIcon className="size-5" />
+                  </button>
+                </form>
+              </div>
             </div>
           </aside>
+          <button
+            type="button"
+            className="copilot-backdrop"
+            aria-label="Close Copilot"
+            tabIndex={-1}
+            onClick={closeMobileCopilot}
+          />
         </div>
       </div>
     </CopilotSidebarProvider>

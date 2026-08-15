@@ -21,9 +21,9 @@ export function LoginForm() {
         id="email"
         name="email"
         type="email"
-        value="sam@ridgeline.coach"
+        value="coach@future.co"
         readOnly
-        className="mb-2.5 w-full rounded-xl border border-border-strong bg-surface px-3 py-2.5 text-foreground outline-none"
+        className="login-input"
       />
       <label className="sr-only" htmlFor="password">
         Password
@@ -32,11 +32,11 @@ export function LoginForm() {
         id="password"
         name="password"
         type="password"
-        value="ridgeline"
+        value="futurecoach"
         readOnly
-        className="mb-2.5 w-full rounded-xl border border-border-strong bg-surface px-3 py-2.5 text-foreground outline-none"
+        className="login-input"
       />
-      <button className={buttonVariants({ className: "w-full" })} type="submit">
+      <button className={buttonVariants({ className: "login-submit w-full" })} type="submit">
         Sign in
       </button>
     </form>
