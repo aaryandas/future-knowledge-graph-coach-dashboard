@@ -4,14 +4,19 @@ import { useState } from "react";
 import type {
   DataConstraintsPart,
   ResolutionCandidate,
+  ResolutionPurpose,
   SessionInjuryPersistenceSuggestion,
 } from "@/lib/parts";
 import { ShieldIcon } from "./icons";
 
 export function GenerationNotices({
   part,
+  adjustmentBusy = false,
+  onSubmitAdjustment,
 }: {
   part: DataConstraintsPart | null;
+  adjustmentBusy?: boolean;
+  onSubmitAdjustment?(message: string): void;
 }) {
   const [confirmedSuggestions, setConfirmedSuggestions] = useState<Set<string>>(
     () => new Set(),
@@ -57,7 +62,13 @@ export function GenerationNotices({
             </div>
             <strong>{notice.raw_text}</strong>
             <p>{notice.message}</p>
-            <CandidateList candidates={notice.candidates} />
+            <CandidateList
+              candidates={notice.candidates}
+              purpose={notice.purpose}
+              rawText={notice.raw_text}
+              adjustmentBusy={adjustmentBusy}
+              onSubmitAdjustment={onSubmitAdjustment}
+            />
           </div>
         </section>
       ))}
@@ -77,7 +88,13 @@ export function GenerationNotices({
                 </div>
                 <div className="omission-detail">
                   <p>{omission.message}</p>
-                  <CandidateList candidates={omission.candidates} />
+                  <CandidateList
+                    candidates={omission.candidates}
+                    purpose={omission.purpose}
+                    rawText={omission.raw_text}
+                    adjustmentBusy={adjustmentBusy}
+                    onSubmitAdjustment={onSubmitAdjustment}
+                  />
                 </div>
               </li>
             ))}
@@ -120,8 +137,16 @@ export function GenerationNotices({
 
 function CandidateList({
   candidates,
+  purpose,
+  rawText,
+  adjustmentBusy,
+  onSubmitAdjustment,
 }: {
   candidates: ResolutionCandidate[];
+  purpose: ResolutionPurpose;
+  rawText: string;
+  adjustmentBusy: boolean;
+  onSubmitAdjustment?(message: string): void;
 }) {
   if (candidates.length === 0) {
     return null;
@@ -132,11 +157,44 @@ function CandidateList({
       <span>Did you mean</span>
       <ul>
         {candidates.map((candidate) => (
-          <li key={candidate.concept_id}>{candidate.preferred_term}</li>
+          <li key={candidate.concept_id}>
+            <button
+              type="button"
+              disabled={adjustmentBusy || onSubmitAdjustment === undefined}
+              onClick={() =>
+                onSubmitAdjustment?.(
+                  composeCandidateCorrectionMessage(
+                    purpose,
+                    rawText,
+                    candidate.preferred_term,
+                  ),
+                )
+              }
+            >
+              {candidate.preferred_term}
+            </button>
+          </li>
         ))}
       </ul>
     </div>
   );
+}
+
+export function composeCandidateCorrectionMessage(
+  purpose: ResolutionPurpose,
+  rawText: string,
+  preferredTerm: string,
+): string {
+  if (purpose === "target") {
+    return `Adjust today’s session to target ${preferredTerm} instead of “${rawText}”.`;
+  }
+  if (purpose === "exclusion") {
+    return `Adjust today’s session to exclude ${preferredTerm} instead of “${rawText}”.`;
+  }
+  if (purpose === "equipment override") {
+    return `Adjust today’s session to use ${preferredTerm} instead of “${rawText}” as the equipment override.`;
+  }
+  return `Adjust today’s session for ${preferredTerm} instead of the unrecognized session injury “${rawText}”.`;
 }
 
 function suggestionKey(

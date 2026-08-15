@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  type RefObject,
+} from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import {
@@ -17,6 +23,7 @@ import type {
   DataConstraintsPart,
   DataPlanPart,
   DataSourcesPart,
+  DataTracePart,
 } from "@/lib/parts";
 import { CoachActionCard } from "./coach-action-card";
 import { CopilotChart } from "./copilot-chart";
@@ -49,7 +56,10 @@ interface CopilotSidebarProps {
   hasPlan: boolean;
   onComposerChange(value: string): void;
   onConstraints(part: DataConstraintsPart): void;
+  onBusyChange(busy: boolean): void;
   onPlan(part: DataPlanPart): void;
+  onSubmitterChange(submitter: ((message: string) => void) | null): void;
+  onTrace(part: DataTracePart): void;
 }
 
 export function CopilotSidebar({
@@ -62,7 +72,10 @@ export function CopilotSidebar({
   hasPlan,
   onComposerChange,
   onConstraints,
+  onBusyChange,
   onPlan,
+  onSubmitterChange,
+  onTrace,
 }: CopilotSidebarProps) {
   const logEndRef = useRef<HTMLDivElement>(null);
   const transport = useMemo(
@@ -116,6 +129,9 @@ export function CopilotSidebar({
         if (part.type === "data-constraints") {
           onConstraints({ type: "data-constraints", data: part.data });
         }
+        if (part.type === "data-trace") {
+          onTrace({ type: "data-trace", data: part.data });
+        }
       },
       onFinish() {
         resolutionMessagesRef.current = null;
@@ -154,26 +170,39 @@ export function CopilotSidebar({
     }
   }, [setMessages, status]);
 
-  function submitMessage(text: string) {
-    const prompt = text.trim();
-    if (!prompt || isBusy) {
-      return;
-    }
-    const isGeneration = isGenerationRequest(prompt, hasPlan);
-    clearError();
-    onComposerChange("");
-    void sendMessage(
-      { text: prompt },
-      {
-        body: isGeneration
-          ? {
-              surface: "generation",
-              window: requestedWindow(prompt) ?? 30,
-            }
-          : { surface: "copilot" },
-      },
-    );
-  }
+  const submitMessage = useCallback(
+    (text: string) => {
+      const prompt = text.trim();
+      if (!prompt || isBusy) {
+        return;
+      }
+      const isGeneration = isGenerationRequest(prompt, hasPlan);
+      clearError();
+      onComposerChange("");
+      void sendMessage(
+        { text: prompt },
+        {
+          body: isGeneration
+            ? {
+                surface: "generation",
+                window: requestedWindow(prompt) ?? 30,
+              }
+            : { surface: "copilot" },
+        },
+      );
+    },
+    [clearError, hasPlan, isBusy, onComposerChange, sendMessage],
+  );
+
+  useEffect(() => {
+    onSubmitterChange(submitMessage);
+    return () => onSubmitterChange(null);
+  }, [onSubmitterChange, submitMessage]);
+
+  useEffect(() => {
+    onBusyChange(isBusy);
+    return () => onBusyChange(false);
+  }, [isBusy, onBusyChange]);
 
   async function resolveCoachAction(
     messageId: string,
