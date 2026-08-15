@@ -1,4 +1,3 @@
-import { createRef } from "react";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type {
@@ -8,7 +7,7 @@ import type {
   DataChartPart,
 } from "@/lib/parts";
 import { CopilotChart } from "./copilot-chart";
-import { CopilotMessage, CopilotSidebar } from "./copilot-sidebar";
+import { CopilotMessage } from "./copilot-sidebar";
 
 const percentAxes: ChartAxes = {
   x: {
@@ -213,7 +212,7 @@ describe("CopilotChart", () => {
     expect(figure?.textContent).not.toContain("999");
   });
 
-  it("re-renders a persisted data-chart part from initial useChat history", () => {
+  it("re-renders a replayed typed data-chart part", () => {
     const replayedMessage: DashboardMessage = {
       id: "assistant-replayed-chart",
       role: "assistant",
@@ -223,18 +222,7 @@ describe("CopilotChart", () => {
       ],
     };
 
-    const { container } = render(
-      <CopilotSidebar
-        memberId="mbr_01HX9JORDAN"
-        memberName="Jordan Rivera"
-        initialMessages={[replayedMessage]}
-        composerValue=""
-        composerRef={createRef<HTMLInputElement>()}
-        hasPlan={false}
-        onComposerChange={() => undefined}
-        onPlan={() => undefined}
-      />,
-    );
+    const { container } = render(<CopilotMessage message={replayedMessage} />);
     const figure = container.querySelector('[data-chart-kind="sleep_week"]');
 
     expect(screen.getByText("Sleep chart restored.")).toBeDefined();

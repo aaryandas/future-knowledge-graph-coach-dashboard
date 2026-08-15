@@ -552,8 +552,3 @@ export interface DataChartPart {
   type: "data-chart";
   data: DataChart;
 }
-
-export interface CopilotHistory {
-  id: string;
-  messages: DashboardMessage[];
-}

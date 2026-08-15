@@ -37,7 +37,6 @@ const quickPrompts = [
 interface CopilotSidebarProps {
   memberId: string;
   memberName: string;
-  initialMessages: DashboardMessage[];
   composerValue: string;
   composerRef: RefObject<HTMLInputElement | null>;
   hasPlan: boolean;
@@ -48,7 +47,6 @@ interface CopilotSidebarProps {
 export function CopilotSidebar({
   memberId,
   memberName,
-  initialMessages,
   composerValue,
   composerRef,
   hasPlan,
@@ -79,7 +77,6 @@ export function CopilotSidebar({
   const { messages, sendMessage, status, error, clearError } =
     useChat<DashboardMessage>({
       id: memberId,
-      messages: initialMessages,
       transport,
       onData(part) {
         if (part.type === "data-plan") {

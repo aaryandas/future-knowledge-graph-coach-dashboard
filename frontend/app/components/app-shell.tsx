@@ -11,11 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { formatInjury } from "@/lib/member-format";
-import type {
-  DashboardMessage,
-  DataPlanPart,
-  MemberSnapshotPart,
-} from "@/lib/parts";
+import type { DataPlanPart, MemberSnapshotPart } from "@/lib/parts";
 import { CopilotSidebar } from "./copilot-sidebar";
 import { CopilotSidebarProvider } from "./copilot-sidebar-context";
 import {
@@ -48,11 +44,9 @@ const member = {
 export function AppShell({
   children,
   memberSnapshot,
-  initialCopilotMessages,
 }: {
   children: ReactNode;
   memberSnapshot: MemberSnapshotPart | null;
-  initialCopilotMessages: DashboardMessage[];
 }) {
   const pathname = usePathname();
   const activeTab: WorkspaceTab = pathname.startsWith("/graph")
@@ -201,7 +195,6 @@ export function AppShell({
                   <CopilotSidebar
                     memberId={member.id}
                     memberName={memberName}
-                    initialMessages={initialCopilotMessages}
                     composerValue={composerValue}
                     composerRef={composerRef}
                     hasPlan={planPart !== null}
@@ -246,7 +239,6 @@ export function AppShell({
                   <CopilotSidebar
                     memberId={member.id}
                     memberName={memberName}
-                    initialMessages={initialCopilotMessages}
                     composerValue={composerValue}
                     composerRef={composerRef}
                     hasPlan={planPart !== null}
